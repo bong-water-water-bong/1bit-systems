@@ -1,78 +1,173 @@
 # rocm-cpp
 
-Native ROCm C++ for Strix Halo (gfx1151). Built from scratch.
+Native ROCm C++ for Strix Halo (gfx1151). Built from scratch. No Python at runtime.
 
 ## What This Is
 
-A pure C++ inference and compute stack targeting AMD Strix Halo APUs. No Python. No wrappers. Direct HIP kernels on RDNA 3.5 silicon.
+A pure C++ inference and compute stack targeting AMD Strix Halo APUs. Custom Wave32 HIP kernels, native Tensile GEMM from source, fused ternary inference — all C++, all on RDNA 3.5 silicon.
+
+## Results (April 16, 2026)
+
+### Benchmark Progression — Same Chip, Better Code
+
+```
+Engine                          Model              tok/s
+────────────────────────────────────────────────────────
+vLLM ROCm                       Qwen3-0.6B FP16    116.7
+MLX ROCm C++ engine              Qwen3-0.6B-4bit    151.2    +30%
+MLX C++ + TheRock Tensile        Qwen3-0.6B-4bit    153.3    native gfx1151
+Vulkan (llama.cpp)               Qwen3-Coder GGUF    47.4    sustained
+```
+
+### Native Tensile GEMM — System vs TheRock (FP16 TFLOPS)
+
+```
+Shape (MxNxK)         System    TheRock    Change
+──────────────────────────────────────────────────
+1024x1024x1024        37.22     37.34      ~same
+2560x6912x2560        25.04     32.97      +32%  ← BitNet FFN
+4096x11008x4096       27.74     28.16      ~same
+GEMV 1x2560x2560       0.06      0.07      +15%
+GEMV 1x4096x4096       0.04      0.05      +18%
+```
+
+### Fused Ternary GEMV — First Ever on gfx1151
+
+```
+Shape (MxK)          Time (μs)   Est tok/s   Correct
+──────────────────────────────────────────────────────
+2560x2560 (Q/K/V/O)    37.5       ~148        ✓
+6912x2560 (FFN up)     109.3       ~51        ✓
+2560x6912 (FFN down)   104.0       ~53        ✓
+128256x2560 (LM head)  2653.3      ~2         ✓ (bottleneck)
+```
+
+No dequantization. No floating-point multiply. Just add, subtract, or skip.
+Phase 1 (dequant path) was 1.1 t/s. The fused kernel runs the same shapes 100x faster.
 
 ## The Problem
 
-- No optimized Tensile/rocBLAS GEMM kernels exist for gfx1151
-- No ternary-aware kernel path exists on ROCm anywhere
+- No optimized Tensile/rocBLAS GEMM kernels exist for gfx1151 in any shipped package
+- No ternary-aware kernel path exists on ROCm — anywhere
 - Everyone falls back to generic dequantize-then-matmul (the slowest path)
 - Missing compiler flags cause 69% regression that nobody documents
-- hipBLASLt is "unsupported" on gfx1151 but works — undocumented
+- hipBLASLt is "unsupported" on gfx1151 but works
 
-## The Goal
+## What We Built
 
-Own the entire inference path in C++ for gfx1151:
-- Custom Wave32 HIP kernels for ternary (1-bit) models
-- Native GEMM kernels tuned for RDNA 3.5
-- OpenAI-compatible API server
-- Zero Python dependencies at runtime
+- **TheRock from source** — ROCm 7.13 with 55 native Tensile GEMM kernels for gfx1151
+- **Fused Wave32 ternary GEMV** — first HIP kernel for 1-bit inference on RDNA 3.5
+- **GEMM micro-benchmarks** — proof that native Tensile beats system by 32% on LLM shapes
+- **Full documentation** — every flag, every env var, every bug fix to replicate
 
-## What We Know
+## Quick Start
 
-### Compiler Flags That Matter
+### Prerequisites
 
-- `--amdgpu-unroll-threshold-local=600` — without this, 69% prompt regression
-- `-O3 -ffast-math -munsafe-fp-atomics` — standard HIP AOT flags
-- Wave32, NOT Wave64 — RDNA 3.5 native warp size
+```bash
+# CachyOS / Arch Linux
+sudo pacman -S --needed base-devel cmake ninja git rocm-hip-sdk patchelf gcc-fortran
 
-### Runtime Environment
+# Python deps for Tensile kernel generation
+pip install --break-system-packages pyyaml joblib packaging tqdm CppHeaderParser
+```
 
-- `HSA_OVERRIDE_GFX_VERSION=11.5.1`
-- `HSA_ENABLE_SDMA=0` — required for Strix Halo
-- `ROCBLAS_USE_HIPBLASLT=1` — 2.6x prompt speedup on 4-bit (not relevant for ternary)
+### Environment
 
-### Benchmarks (Vulkan baseline)
+```bash
+export HSA_OVERRIDE_GFX_VERSION=11.5.1
+export HSA_ENABLE_SDMA=0
+export ROCBLAS_USE_HIPBLASLT=1
+export HIP_VISIBLE_DEVICES=0
+```
 
-Qwen3-Coder-Next-GGUF on CachyOS kernel 7.0:
-- Prompt: 146-279 t/s (scales up with context length)
-- Generation: 47.4 t/s sustained — flat line, no degradation at 2K tokens
+### Build the Fused Ternary Kernel
 
-### Reference Implementations
+```bash
+cd rocm-cpp
+hipcc -O3 --offload-arch=gfx1151 -ffast-math -munsafe-fp-atomics \
+    -I/opt/rocm/include -L/opt/rocm/lib -lamdhip64 \
+    kernels/ternary_gemv.hip tools/bench_ternary.cpp \
+    -o tools/bench_ternary
+./tools/bench_ternary
+```
 
-- `carlosfundora/llama.cpp-1-bit-turbo` — Wave32 HIP ternary kernels, Q1_0_G128, 209 t/s on RX 6700 XT
-- `lemonade-sdk` patches — warp-cooperative GEMV, hipBLASLt, slab allocator
-- `goniz/mlx` — flash attention, APU allocator fixes
-- `PrismML-Eng/mlx` — 1-bit affine quantization branch
+### Build the GEMM Benchmark
 
-### Architecture (BitNet b1.58-2B-4T)
+```bash
+hipcc -O3 --offload-arch=gfx1151 \
+    -I/opt/rocm/include -L/opt/rocm/lib -lrocblas -lamdhip64 \
+    tools/bench_gemm.cpp -o tools/bench_gemm
+./tools/bench_gemm
+```
 
-- hidden_size: 2560, layers: 30, attention_heads: 20
-- kv_heads: 5, intermediate: 6912, vocab: 128256
-- rope_theta: 500000.0, activation: relu2 (NOT SiLU)
-- Llama 3 tokenizer
+### Build TheRock (ROCm from Source)
+
+See [docs/02-therock-build.md](docs/02-therock-build.md) for the full guide. Summary:
+
+```bash
+git clone https://github.com/ROCm/TheRock.git therock
+cd therock && git submodule update --init --recursive
+cmake -B build -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DTHEROCK_AMDGPU_TARGETS=gfx1151 \
+    -DTHEROCK_DIST_AMDGPU_FAMILIES=gfx115X-all \
+    -DTHEROCK_ENABLE_BLAS=ON
+cmake --build build --parallel $(nproc)
+```
+
+### Use TheRock Libraries
+
+```bash
+export LD_LIBRARY_PATH=$HOME/therock/build/math-libs/BLAS/rocBLAS/dist/lib:$LD_LIBRARY_PATH
+export ROCBLAS_TENSILE_LIBPATH=$HOME/therock/build/math-libs/BLAS/rocBLAS/dist/lib/rocblas/library
+```
 
 ## Structure
 
 ```
-kernels/       — Custom HIP kernels (Wave32 ternary, GEMM)
-inference/     — Model loading, forward pass, KV cache
-server/        — HTTP API server (OpenAI-compatible)
-tokenizer/     — BPE tokenizer (C++)
-tools/         — Benchmarks, export utilities
+kernels/
+  ternary_gemv.hip     — Fused Wave32 ternary GEMV (the core kernel)
+tools/
+  bench_gemm.cpp       — rocBLAS GEMM benchmark (system vs TheRock)
+  bench_ternary.cpp    — Fused ternary kernel benchmark + correctness
+  run_bench.sh         — Automated comparison script
+docs/
+  00-hardware.md       — Strix Halo specs, unified memory, BIOS
+  01-environment.md    — Runtime vars, shell setup, verification
+  02-therock-build.md  — Building ROCm from source step by step
+  03-compiler-flags.md — The 69% flag and all HIP AOT flags
+  04-wave32-kernels.md — RDNA 3.5 kernel design guide
+  05-ternary-inference.md — 1-bit theory, packing, kernel design
+  06-benchmarking.md   — All numbers and comparison tables
+  07-forks-landscape.md — Every relevant fork and what they did
+  08-known-issues.md   — Every gfx1151 bug with workarounds
 ```
 
-## Building
+## Hardware
 
-Requires:
-- ROCm (TheRock build from source for gfx1151)
-- CMake + Ninja
-- gfx1151 hardware (AMD Strix Halo)
+AMD Ryzen AI Max+ 395 (Strix Halo), 128GB unified memory, Radeon 8060S (gfx1151, RDNA 3.5), CachyOS kernel 7.0
 
-## Status
+## TheRock Build Patches (GCC 15)
 
-Setting up. TheRock (ROCm 7.13) building from source for gfx1151 with full BLAS stack.
+If building on GCC 15 / bleeding edge, these patches are needed:
+
+1. **elfutils** — add `-Wno-error=discarded-qualifiers` to CPPFLAGS
+2. **rocprofiler-sdk elfio** — add `#include <cstdint>` to `elf_types.hpp`
+3. **rocprofiler-sdk yaml-cpp** — add `#include <cstdint>` to `emitterutils.cpp`
+4. **aqlprofile test** — skip integration test (wrong compiler for HIP)
+5. **Missing packages** — `xxd` (gvim), `pyyaml`, `CppHeaderParser`, `joblib`, `packaging`, `tqdm`, `gcc-fortran`
+
+See [docs/02-therock-build.md](docs/02-therock-build.md) for details.
+
+## Related Repos
+
+- [bleeding-edge](https://github.com/stampby/bleeding-edge) — Wiki with full build log and known issues
+- [lemon-mlx-engine](https://github.com/stampby/lemon-mlx-engine) — C++ MLX engine hitting 153 t/s
+- [halo-1bit](https://github.com/stampby/halo-1bit) — 1-bit inference engine (Phase 1 + Phase 2)
+
+## License
+
+If it can be done in C++, we do it in C++.
+
+Fork it. Improve it. Push it back.
