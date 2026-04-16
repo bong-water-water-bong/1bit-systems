@@ -6,6 +6,11 @@ Native ROCm C++ for Strix Halo (gfx1151). Built from scratch. No Python at runti
 
 A pure C++ inference and compute stack targeting AMD Strix Halo APUs. Custom Wave32 HIP kernels, native Tensile GEMM from source, fused ternary inference — all C++, all on RDNA 3.5 silicon.
 
+## Community Validation
+
+- **PrismML-Eng/Bonsai-demo#48** — Merged 2026-04-16 by @khosravipasha. Community benchmark page for ROCm HIP Q1_0 on Strix Halo landed upstream. [PR link](https://github.com/PrismML-Eng/Bonsai-demo/pull/48)
+- **First external fork** — @bogdan-d, 2026-04-16
+
 ## Results (April 16, 2026)
 
 ### Full 1-Bit Burn — 7 Models
@@ -71,6 +76,20 @@ Shape (MxK)          Time (μs)   Est tok/s   Correct
 2560x6912 (FFN down)   104.0       ~53        ✓
 128256x2560 (LM head)  2653.3      ~2         ✓ (bottleneck)
 ```
+
+### Kernel v2.0 — In Progress (DP4A + RDNA 3.5 ISA)
+
+v2 prototype lands `v_dot4_i32_iu8` hardware dot product with dual-issue fmac targeting. Currently **slower than v1** on the decode GEMV path — needs VGPR bank tuning and XOR preshuffle before it catches up. Honest status:
+
+```
+Shape (MxK)          v1 (us)   v2 (us)   Status
+─────────────────────────────────────────────────────
+2560 x 2560           180.3    260.1    v2 regression — tuning
+6912 x 2560           467.9    682.2    v2 regression — tuning
+2560 x 6912           318.9    378.4    v2 regression — tuning
+```
+
+Design doc: [docs/09-kernel-v2-design.md](docs/09-kernel-v2-design.md). Source: `kernels/ternary_gemv_v2.hip`.
 
 ### Q1_0 vs TQ1_0 (BitNet-2B-4T)
 
