@@ -45,6 +45,42 @@ Shape (MxK)          Time (μs)   Est tok/s   Correct
 No dequantization. No floating-point multiply. Just add, subtract, or skip.
 Phase 1 (dequant path) was 1.1 t/s. The fused kernel runs the same shapes 100x faster.
 
+### Bonsai Q1_0 on ROCm HIP — Q1_0 Kernel (v1.0.0)
+
+```
+Model            Size        pp512 t/s     ±stddev     tg128 t/s     ±stddev
+────────────────────────────────────────────────────────────────────────────
+Bonsai-1.7B      231 MB      3,638.2       ±11.5        59.85         ±0.32
+Bonsai-4B        540 MB      1,934.3       ±10.3        28.58         ±0.00
+Bonsai-8B        1.07 GB     1,058.2        ±2.3        21.80         ±0.00
+
+Method: llama-bench, 3 rounds, pp512 + tg128, ngl=99
+Backend: llama.cpp HIP with Q1_0 kernel, TheRock native Tensile
+```
+
+Before (generic ROCm fallback, no Q1_0 kernel):
+
+```
+Model           pp512 t/s     ±stddev     tg128 t/s     ±stddev     pp Speedup
+──────────────────────────────────────────────────────────────────────────────
+Bonsai-1.7B       149.1        ±3.4        49.32         ±0.71       24.4x
+Bonsai-4B          59.1        ±0.9        29.01         ±1.32       32.7x
+Bonsai-8B          32.4        ±0.0        16.60         ±1.83       32.7x
+```
+
+vs Vulkan (PrismML llama.cpp fork):
+
+```
+Model           ROCm pp512    Vulkan pp512    Delta     ROCm tg128    Vulkan tg128
+─────────────────────────────────────────────────────────────────────────────────
+Bonsai-1.7B     3,638          3,121          +17%       59.9          136.8
+Bonsai-4B       1,934          1,401          +38%       28.6           85.0
+Bonsai-8B       1,058            831          +27%       21.8           63.8
+
+ROCm prompt processing beats Vulkan. First Q1_0 GPU kernel for HIP.
+Vulkan decode still faster — optimized compute shaders for generation path.
+```
+
 ## The Problem
 
 - No optimized Tensile/rocBLAS GEMM kernels exist for gfx1151 in any shipped package
