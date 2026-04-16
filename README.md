@@ -78,6 +78,24 @@ Bonsai-4B       1,934          1,401          +38%       28.6           85.0
 Bonsai-8B       1,058            831          +27%       21.8           63.8
 
 ROCm prompt processing beats Vulkan. First Q1_0 GPU kernel for HIP.
+
+### Full 1-Bit Burn — 7 Models (v1.0.0)
+
+```
+Model                     Quant    Size       pp512 t/s    ±std     tg128 t/s    ±std
+──────────────────────────────────────────────────────────────────────────────────────
+Bonsai-1.7B               Q1_0     231 MB     4,172.2     ±16.8      232.4      ±0.8
+BitNet-2B-4T              Q1_0     538 MB     3,030.4      ±3.1      110.5      ±0.3
+Bonsai-4B                 Q1_0     540 MB     2,014.1      ±4.7      125.3      ±1.0
+Bonsai-8B                 Q1_0     1.07 GB    1,278.1      ±3.5       94.1      ±0.1
+Qwen3-Coder-Next 80B      IQ1_S    17.6 GB      642.6      ±9.0       50.5      ±0.0
+Llama-4-Scout 108B         IQ1_S    27.2 GB      323.3      ±2.3       21.2      ±0.0
+BitNet-2B-4T              TQ1_0    1.02 GB      272.1      ±0.5       50.0      ±0.0
+
+PrismML prism branch + TheRock gfx1151, llama-bench 3 rounds, ngl=99
+```
+
+80B MoE at 51 tok/s. 108B at 21 tok/s. 8B in 1 GB at 94 tok/s. All on one APU.
 Vulkan decode still faster — optimized compute shaders for generation path.
 ```
 
