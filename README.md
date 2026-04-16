@@ -8,6 +8,36 @@ A pure C++ inference and compute stack targeting AMD Strix Halo APUs. Custom Wav
 
 ## Results (April 16, 2026)
 
+### Full 1-Bit Burn — 7 Models
+
+```
+Model                     Quant    Size       pp512 t/s    ±std     tg128 t/s    ±std
+──────────────────────────────────────────────────────────────────────────────────────
+Bonsai-1.7B               Q1_0     231 MB     4,172.2     ±16.8      232.4      ±0.8
+BitNet-2B-4T              Q1_0     538 MB     3,030.4      ±3.1      110.5      ±0.3
+Bonsai-4B                 Q1_0     540 MB     2,014.1      ±4.7      125.3      ±1.0
+Bonsai-8B                 Q1_0     1.07 GB    1,278.1      ±3.5       94.1      ±0.1
+Qwen3-Coder-Next 80B      IQ1_S    17.6 GB      642.6      ±9.0       50.5      ±0.0
+Llama-4-Scout 108B         IQ1_S    27.2 GB      323.3      ±2.3       21.2      ±0.0
+BitNet-2B-4T              TQ1_0    1.02 GB      272.1      ±0.5       50.0      ±0.0
+
+PrismML prism branch + TheRock gfx1151, llama-bench 3 rounds, ngl=99
+```
+
+80B MoE at 51 tok/s. 108B at 21 tok/s. 8B in 1 GB at 94 tok/s. All on one APU.
+
+### ROCm vs Vulkan (Q1_0, same hardware)
+
+```
+Model           ROCm pp    Vulkan pp    Delta     ROCm tg    Vulkan tg    Delta
+─────────────────────────────────────────────────────────────────────────────────
+Bonsai-1.7B     4,172      3,121        +34%      232        137          +69%
+Bonsai-4B       2,014      1,401        +44%      125         85          +47%
+Bonsai-8B       1,278        831        +54%       94         64          +47%
+
+ROCm beats Vulkan on both prompt AND generation. First Q1_0 GPU kernel for HIP.
+```
+
 ### Benchmark Progression — Same Chip, Better Code
 
 ```
@@ -31,7 +61,7 @@ GEMV 1x2560x2560       0.06      0.07      +15%
 GEMV 1x4096x4096       0.04      0.05      +18%
 ```
 
-### Fused Ternary GEMV — First Ever on gfx1151
+### Fused Ternary GEMV — First on gfx1151
 
 ```
 Shape (MxK)          Time (μs)   Est tok/s   Correct
@@ -42,61 +72,14 @@ Shape (MxK)          Time (μs)   Est tok/s   Correct
 128256x2560 (LM head)  2653.3      ~2         ✓ (bottleneck)
 ```
 
-No dequantization. No floating-point multiply. Just add, subtract, or skip.
-Phase 1 (dequant path) was 1.1 t/s. The fused kernel runs the same shapes 100x faster.
-
-### Bonsai Q1_0 on ROCm HIP — Q1_0 Kernel (v1.0.0)
+### Q1_0 vs TQ1_0 (BitNet-2B-4T)
 
 ```
-Model            Size        pp512 t/s     ±stddev     tg128 t/s     ±stddev
-────────────────────────────────────────────────────────────────────────────
-Bonsai-1.7B      231 MB      3,638.2       ±11.5        59.85         ±0.32
-Bonsai-4B        540 MB      1,934.3       ±10.3        28.58         ±0.00
-Bonsai-8B        1.07 GB     1,058.2        ±2.3        21.80         ±0.00
-
-Method: llama-bench, 3 rounds, pp512 + tg128, ngl=99
-Backend: llama.cpp HIP with Q1_0 kernel, TheRock native Tensile
-```
-
-Before (generic ROCm fallback, no Q1_0 kernel):
-
-```
-Model           pp512 t/s     ±stddev     tg128 t/s     ±stddev     pp Speedup
-──────────────────────────────────────────────────────────────────────────────
-Bonsai-1.7B       149.1        ±3.4        49.32         ±0.71       24.4x
-Bonsai-4B          59.1        ±0.9        29.01         ±1.32       32.7x
-Bonsai-8B          32.4        ±0.0        16.60         ±1.83       32.7x
-```
-
-vs Vulkan (PrismML llama.cpp fork):
-
-```
-Model           ROCm pp512    Vulkan pp512    Delta     ROCm tg128    Vulkan tg128
-─────────────────────────────────────────────────────────────────────────────────
-Bonsai-1.7B     3,638          3,121          +17%       59.9          136.8
-Bonsai-4B       1,934          1,401          +38%       28.6           85.0
-Bonsai-8B       1,058            831          +27%       21.8           63.8
-
-ROCm prompt processing beats Vulkan. First Q1_0 GPU kernel for HIP.
-
-### Full 1-Bit Burn — 7 Models (v1.0.0)
-
-```
-Model                     Quant    Size       pp512 t/s    ±std     tg128 t/s    ±std
-──────────────────────────────────────────────────────────────────────────────────────
-Bonsai-1.7B               Q1_0     231 MB     4,172.2     ±16.8      232.4      ±0.8
-BitNet-2B-4T              Q1_0     538 MB     3,030.4      ±3.1      110.5      ±0.3
-Bonsai-4B                 Q1_0     540 MB     2,014.1      ±4.7      125.3      ±1.0
-Bonsai-8B                 Q1_0     1.07 GB    1,278.1      ±3.5       94.1      ±0.1
-Qwen3-Coder-Next 80B      IQ1_S    17.6 GB      642.6      ±9.0       50.5      ±0.0
-Llama-4-Scout 108B         IQ1_S    27.2 GB      323.3      ±2.3       21.2      ±0.0
-BitNet-2B-4T              TQ1_0    1.02 GB      272.1      ±0.5       50.0      ±0.0
-
-PrismML prism branch + TheRock gfx1151, llama-bench 3 rounds, ngl=99
-```
-
-80B MoE at 51 tok/s. 108B at 21 tok/s. 8B in 1 GB at 94 tok/s. All on one APU.
-Vulkan decode still faster — optimized compute shaders for generation path.
+Format      Size      pp512 t/s    tg128 t/s    Speedup
+──────────────────────────────────────────────────────────
+Q1_0        538 MB    3,030         110          DP4A kernel
+TQ1_0       1.02 GB     272          50          generic path
+                        11.1x        2.2x
 ```
 
 ## The Problem
@@ -111,6 +94,7 @@ Vulkan decode still faster — optimized compute shaders for generation path.
 
 - **TheRock from source** — ROCm 7.13 with 55 native Tensile GEMM kernels for gfx1151
 - **Fused Wave32 ternary GEMV** — first HIP kernel for 1-bit inference on RDNA 3.5
+- **Q1_0 HIP kernel** — added to llama.cpp, 24-33x faster prompt processing
 - **GEMM micro-benchmarks** — proof that native Tensile beats system by 32% on LLM shapes
 - **Full documentation** — every flag, every env var, every bug fix to replicate
 
@@ -157,7 +141,7 @@ hipcc -O3 --offload-arch=gfx1151 \
 
 ### Build TheRock (ROCm from Source)
 
-See [docs/02-therock-build.md](docs/02-therock-build.md) for the full guide. Summary:
+See [docs/02-therock-build.md](docs/02-therock-build.md) for the full guide.
 
 ```bash
 git clone https://github.com/ROCm/TheRock.git therock
@@ -170,11 +154,20 @@ cmake -B build -G Ninja \
 cmake --build build --parallel $(nproc)
 ```
 
-### Use TheRock Libraries
+### Run 1-Bit Models (PrismML prism branch)
 
 ```bash
-export LD_LIBRARY_PATH=$HOME/therock/build/math-libs/BLAS/rocBLAS/dist/lib:$LD_LIBRARY_PATH
+git clone https://github.com/PrismML-Eng/llama.cpp.git && cd llama.cpp
+git checkout prism
+cmake -B build-rocm -G Ninja -DGGML_HIP=ON -DAMDGPU_TARGETS=gfx1151 \
+    -DCMAKE_HIP_COMPILER=$HOME/therock/build/compiler/amd-llvm/dist/lib/llvm/bin/clang++ \
+    -DCMAKE_C_COMPILER=$HOME/therock/build/compiler/amd-llvm/dist/lib/llvm/bin/clang \
+    -DCMAKE_CXX_COMPILER=$HOME/therock/build/compiler/amd-llvm/dist/lib/llvm/bin/clang++
+cmake --build build-rocm --parallel $(nproc)
+
+export LD_LIBRARY_PATH=$HOME/therock/build/math-libs/BLAS/rocBLAS/dist/lib:/opt/rocm/lib
 export ROCBLAS_TENSILE_LIBPATH=$HOME/therock/build/math-libs/BLAS/rocBLAS/dist/lib/rocblas/library
+./build-rocm/bin/llama-bench -m Bonsai-8B.gguf -ngl 99 -p 512 -n 128 -r 3
 ```
 
 ## Structure
@@ -186,6 +179,10 @@ tools/
   bench_gemm.cpp       — rocBLAS GEMM benchmark (system vs TheRock)
   bench_ternary.cpp    — Fused ternary kernel benchmark + correctness
   run_bench.sh         — Automated comparison script
+  test_triton_fork.py  — Triton subprocess test (TheRock #4552)
+results/
+  bonsai-q1_0-rocm-20260416.md    — Q1_0 kernel results
+  full-1bit-burn-20260416.md      — Full 7-model burn
 docs/
   00-hardware.md       — Strix Halo specs, unified memory, BIOS
   01-environment.md    — Runtime vars, shell setup, verification
@@ -200,7 +197,12 @@ docs/
 
 ## Hardware
 
-AMD Ryzen AI Max+ 395 (Strix Halo), 128GB unified memory, Radeon 8060S (gfx1151, RDNA 3.5), CachyOS kernel 7.0
+```
+AMD Ryzen AI Max+ 395 (Strix Halo)
+Radeon 8060S (gfx1151, RDNA 3.5, Wave32, 20 CUs)
+128GB unified LPDDR5X
+CachyOS kernel 7.0
+```
 
 ## TheRock Build Patches (GCC 15)
 
@@ -219,6 +221,7 @@ See [docs/02-therock-build.md](docs/02-therock-build.md) for details.
 - [bleeding-edge](https://github.com/stampby/bleeding-edge) — Wiki with full build log and known issues
 - [lemon-mlx-engine](https://github.com/stampby/lemon-mlx-engine) — C++ MLX engine hitting 153 t/s
 - [halo-1bit](https://github.com/stampby/halo-1bit) — 1-bit inference engine (Phase 1 + Phase 2)
+- [PrismML llama.cpp](https://github.com/PrismML-Eng/llama.cpp) — Prism branch with Q1_0 DP4A kernels
 
 ## License
 
