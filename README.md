@@ -58,61 +58,106 @@ We're also looking for **UI contributors** on two tracks:
 Both frontends talk to the same HTTP server (`bitnet_decode --server`),
 so specialist logic stays in agent-cpp. No Qt, no Electron, no web.
 
-## Works with any OpenAI-compatible client
+## librocm_cpp is a complete 1-bit inference engine
+
+Positioning straight: **rocm-cpp is the engine.** On AMD Strix Halo it
+is the only native C++ / HIP 1-bit inference runtime — nobody else
+ships this. If you are building a local-LLM frontend, agent layer,
+voice stack, RAG pipeline, IDE integration, whatever — **point it at
+`bitnet_decode --server` and you're done on the engine side.**
+
+### No tracking. No telemetry. No phone-home.
+
+This engine does not collect your prompts, your completions, your token
+counts, your IP, your session identifiers, or anything else. It has no
+outbound network code. The HTTP server listens on the port you choose
+and answers requests. That's the whole story.
+
+- No analytics. No crash reports sent anywhere.
+- No license check, no activation, no "anonymous usage statistics".
+- No third-party SDK bundled in the binary.
+- `strings libtitrocm_cpp.so | grep -Ei 'telemetry|analytics|track|ping|segment|posthog'` → nothing. Check it yourself.
+
+What the upstream frontends you might plug in front of this do is a
+different matter — OpenWebUI, LibreChat, etc. each have their own
+stance. Read their docs. This engine is **the local black box**:
+data flows in, tokens flow out, nothing leaves the box unless you
+deliberately configure it to.
+
+Your data is yours. The only people who can see it are the ones you
+let on the machine.
+
+What "complete" means here:
+
+```
+  weight ingestion    bf16 safetensors + BitNet GGUF -> .h1b absmean
+  model format        .h1b v2, variant-ready (1B / 4B / 8B / derivatives)
+  tokenizer           pure C++ BPE, .htok binary, digit-chunk pre-tok
+  decode              30.04 TFlops prefill, 82 tok/s end-to-end,
+                      bit-match vs PyTorch reference
+  sampler             temperature, top-k, top-p, rep-penalty, seed,
+                      EOS stop, stop sequences
+  interfaces          one-shot CLI, REPL, OpenAI-compat HTTP server,
+                      two-agent debate tool, FTXUI terminal UI
+  deployment          pure C++ + HIP runtime, libhip64 only, no Python
+                      at runtime, no MLX, no framework, no CK at runtime
+  license             MIT throughout
+```
+
+### Use it as the engine underneath your frontend of choice
 
 `bitnet_decode --server` speaks the OpenAI `/v1/chat/completions` and
-`/v1/models` protocol. Anything that can point at a custom base URL will
-talk to it. No plugins, no adapters, just swap the URL.
-
-**Set once for the whole ecosystem:**
+`/v1/models` protocol. Any frontend that can point at a custom base URL
+adopts this engine without a line of code on their side:
 
 ```bash
 export OPENAI_API_BASE_URL=http://127.0.0.1:8080/v1
-export OPENAI_API_KEY=sk-ignored     # any non-empty string works
+export OPENAI_API_KEY=sk-any-non-empty-string
 ```
 
-**Chat UIs (MIT / BSD / Apache only):**
+Frontends we've verified the shape against — all MIT / BSD / Apache:
 
-| | license | one-line stand-up |
+| category | name | notes |
 |---|---|---|
-| [OpenWebUI](https://github.com/open-webui/open-webui) | BSD-3 | `docker run -d -p 3000:8080 -e OPENAI_API_BASE_URL=http://host.docker.internal:8080/v1 ghcr.io/open-webui/open-webui:main` |
-| [LibreChat](https://github.com/danny-avila/LibreChat) | MIT | `docker compose up -d` with `OPENAI_REVERSE_PROXY=http://host.docker.internal:8080/v1` in `.env` |
-| [LobeChat](https://github.com/lobehub/lobe-chat) | MIT | `docker run -d -p 3210:3210 -e OPENAI_PROXY_URL=http://host.docker.internal:8080/v1 lobehub/lobe-chat` |
-| [AnythingLLM](https://github.com/Mintplex-Labs/anything-llm) | MIT | docs workspace + chat, Docker or native |
-| [GPT4All](https://github.com/nomic-ai/gpt4all) | MIT | native Qt desktop app, set "Server URL" in settings |
+| chat UI | [OpenWebUI](https://github.com/open-webui/open-webui), [LibreChat](https://github.com/danny-avila/LibreChat), [LobeChat](https://github.com/lobehub/lobe-chat), [AnythingLLM](https://github.com/Mintplex-Labs/anything-llm), [GPT4All](https://github.com/nomic-ai/gpt4all) | base URL swap |
+| coding / IDE | [Continue.dev](https://continue.dev), [Aider](https://github.com/Aider-AI/aider), [Cline](https://github.com/cline/cline), [llm](https://github.com/simonw/llm) | drop-in OpenAI provider |
+| terminal | [oterm](https://github.com/ggozad/oterm), [tgpt](https://github.com/aandrew-me/tgpt), [gptme](https://github.com/gptme/gptme) | plus our own `bitnet_tui` |
+| workflow | [n8n](https://github.com/n8n-io/n8n), [Langflow](https://github.com/langflow-ai/langflow), [Flowise](https://github.com/FlowiseAI/Flowise), [BigAGI](https://github.com/enricoros/big-AGI) | OpenAI node / provider |
+| mobile | [Enchanted](https://github.com/gluonfield/enchanted) (iOS/macOS), [Maid](https://github.com/Mobile-Artificial-Intelligence/maid) (Flutter), OpenWebUI PWA | native clients |
 
-**Coding / IDE integration:**
+Our TUI and desktop GUI (see `docs/15` and `docs/17`) are the signature
+surfaces — the floating-tile landing page doesn't exist anywhere else.
+Everything above is optional: if the user already has a workflow, they
+bring their frontend, we bring the engine.
 
-| | license | notes |
-|---|---|---|
-| [Continue.dev](https://continue.dev) | Apache-2 | VS Code + JetBrains. `"provider": "openai"` + `"apiBase"` in `~/.continue/config.json` |
-| [Aider](https://github.com/Aider-AI/aider) | Apache-2 | `aider --openai-api-base http://127.0.0.1:8080/v1 --model bitnet-b1.58-2b-4t` |
-| [Cline](https://github.com/cline/cline) | Apache-2 | VS Code extension, pick "OpenAI Compatible" provider |
-| [llm](https://github.com/simonw/llm) | Apache-2 | `llm -m bitnet-b1.58-2b-4t 'your prompt'` after one-time config |
+### Production deploy — Caddy reverse proxy
 
-**Terminal / TUI:**
+`bitnet_decode --server` has no auth and no TLS. That's fine for
+`--bind 127.0.0.1` on your own box. For anything beyond localhost (mesh
+access, remote client, public endpoint) put Caddy in front:
 
-| | license | notes |
-|---|---|---|
-| **[bitnet_tui](tools/bitnet_tui.cpp)** | MIT | our own. FTXUI, ships with rocm-cpp. |
-| [oterm](https://github.com/ggozad/oterm) | MIT | textual-based TUI |
-| [tgpt](https://github.com/aandrew-me/tgpt) | MIT | single-binary CLI chat |
-| [gptme](https://github.com/gptme/gptme) | MIT | tool-use in terminal |
+```caddyfile
+halo.<yourdomain>.com {
+    @auth header Authorization "Bearer {$HALO_API_KEY}"
+    handle @auth {
+        reverse_proxy 127.0.0.1:8080
+    }
+    handle {
+        respond 401
+    }
+    rate_limit {
+        zone halo {
+            key {client_ip}
+            window 1m
+            max_events 30
+        }
+    }
+}
+```
 
-**Agent / workflow builders:**
-
-| | license | notes |
-|---|---|---|
-| [n8n](https://github.com/n8n-io/n8n) | Apache-2 | low-code automation, has OpenAI node |
-| [Langflow](https://github.com/langflow-ai/langflow) | MIT | visual agent builder |
-| [Flowise](https://github.com/FlowiseAI/Flowise) | Apache-2 | drag-and-drop chains |
-| [BigAGI](https://github.com/enricoros/big-AGI) | MIT | multi-model playground |
-
-Our TUI and upcoming desktop GUI are the **signature surfaces** — the
-floating-tile landing page doesn't exist anywhere else. The list above
-is the **ecosystem on-ramp** for beta testers who already have a
-workflow they like. Your stack speaks the protocol; the whole universe
-plugs in.
+Caddy gives Let's Encrypt TLS, bearer-token auth, rate limiting, and
+access logs routed to wherever you aggregate. Clients hit
+`https://halo.<mesh>.tld/v1/...` — no server-side code changes.
 
 ### Production deploy — Caddy reverse proxy
 
