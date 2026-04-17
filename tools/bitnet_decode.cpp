@@ -336,23 +336,48 @@ int main(int argc, char** argv) {
     rcpp_tokenizer_t* dec_tok = nullptr;
     rcpp_tokenizer_load(tok_path, &dec_tok);
 
+    // Decode loop with streaming output:
+    //   * stdout gets the generated text live, flushed per token
+    //   * stderr gets the token IDs and stats (`2>/dev/null` = clean text)
+    //
+    // Streaming works by detokenizing the full `generated` vector each
+    // step into a stable buffer and printing whatever bytes are NEW since
+    // last step. UTF-8 continuation bytes are handled naturally: if a
+    // token ends mid-codepoint the terminal just won't draw that glyph
+    // until the next token lands, without re-printing what's already there.
     std::vector<int> generated;
     generated.reserve(num_tokens);
-    printf("[bitnet_decode] tokens:");
+    fprintf(stderr, "[bitnet_decode] tokens:");
     double decode_ms = 0.0;
     int cur_tok = next_tok;
     bool hit_eos = false;
     std::string stop_hit;
-    std::vector<char> tail_buf(4096);
+    std::vector<char> tail_buf(8192);
+    std::vector<char> stream_buf(16 * 1024);
+    size_t printed_bytes = 0;
     for (int step = 0; step < num_tokens; ++step) {
         auto t0 = std::chrono::high_resolution_clock::now();
         next_tok = forward_token(cur_tok, prompt_len + step);
         HIP_OK(hipDeviceSynchronize());
         auto t1 = std::chrono::high_resolution_clock::now();
         decode_ms += std::chrono::duration<double, std::milli>(t1 - t0).count();
-        printf(" %d", next_tok);
-        fflush(stdout);
         generated.push_back(next_tok);
+        fprintf(stderr, " %d", next_tok);
+        fflush(stderr);
+
+        // Stream the new suffix of the decoded text to stdout.
+        if (dec_tok) {
+            size_t tlen = 0;
+            rcpp_tokenizer_decode(dec_tok, generated.data(), generated.size(),
+                                  stream_buf.data(), stream_buf.size(), &tlen);
+            tlen = std::min(tlen, stream_buf.size());
+            if (tlen > printed_bytes) {
+                fwrite(stream_buf.data() + printed_bytes, 1, tlen - printed_bytes, stdout);
+                fflush(stdout);
+                printed_bytes = tlen;
+            }
+        }
+
         if (next_tok == stop_a || next_tok == stop_b) { hit_eos = true; break; }
         cur_tok = next_tok;
 
@@ -375,7 +400,9 @@ int main(int argc, char** argv) {
             if (!stop_hit.empty()) break;
         }
     }
+    fprintf(stderr, "\n");
     printf("\n");
+    fflush(stdout);
     if (hit_eos) {
         fprintf(stderr, "[bitnet_decode] EOS (%d) after %zu new tokens\n",
                 next_tok, generated.size());
@@ -384,24 +411,12 @@ int main(int argc, char** argv) {
                 stop_hit.c_str(), generated.size());
     }
     if (num_tokens > 0) {
-        printf("[bitnet_decode] decode %d tok in %.2f ms  (%.2f ms/tok, %.1f tok/s)\n",
+        fprintf(stderr, "[bitnet_decode] decode %d tok in %.2f ms  (%.2f ms/tok, %.1f tok/s)\n",
                num_tokens, decode_ms, decode_ms/num_tokens, 1000.0 * num_tokens / decode_ms);
     }
 
-    // Detokenize prompt + generated tokens back to text.
-    if (dec_tok) {
-        std::vector<int> full;
-        full.reserve(prompt_len + generated.size());
-        full.insert(full.end(), prompt_ids.begin(), prompt_ids.end());
-        full.insert(full.end(), generated.begin(), generated.end());
-        std::vector<char> text(16 * 1024);
-        size_t tlen = 0;
-        rcpp_tokenizer_decode(dec_tok, full.data(), full.size(),
-                              text.data(), text.size(), &tlen);
-        if (tlen > text.size()) tlen = text.size();
-        printf("[bitnet_decode] text:\n%.*s\n", (int)tlen, text.data());
-        rcpp_tokenizer_free(dec_tok);
-    }
+    // dec_tok was created up front for the stream; free it here.
+    if (dec_tok) rcpp_tokenizer_free(dec_tok);
 
     // Cleanup
     for (int l = 0; l < L; ++l) { hipFree(K_caches[l]); hipFree(V_caches[l]); }
