@@ -196,6 +196,65 @@ __global__ void residual_add_fp16_kernel(
 }
 
 // ============================================================================
+// 11. FP16 × FP16 -> FP32 GEMV  (for the LM head on tied-embedding models)
+//     W: FP16 [M, K]  row-major (= embedding table viewed as weight)
+//     x: FP16 [K]
+//     y: FP32 [M]
+//
+//     For BitNet-2B-4T the LM head is the embedding matrix (tied). This kernel
+//     computes y[m] = sum_k W[m,k] * x[k] as FP32 accumulator.
+//
+//     Simple: one block per row. 128 threads reduce across K.
+// ============================================================================
+
+__global__ void fp16_gemv_kernel(
+    const __half* __restrict__ W,
+    const __half* __restrict__ x,
+    float*        __restrict__ y,
+    int M, int K)
+{
+    const int m = blockIdx.x;
+    if (m >= M) return;
+    const int tid  = threadIdx.x;
+    const int lane = tid & (WARP - 1);
+    const int wid  = tid / WARP;
+
+    __shared__ float s_sum[BLOCK / WARP];
+
+    float local = 0.0f;
+    const __half* row = W + (size_t)m * K;
+    for (int k = tid; k < K; k += BLOCK) {
+        local += (float)row[k] * (float)x[k];
+    }
+    #pragma unroll
+    for (int o = WARP / 2; o > 0; o >>= 1) local += __shfl_xor(local, o);
+    if (lane == 0) s_sum[wid] = local;
+    __syncthreads();
+
+    if (wid == 0) {
+        float v = (lane < BLOCK / WARP) ? s_sum[lane] : 0.0f;
+        #pragma unroll
+        for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) v += __shfl_xor(v, o);
+        if (lane == 0) y[m] = v;
+    }
+}
+
+// ============================================================================
+// 12. FP32 -> FP16 in-place conversion (for chaining ternary GEMV output
+//     (FP32) into the next kernel that wants FP16 input).
+// ============================================================================
+
+__global__ void fp32_to_fp16_kernel(
+    const float* __restrict__ x_fp32,
+    __half*      __restrict__ y_fp16,
+    int N)
+{
+    const int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid >= N) return;
+    y_fp16[tid] = __float2half(x_fp32[tid]);
+}
+
+// ============================================================================
 // 10. Top-k filter — keep only the k largest logits, set the rest to -INF.
 //     Caller then runs softmax + multinomial to sample within the top-k.
 //     Simple approach: k iterations of block-wide argmax, save + mask.
@@ -518,6 +577,34 @@ rcpp_softmax_fp32(void* logits_dev, int V, float temperature, void* stream)
                        grid, block, 0, (hipStream_t)stream,
                        static_cast<float*>(logits_dev),
                        V, 1.0f / temperature);
+    return RCPP_OK;
+}
+
+rcpp_status_t
+rcpp_fp16_gemv(const void* W_dev, const void* x_dev, void* y_dev,
+               int M, int K, void* stream)
+{
+    if (!W_dev || !x_dev || !y_dev || M <= 0 || K <= 0) return RCPP_INVALID_ARG;
+    dim3 grid(M, 1, 1), block(BLOCK, 1, 1);
+    hipLaunchKernelGGL(fp16_gemv_kernel,
+                       grid, block, 0, (hipStream_t)stream,
+                       static_cast<const __half*>(W_dev),
+                       static_cast<const __half*>(x_dev),
+                       static_cast<float*>(y_dev),
+                       M, K);
+    return RCPP_OK;
+}
+
+rcpp_status_t
+rcpp_fp32_to_fp16(const void* x_fp32_dev, void* y_fp16_dev, int N, void* stream)
+{
+    if (!x_fp32_dev || !y_fp16_dev || N <= 0) return RCPP_INVALID_ARG;
+    dim3 grid((N + BLOCK - 1) / BLOCK, 1, 1), block(BLOCK, 1, 1);
+    hipLaunchKernelGGL(fp32_to_fp16_kernel,
+                       grid, block, 0, (hipStream_t)stream,
+                       static_cast<const float*>(x_fp32_dev),
+                       static_cast<__half*>(y_fp16_dev),
+                       N);
     return RCPP_OK;
 }
 

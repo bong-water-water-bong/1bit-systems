@@ -136,6 +136,17 @@ rcpp_residual_add_fp16(void* y_dev, const void* src_dev, int N, void* stream);
 rcpp_status_t
 rcpp_argmax_fp32(const void* logits_dev, void* out_idx_dev, int V, void* stream);
 
+// FP16 × FP16 → FP32 GEMV. For LM head on tied-embedding BitNet models
+// (embedding matrix IS the LM head, stored as FP16). y[m] = sum_k W[m,k]*x[k].
+rcpp_status_t
+rcpp_fp16_gemv(const void* W_dev, const void* x_dev, void* y_dev,
+               int M, int K, void* stream);
+
+// In-place FP32 -> FP16 cast, useful to chain ternary GEMV output
+// (FP32) into the next kernel that wants FP16 input.
+rcpp_status_t
+rcpp_fp32_to_fp16(const void* x_fp32_dev, void* y_fp16_dev, int N, void* stream);
+
 // Top-k logit filter — in-place. Keeps only the k largest logit values; the
 // rest are set to -INFINITY so subsequent softmax zeroes them out. Caller
 // sequence for top-k sampling: top_k -> softmax -> multinomial.
