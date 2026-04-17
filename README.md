@@ -2,6 +2,14 @@
 
 Native ROCm C++ for Strix Halo (gfx1151). Built from scratch. No Python at runtime.
 
+## Headline numbers (gfx1151, Phase 5 dot4)
+
+- **Prefill 2560×6912×2560 (BitNet FFN up):** 30.15 TFlops, **1.02× rocBLAS FP16** at ¼ B memory. Bit-perfect.
+- **Decode 128256×2560 (LM head):** 506 µs per call, **5.51× v1 GEMV, 2.03× BitNet-2B-4T token throughput** in full-model sim.
+- **Decode 11008×4096:** 59.3 µs, **7.13× rocBLAS FP16 GEMV**.
+- **Standalone prefill kernel:** 101% of CK's tuned WMMA on BitNet FFN, **zero `ck/` headers**.
+- **Hardware ceiling:** 55.36 TFlops WMMA peak (measured). We hover at 56%.
+
 ## For integrators — drop-in 1-bit backend
 
 If you are building a C++ inference engine targeting AMD Strix Halo — **Lemonade**, **llama.cpp HIP backend**, **MLX ROCm**, or any `WrappedServer`-style router — `librocm_cpp.so` is the BitNet / ternary compute path you were going to write. It already exists, it's measured against rocBLAS, and it ships behind a single C header so you don't pull CK or HIP templates into your translation units.
