@@ -90,5 +90,13 @@ target_compile_options(test_prim_and_attn PRIVATE
 target_link_libraries(test_prim_and_attn PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(test_prim_and_attn PROPERTIES HIP_ARCHITECTURES "gfx1151")
 
+# -- tools/bitnet_decode : end-to-end MVP decode CLI ---------------------------
+add_executable(bitnet_decode tools/bitnet_decode.cpp)
+set_source_files_properties(tools/bitnet_decode.cpp PROPERTIES LANGUAGE HIP)
+target_compile_options(bitnet_decode PRIVATE
+    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_link_libraries(bitnet_decode PRIVATE rocm_cpp hip::host hip::device)
+set_target_properties(bitnet_decode PROPERTIES HIP_ARCHITECTURES "gfx1151")
+
 # -- ck-prefill : research binaries (kept building for tuning) ------------------
 add_subdirectory(ck-prefill)

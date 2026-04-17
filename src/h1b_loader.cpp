@@ -20,13 +20,22 @@
 
 namespace {
 
-// Read a block of FP16 values into a device buffer.
-int read_fp16(std::ifstream& f, size_t n, __half** out) {
-    std::vector<_Float16> tmp(n);
-    f.read(reinterpret_cast<char*>(tmp.data()), n * sizeof(_Float16));
+// Read FP32 from disk, cast to FP16, upload to device (the .h1b format
+// stores norms and embeddings as float32; kernels consume FP16).
+int read_fp32_as_fp16(std::ifstream& f, size_t n, __half** out) {
+    std::vector<float> src(n);
+    f.read(reinterpret_cast<char*>(src.data()), n * sizeof(float));
+    std::vector<_Float16> dst(n);
+    for (size_t i = 0; i < n; ++i) dst[i] = (_Float16)src[i];
     HIP_CHECK(hipMalloc(out, n * sizeof(_Float16)));
-    HIP_CHECK(hipMemcpy(*out, tmp.data(), n * sizeof(_Float16), hipMemcpyHostToDevice));
+    HIP_CHECK(hipMemcpy(*out, dst.data(), n * sizeof(_Float16), hipMemcpyHostToDevice));
     return 0;
+}
+
+// Skip a block of float32 values we don't need (e.g., the duplicated
+// attn_sub_norm copies the exporter writes 4× for legacy reasons).
+void skip_fp32(std::ifstream& f, size_t n) {
+    f.seekg(n * sizeof(float), std::ios::cur);
 }
 
 // Read a packed ternary weight (halo-1bit format: uint8[rows, (cols+3)/4] + float[rows] scales).
@@ -92,10 +101,10 @@ rcpp_bitnet_load_h1b(const char* path, rcpp_bitnet_model_t* out_model) {
     fprintf(stderr, "[rocm-cpp] loading .h1b: hs=%d is=%d L=%d nh=%d nkv=%d hd=%d vocab=%d\n",
             hs, is_, out_model->num_layers, nh, nkv, hd, out_model->vocab_size);
 
-    // Embeddings + final norm
-    if (read_fp16(f, (size_t)out_model->vocab_size * hs,
-                  reinterpret_cast<__half**>(&out_model->embedding_dev)) != 0) return RCPP_HIP_ERROR;
-    if (read_fp16(f, hs, reinterpret_cast<__half**>(&out_model->final_norm_weight_dev)) != 0) return RCPP_HIP_ERROR;
+    // Embeddings + final norm (both stored as FP32 on disk → cast to FP16)
+    if (read_fp32_as_fp16(f, (size_t)out_model->vocab_size * hs,
+                          reinterpret_cast<__half**>(&out_model->embedding_dev)) != 0) return RCPP_HIP_ERROR;
+    if (read_fp32_as_fp16(f, hs, reinterpret_cast<__half**>(&out_model->final_norm_weight_dev)) != 0) return RCPP_HIP_ERROR;
 
     // Layers
     out_model->layers = static_cast<rcpp_bitnet_layer_t*>(
@@ -105,11 +114,24 @@ rcpp_bitnet_load_h1b(const char* path, rcpp_bitnet_model_t* out_model) {
     for (int l = 0; l < out_model->num_layers; ++l) {
         rcpp_bitnet_layer_t& L = out_model->layers[l];
 
-        // 4 RMSNorm weights: input_norm, post_attn_norm, q_ln, k_ln
-        if (read_fp16(f, hs, reinterpret_cast<__half**>(&L.input_norm_dev))     != 0) return RCPP_HIP_ERROR;
-        if (read_fp16(f, hs, reinterpret_cast<__half**>(&L.post_attn_norm_dev)) != 0) return RCPP_HIP_ERROR;
-        if (read_fp16(f, hs, reinterpret_cast<__half**>(&L.q_ln_dev))           != 0) return RCPP_HIP_ERROR;
-        if (read_fp16(f, hs, reinterpret_cast<__half**>(&L.k_ln_dev))           != 0) return RCPP_HIP_ERROR;
+        // Sequence written by scripts/export_base_h1b.py (float32):
+        //   input_layernorm           [hs]
+        //   post_attention_layernorm  [hs]
+        //   attn_sub_norm             [hs] × 4 (exporter duplicates for q/k/v/o slots)
+        //   ffn_sub_norm[:hs]         [hs] × 2 (truncated gate/up slots)
+        //   ffn_sub_norm              [is] × 1 (full, used before down_proj)
+        if (read_fp32_as_fp16(f, hs, reinterpret_cast<__half**>(&L.input_norm_dev))     != 0) return RCPP_HIP_ERROR;
+        if (read_fp32_as_fp16(f, hs, reinterpret_cast<__half**>(&L.post_attn_norm_dev)) != 0) return RCPP_HIP_ERROR;
+        // attn_sub_norm: keep the first copy, skip three duplicates.
+        if (read_fp32_as_fp16(f, hs, reinterpret_cast<__half**>(&L.attn_sub_norm_dev))  != 0) return RCPP_HIP_ERROR;
+        skip_fp32(f, hs);
+        skip_fp32(f, hs);
+        skip_fp32(f, hs);
+        // Two [hs] truncated ffn_sub copies (gate/up slots) — discarded.
+        skip_fp32(f, hs);
+        skip_fp32(f, hs);
+        // Full [is] ffn_sub_norm — kept, applied on silu_out before down_proj.
+        if (read_fp32_as_fp16(f, is_, reinterpret_cast<__half**>(&L.ffn_sub_norm_dev))  != 0) return RCPP_HIP_ERROR;
 
         // 7 ternary linear layers: Q K V O gate up down
         if (read_ternary(f, nh * hd,  hs,    &L.q_packed_dev,    reinterpret_cast<void**>(&L.q_scales_dev))    != 0) return RCPP_HIP_ERROR;
@@ -140,7 +162,8 @@ rcpp_bitnet_free(rcpp_bitnet_model_t* m) {
     f(m->final_norm_weight_dev);
     for (int l = 0; l < m->num_layers; ++l) {
         rcpp_bitnet_layer_t& L = m->layers[l];
-        f(L.input_norm_dev);  f(L.post_attn_norm_dev); f(L.q_ln_dev); f(L.k_ln_dev);
+        f(L.input_norm_dev);  f(L.post_attn_norm_dev);
+        f(L.attn_sub_norm_dev); f(L.ffn_sub_norm_dev);
         f(L.q_packed_dev);    f(L.q_scales_dev);
         f(L.k_packed_dev);    f(L.k_scales_dev);
         f(L.v_packed_dev);    f(L.v_scales_dev);

@@ -121,6 +121,11 @@ rcpp_status_t
 rcpp_silu_glu_fp16(const void* up_dev, const void* gate_dev, void* y_dev,
                    int N, void* stream);
 
+// ReLU² GLU (BitNet-b1.58 hidden_act="relu2"): y[i] = relu(gate[i])² * up[i]
+rcpp_status_t
+rcpp_relu2_glu_fp16(const void* gate_dev, const void* up_dev, void* y_dev,
+                    int N, void* stream);
+
 // Embedding lookup: y[k] = embedding[token_id, k] for k in 0..hidden-1
 rcpp_status_t
 rcpp_embedding_lookup_fp16(const void* embedding_dev, int token_id,

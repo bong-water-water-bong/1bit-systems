@@ -181,6 +181,22 @@ __global__ void silu_glu_fp16_kernel(
     y[tid] = __float2half(silu * g);
 }
 
+// ReLU² GLU — BitNet-b1.58 uses relu² as FFN activation (hidden_act="relu2"):
+//   y[i] = relu(gate[i])² * up[i]
+__global__ void relu2_glu_fp16_kernel(
+    const __half* __restrict__ gate,
+    const __half* __restrict__ up,
+    __half*       __restrict__ y,
+    int                       N)
+{
+    const int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid >= N) return;
+    const float g = (float)gate[tid];
+    const float u = (float)up[tid];
+    const float r = g > 0.0f ? g : 0.0f;
+    y[tid] = __float2half(r * r * u);
+}
+
 // ============================================================================
 // 6. Residual add — y[i] += src[i]  (in-place)
 // ============================================================================
@@ -522,6 +538,21 @@ rcpp_silu_glu_fp16(const void* up_dev, const void* gate_dev, void* y_dev,
                        grid, block, 0, (hipStream_t)stream,
                        static_cast<const __half*>(up_dev),
                        static_cast<const __half*>(gate_dev),
+                       static_cast<__half*>(y_dev),
+                       N);
+    return RCPP_OK;
+}
+
+extern "C" rcpp_status_t
+rcpp_relu2_glu_fp16(const void* gate_dev, const void* up_dev, void* y_dev,
+                    int N, void* stream)
+{
+    if (!gate_dev || !up_dev || !y_dev || N <= 0) return RCPP_INVALID_ARG;
+    dim3 grid((N + BLOCK - 1) / BLOCK, 1, 1), block(BLOCK, 1, 1);
+    hipLaunchKernelGGL(relu2_glu_fp16_kernel,
+                       grid, block, 0, (hipStream_t)stream,
+                       static_cast<const __half*>(gate_dev),
+                       static_cast<const __half*>(up_dev),
                        static_cast<__half*>(y_dev),
                        N);
     return RCPP_OK;

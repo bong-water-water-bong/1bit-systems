@@ -13,11 +13,15 @@ extern "C" {
 #endif
 
 typedef struct {
-    // RMSNorm weights (FP16 [hidden_size])
+    // RMSNorm weights (FP16). BitNet-b1.58 has four per layer:
+    //   input_norm    [hs] — pre Q/K/V
+    //   attn_sub_norm [hs] — on attn output, before O proj
+    //   post_attn_norm[hs] — pre gate/up
+    //   ffn_sub_norm  [is] — on silu(gate)*up, before down proj
     void* input_norm_dev;
     void* post_attn_norm_dev;
-    void* q_ln_dev;
-    void* k_ln_dev;
+    void* attn_sub_norm_dev;
+    void* ffn_sub_norm_dev;
 
     // Ternary linear layers — halo-encoded uint8 packed (reinterpret as uint32
     // bytewise for rcpp_ternary_gemv_halo) + per-row FP32 scales.
