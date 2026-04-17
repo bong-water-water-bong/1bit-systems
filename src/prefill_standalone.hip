@@ -1242,6 +1242,163 @@ void standalone_gemm_4c_pipelined(
     }
 }
 
+// Phase 4k: LDS ping-pong with 2 waves per block. 64x32 output per block,
+// split into two 32x32 sub-tiles (wave 0 = upper 32 rows, wave 1 = lower).
+// Both waves share A_lds (64x32 FP16) and B_lds (32x32 FP16, decoded).
+// Double-buffered so next-j global loads overlap with current-j WMMAs.
+//
+// Why 2 waves (not 4 like Phase 4f): Phase 4f's 128-thread blocks cut block
+// count below saturation on gfx1151. 64-thread blocks (2 waves) keep block
+// count high AND enable LDS sharing. Register pressure target: ~100 VGPR/lane
+// to hit 2 waves per SIMD (true occupancy win vs 4i's single-wave).
+//
+// LDS footprint:
+//   A_lds[2][64][32] FP16 = 8 KiB
+//   B_lds[2][32][32] FP16 = 4 KiB
+//   Total: 12 KiB per block — fits gfx1151's 64 KiB/CU with many blocks/CU.
+__global__ __launch_bounds__(64)
+void standalone_gemm_lds_pingpong(
+    const __half* __restrict__ A,
+    const uint8_t* __restrict__ B,
+    __half* __restrict__ C,
+    int M, int N, int K)
+{
+    constexpr int TILE_M = 64;
+    constexpr int TILE_N = 32;   // 2 N sub-tiles of 16 each, both waves cover full TILE_N
+    constexpr int WMMA_K = 16;
+
+    __shared__ __half A_lds[2][TILE_M * K1];   // [2 bufs][64 * 32 halves]
+    __shared__ __half B_lds[2][K1 * TILE_N];   // [2 bufs][32 * 32 halves]
+
+    const int tid  = threadIdx.x;          // 0..63
+    const int wave = tid >> 5;             // 0 (upper) or 1 (lower 32 rows)
+    const int lane = tid & 31;
+    const int row_lane = lane & 15;
+    const int half     = lane >> 4;
+
+    const int m0 = blockIdx.y * TILE_M;
+    const int n0 = blockIdx.x * TILE_N;
+
+    // Each wave owns a 32x32 output sub-tile = 2 M sub x 2 N sub = 4 WMMA tiles.
+    float8_t acc[2][2] = {};
+    const int forward_perm[8] = {2, 0, 6, 4, 3, 1, 7, 5};
+    const int K0 = K / K1;
+
+    // Cooperative load helpers. 64 threads, K1=32.
+    // A tile: 64 rows x 32 cols = 2048 halves. 32 halves per thread.
+    auto load_A_buf = [&](int buf, int j) {
+        #pragma unroll
+        for(int e = 0; e < 32; ++e) {
+            const int slot = tid * 32 + e;       // 0..2047
+            const int r = slot / 32;             // 0..63
+            const int c = slot & 31;             // 0..31
+            const int m_row = m0 + r;
+            A_lds[buf][slot] = (m_row < M) ? A[m_row * K + j * K1 + c] : (__half)0;
+        }
+    };
+    // B tile: 32 cols x 16 bytes per col = 512 bytes. 8 bytes per thread.
+    auto load_B_buf = [&](int buf, int j) {
+        #pragma unroll
+        for(int bb = 0; bb < 8; ++bb) {
+            const int byte_off    = tid * 8 + bb;
+            const int col         = byte_off / K1_BYTES;     // 0..63
+            const int byte_in_col = byte_off % K1_BYTES;
+            const int n_col       = n0 + col;
+            uint8_t byte = 0;
+            if(n_col < N)
+                byte = B[j * N * K1_BYTES + n_col * K1_BYTES + byte_in_col];
+            #pragma unroll
+            for(int nibble = 0; nibble < 2; ++nibble) {
+                const int perm_jj   = byte_in_col * 2 + nibble;
+                const int grp_base  = (perm_jj / 8) * 8;
+                const int orig_slot = forward_perm[perm_jj & 7];
+                const int kk        = grp_base + orig_slot;
+                const uint8_t nib = (nibble == 0) ? ((byte >> 4) & 0xF) : (byte & 0xF);
+                B_lds[buf][kk * TILE_N + col] = (n_col < N)
+                    ? __float2half((float)((int)nib - 8))
+                    : (__half)0;
+            }
+        }
+    };
+
+    // ==== Bootstrap: load j=0 into buf 0 ====
+    if(K0 > 0) {
+        load_A_buf(0, 0);
+        load_B_buf(0, 0);
+    }
+    __syncthreads();
+
+    for(int j = 0; j < K0; ++j) {
+        const int cur = j & 1;
+        const int nxt = 1 - cur;
+
+        // Issue next-j loads into the other buffer. These go to LDS directly;
+        // compute below reads from cur buffer. HW scoreboards overlap load
+        // progress with compute WMMAs.
+        if(j + 1 < K0) {
+            load_A_buf(nxt, j + 1);
+            load_B_buf(nxt, j + 1);
+        }
+
+        // Compute from cur buffer. Each wave: 2 A_frags + 2 B_frags + 2 K steps = 8 WMMAs.
+        #pragma unroll
+        for(int step = 0; step < K1 / WMMA_K; ++step) {
+            const int kk_base = step * WMMA_K;
+
+            // 2 A fragments for this wave's M rows.
+            half16_t A_frags[2];
+            #pragma unroll
+            for(int m_sub = 0; m_sub < 2; ++m_sub) {
+                const int row_in_lds = wave * 32 + m_sub * 16 + row_lane;
+                #pragma unroll
+                for(int c = 0; c < 16; ++c) {
+                    A_frags[m_sub][c] = (__fp16)(float)A_lds[cur][row_in_lds * K1 + kk_base + c];
+                }
+            }
+
+            // 2 B fragments covering TILE_N = 32 cols (16 per n_sub).
+            #pragma unroll
+            for(int n_sub = 0; n_sub < 2; ++n_sub) {
+                const int col_in_lds = n_sub * 16 + row_lane;    // wave-independent N sweep
+                // Each wave still wants to produce a 32x32 output, so both waves
+                // compute n_sub=0..1 → cols 0..31 and 32..63. Each wave's accumulators
+                // track both n_sub halves.
+                half16_t B_frag;
+                #pragma unroll
+                for(int r = 0; r < 16; ++r) {
+                    B_frag[r] = (__fp16)(float)B_lds[cur][(kk_base + r) * TILE_N + col_in_lds];
+                }
+                #pragma unroll
+                for(int m_sub = 0; m_sub < 2; ++m_sub) {
+                    acc[m_sub][n_sub] = __builtin_amdgcn_wmma_f32_16x16x16_f16_w32(
+                        A_frags[m_sub], B_frag, acc[m_sub][n_sub]);
+                }
+            }
+        }
+
+        __syncthreads();
+    }
+
+    // Store: each wave owns rows [wave*32 .. wave*32+31], cols [0..TILE_N-1].
+    const int wave_m0 = m0 + wave * 32;
+    #pragma unroll
+    for(int m_sub = 0; m_sub < 2; ++m_sub) {
+        #pragma unroll
+        for(int n_sub = 0; n_sub < 2; ++n_sub) {
+            const int mo = wave_m0 + m_sub * 16;
+            const int no = n0 + n_sub * 16;
+            #pragma unroll
+            for(int r = 0; r < 8; ++r) {
+                const int m_out = mo + 2 * r + half;
+                const int n_out = no + row_lane;
+                if(m_out < M && n_out < N) {
+                    C[m_out * N + n_out] = __float2half(acc[m_sub][n_sub][r]);
+                }
+            }
+        }
+    }
+}
+
 // Phase 4f: 4 waves per block (128 threads) in 2x2 layout, 64x64 output.
 // LDS shared by all 4 waves — this is where LDS finally pays off (amortizes
 // A and B loads across 4x the WMMA work per load).
@@ -1661,6 +1818,21 @@ void rcpp_standalone_launch_fp16b(
                        grid, block, 0, (hipStream_t)stream,
                        static_cast<const __half*>(A_dev),
                        static_cast<const __half*>(B_fp16_dev),
+                       static_cast<__half*>(C_dev),
+                       M, N, K);
+}
+
+// Phase 4k: 2 waves, 64x32 output, LDS ping-pong.
+void rcpp_standalone_launch_lds_pingpong(
+    const void* A_dev, const void* B_dev, void* C_dev,
+    int M, int N, int K, void* stream)
+{
+    dim3 block(64, 1, 1);
+    dim3 grid((N + 31) / 32, (M + 63) / 64, 1);
+    hipLaunchKernelGGL(standalone_gemm_lds_pingpong,
+                       grid, block, 0, (hipStream_t)stream,
+                       static_cast<const __half*>(A_dev),
+                       static_cast<const uint8_t*>(B_dev),
                        static_cast<__half*>(C_dev),
                        M, N, K);
 }
