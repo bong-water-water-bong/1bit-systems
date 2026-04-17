@@ -61,13 +61,25 @@ __global__ void ternary_gemm_v2_kernel(
 
     const int bytes_per_row = K / 8;
 
-    // LDS slabs — one per operand. Row-major for A, col-major for B.
-    // v2.3: also stage float activations in LDS before quantize, so
-    // max-abs scan + quantize read from LDS instead of re-reading GMEM.
-    __shared__ int8_t a_lds[TILE_M * WMMA_K];     // 64 x 16
-    __shared__ int8_t b_lds[WMMA_K * TILE_N];     // 16 x 64, col-major
-    __shared__ float  x_stage[WMMA_K * TILE_N];   // 16 x 64 float activations
-    __shared__ float  act_scale_sh;
+    // v2.4: compute-path LDS and writeback LDS share the same physical
+    // memory through a union — their lifetimes don't overlap. This caps
+    // per-block LDS at max(compute, writeback) = 16 KB for c_lds, which
+    // on gfx1151's 64 KB per-CU budget restores 4-block-per-CU concurrency.
+    struct ComputeLDS {
+        int8_t a_lds[TILE_M * WMMA_K];    // 1 KB
+        int8_t b_lds[WMMA_K * TILE_N];    // 1 KB
+        float  x_stage[WMMA_K * TILE_N];  // 4 KB
+        float  act_scale_sh;
+        float  wave_max[NUM_WARPS];
+    };
+    __shared__ union {
+        ComputeLDS c;
+        float      c_lds[TILE_M * TILE_N];  // 16 KB, writeback only
+    } lds;
+
+    int8_t* const a_lds = lds.c.a_lds;
+    int8_t* const b_lds = lds.c.b_lds;
+    float*  const x_stage = lds.c.x_stage;
 
     // Float accumulators per wave, one per col stripe (4 stripes × 8 cells/lane = 32 floats/lane).
     float float_acc[TILES_PER_WAVE_N][8] = {{0}};
@@ -128,19 +140,18 @@ __global__ void ternary_gemm_v2_kernel(
             float other = __shfl_xor(local_max, off);
             if (other > local_max) local_max = other;
         }
-        __shared__ float wave_max[NUM_WARPS];
-        if (lane == 0) wave_max[warp] = local_max;
+        if (lane == 0) lds.c.wave_max[warp] = local_max;
         __syncthreads();
         if (tid == 0) {
             float m = 0.0f;
             #pragma unroll
             for (int w = 0; w < NUM_WARPS; w++) {
-                if (wave_max[w] > m) m = wave_max[w];
+                if (lds.c.wave_max[w] > m) m = lds.c.wave_max[w];
             }
-            act_scale_sh = (m > 1e-8f) ? (m / 127.0f) : 1.0f;
+            lds.c.act_scale_sh = (m > 1e-8f) ? (m / 127.0f) : 1.0f;
         }
         __syncthreads();
-        float act_scale = act_scale_sh;
+        float act_scale = lds.c.act_scale_sh;
         float inv_scale = 1.0f / act_scale;
 
         // --- Stage 3: quantize from LDS float stage to b_lds (col-major int8) ---
@@ -172,9 +183,10 @@ __global__ void ternary_gemm_v2_kernel(
     }
 
     // --- Writeback ---
-    // Each wave stores 4 output tiles [16 rows x 16 cols each].
-    // Stage through LDS in a 16x64 slab so store_matrix_sync can do row-major out.
-    __shared__ float c_lds[TILE_M * TILE_N];
+    // Reuses the LDS union as a 64x64 float tile; compute-side fields are
+    // dead at this point so the aliasing is safe.
+    float* c_lds = lds.c_lds;
+    __syncthreads();
 
     #pragma unroll
     for (int c = 0; c < TILES_PER_WAVE_N; c++) {
@@ -192,7 +204,6 @@ __global__ void ternary_gemm_v2_kernel(
     __syncthreads();
 
     // Cooperatively write c_lds to Y with per-row scale.
-    // 64*64 = 4096 cells, 128 threads → 32 cells each.
     #pragma unroll
     for (int i = 0; i < TILE_M * TILE_N / BLOCK_SIZE; i++) {
         int idx = tid + i * BLOCK_SIZE;
