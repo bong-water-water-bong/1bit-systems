@@ -513,6 +513,266 @@ void standalone_ternary_gemm_wmma_2x4(
     }
 }
 
+// Phase 4d: 1 wave per block, 32x64 output.
+// Key change vs 4c: B is decoded to FP16 into LDS ONCE per j block, then all
+// 8 WMMAs (2 steps x 2 A x 4 B) read from LDS. Eliminates the hot-path
+// pk_i4 nibble decode that dominated Phase 4c's 74%-of-CK ceiling.
+// LDS: B_tile [32, 64] FP16 = 4 KiB per block.
+__global__ __launch_bounds__(32)
+void standalone_ternary_gemm_wmma_2x4_ldsB(
+    const __half* __restrict__ A,
+    const uint8_t* __restrict__ B,
+    __half* __restrict__ C,
+    int M, int N, int K)
+{
+    constexpr int TILE_M  = 32;
+    constexpr int TILE_N  = 64;
+    constexpr int WMMA_K  = 16;
+
+    // B tile: [K1, TILE_N] FP16, K-contiguous per column
+    __shared__ __half B_lds[K1 * TILE_N];
+
+    const int lane     = threadIdx.x;
+    const int row_lane = lane & 15;
+    const int half     = lane >> 4;
+
+    const int m0 = blockIdx.y * TILE_M;
+    const int n0 = blockIdx.x * TILE_N;
+
+    float8_t acc[2][4] = {};
+    const int forward_perm[8] = {2, 0, 6, 4, 3, 1, 7, 5};
+    const int K0 = K / K1;
+
+    for(int j = 0; j < K0; ++j) {
+        // ---- Cooperatively decode+load B tile into LDS ----
+        // 64 cols x 16 bytes/col = 1024 bytes. 32 lanes -> 32 bytes/lane
+        // = 64 nibbles/lane -> 64 half writes/lane to B_lds.
+        #pragma unroll
+        for(int bb = 0; bb < 32; ++bb) {
+            const int byte_off  = lane * 32 + bb;            // 0..1023
+            const int col       = byte_off / K1_BYTES;       // 0..63
+            const int byte_in_col = byte_off % K1_BYTES;     // 0..15
+            const int n_col     = n0 + col;
+            if(n_col < N) {
+                const int b_idx = j * N * K1_BYTES + n_col * K1_BYTES + byte_in_col;
+                const uint8_t byte = B[b_idx];
+                #pragma unroll
+                for(int nibble = 0; nibble < 2; ++nibble) {
+                    const int perm_jj   = byte_in_col * 2 + nibble;
+                    const int grp_base  = (perm_jj / 8) * 8;
+                    const int orig_slot = forward_perm[perm_jj & 7];
+                    const int kk        = grp_base + orig_slot;
+                    const uint8_t nib = (nibble == 0)
+                        ? ((byte >> 4) & 0xF)
+                        : (byte & 0xF);
+                    B_lds[kk * TILE_N + col] = __float2half((float)((int)nib - 8));
+                }
+            } else {
+                #pragma unroll
+                for(int nibble = 0; nibble < 2; ++nibble) {
+                    const int perm_jj   = byte_in_col * 2 + nibble;
+                    const int grp_base  = (perm_jj / 8) * 8;
+                    const int orig_slot = forward_perm[perm_jj & 7];
+                    const int kk        = grp_base + orig_slot;
+                    B_lds[kk * TILE_N + col] = (__half)0;
+                }
+            }
+        }
+        __syncthreads();
+
+        // ---- 2 WMMA steps per K1 block ----
+        #pragma unroll
+        for(int step = 0; step < K1 / WMMA_K; ++step) {
+            const int kk_base = step * WMMA_K;
+
+            // Load 2 A fragments (directly from global — A reuse across N is still via registers)
+            half16_t A_frags[2];
+            #pragma unroll
+            for(int m_sub = 0; m_sub < 2; ++m_sub) {
+                const int m_row = m0 + m_sub * 16 + row_lane;
+                if(m_row < M) {
+                    #pragma unroll
+                    for(int c = 0; c < 16; ++c) {
+                        A_frags[m_sub][c] = (__fp16)(float)A[m_row * K + j * K1 + kk_base + c];
+                    }
+                } else {
+                    #pragma unroll
+                    for(int c = 0; c < 16; ++c) A_frags[m_sub][c] = (__fp16)0;
+                }
+            }
+
+            // 4 B fragments from LDS + 8 WMMAs
+            #pragma unroll
+            for(int n_sub = 0; n_sub < 4; ++n_sub) {
+                half16_t B_frag;
+                const int n_col_in_tile = n_sub * 16 + row_lane;  // 0..63
+                #pragma unroll
+                for(int r = 0; r < 16; ++r) {
+                    const int kk = kk_base + r;
+                    B_frag[r] = (__fp16)(float)B_lds[kk * TILE_N + n_col_in_tile];
+                }
+                #pragma unroll
+                for(int m_sub = 0; m_sub < 2; ++m_sub) {
+                    acc[m_sub][n_sub] = __builtin_amdgcn_wmma_f32_16x16x16_f16_w32(
+                        A_frags[m_sub], B_frag, acc[m_sub][n_sub]);
+                }
+            }
+        }
+        __syncthreads();
+    }
+
+    // Store 2x4 grid
+    #pragma unroll
+    for(int m_sub = 0; m_sub < 2; ++m_sub) {
+        #pragma unroll
+        for(int n_sub = 0; n_sub < 4; ++n_sub) {
+            const int mo = m0 + m_sub * 16;
+            const int no = n0 + n_sub * 16;
+            #pragma unroll
+            for(int r = 0; r < 8; ++r) {
+                const int m_out = mo + 2 * r + half;
+                const int n_out = no + row_lane;
+                if(m_out < M && n_out < N) {
+                    C[m_out * N + n_out] = __float2half(acc[m_sub][n_sub][r]);
+                }
+            }
+        }
+    }
+}
+
+// Phase 4f: 4 waves per block (128 threads) in 2x2 layout, 64x64 output.
+// LDS shared by all 4 waves — this is where LDS finally pays off (amortizes
+// A and B loads across 4x the WMMA work per load).
+//   waves arranged (wm, wn) for wm, wn in {0, 1}
+//   each wave: 2 A frags (32 rows) x 2 B frags (32 cols) = 4 accumulators
+//   LDS: A_tile[64, 32] = 4 KiB (K1=32, shared by 2 N-column waves each M row)
+//        B_tile[32, 64] = 4 KiB (K1=32, shared by 2 M-row waves each N column)
+//   Per K1 block: 4 waves x 2 K steps x 4 WMMAs = 32 WMMAs from LDS
+__global__ __launch_bounds__(128)
+void standalone_ternary_gemm_wmma_2x2wave(
+    const __half* __restrict__ A,
+    const uint8_t* __restrict__ B,
+    __half* __restrict__ C,
+    int M, int N, int K)
+{
+    constexpr int TILE_M = 64;
+    constexpr int TILE_N = 64;
+    constexpr int WMMA_K = 16;
+
+    __shared__ __half A_lds[TILE_M * K1];   // [64, 32] row-major
+    __shared__ __half B_lds[K1 * TILE_N];   // [32, 64] row-major (decoded)
+
+    const int tid  = threadIdx.x;
+    const int wave = tid >> 5;            // 0..3
+    const int wm   = wave >> 1;           // 0 or 1 (M index)
+    const int wn   = wave & 1;            // 0 or 1 (N index)
+    const int lane = tid & 31;
+    const int row_lane = lane & 15;
+    const int half     = lane >> 4;
+
+    const int m0 = blockIdx.y * TILE_M;
+    const int n0 = blockIdx.x * TILE_N;
+
+    float8_t acc[2][2] = {};   // 2 M sub-tiles x 2 N sub-tiles per wave
+    const int forward_perm[8] = {2, 0, 6, 4, 3, 1, 7, 5};
+    const int K0 = K / K1;
+
+    for(int j = 0; j < K0; ++j) {
+        // ---- Cooperative A load: 64 rows x 32 K = 2048 halves, 128 threads
+        // -> 16 halves per thread. ----
+        #pragma unroll
+        for(int e = 0; e < 16; ++e) {
+            const int slot = tid * 16 + e;       // 0..2047
+            const int r    = slot / 32;          // 0..63
+            const int c    = slot % 32;          // 0..31
+            const int m_row = m0 + r;
+            A_lds[slot] = (m_row < M) ? A[m_row * K + j * K1 + c] : (__half)0;
+        }
+
+        // ---- Cooperative B decode+load: 64 cols x 16 bytes/col = 1024 bytes,
+        // 128 threads -> 8 bytes/thread = 16 nibbles/thread -> 16 half writes. ----
+        #pragma unroll
+        for(int bb = 0; bb < 8; ++bb) {
+            const int byte_off    = tid * 8 + bb;
+            const int col         = byte_off / K1_BYTES;
+            const int byte_in_col = byte_off % K1_BYTES;
+            const int n_col       = n0 + col;
+            uint8_t byte = 0;
+            if(n_col < N) {
+                byte = B[j * N * K1_BYTES + n_col * K1_BYTES + byte_in_col];
+            }
+            #pragma unroll
+            for(int nibble = 0; nibble < 2; ++nibble) {
+                const int perm_jj   = byte_in_col * 2 + nibble;
+                const int grp_base  = (perm_jj / 8) * 8;
+                const int orig_slot = forward_perm[perm_jj & 7];
+                const int kk        = grp_base + orig_slot;
+                const uint8_t nib = (nibble == 0)
+                    ? ((byte >> 4) & 0xF)
+                    : (byte & 0xF);
+                B_lds[kk * TILE_N + col] = (n_col < N)
+                    ? __float2half((float)((int)nib - 8))
+                    : (__half)0;
+            }
+        }
+
+        __syncthreads();
+
+        // ---- 2 K steps per K1 block, 4 WMMAs per step per wave ----
+        #pragma unroll
+        for(int step = 0; step < K1 / WMMA_K; ++step) {
+            const int kk_base = step * WMMA_K;
+
+            // 2 A fragments for this wave's M rows
+            half16_t A_frags[2];
+            #pragma unroll
+            for(int m_sub = 0; m_sub < 2; ++m_sub) {
+                const int row_in_lds = wm * 32 + m_sub * 16 + row_lane;
+                #pragma unroll
+                for(int c = 0; c < 16; ++c) {
+                    A_frags[m_sub][c] = (__fp16)(float)A_lds[row_in_lds * K1 + kk_base + c];
+                }
+            }
+
+            // 2 B fragments for this wave's N cols + 4 WMMAs
+            #pragma unroll
+            for(int n_sub = 0; n_sub < 2; ++n_sub) {
+                const int col_in_lds = wn * 32 + n_sub * 16 + row_lane;
+                half16_t B_frag;
+                #pragma unroll
+                for(int r = 0; r < 16; ++r) {
+                    B_frag[r] = (__fp16)(float)B_lds[(kk_base + r) * TILE_N + col_in_lds];
+                }
+                #pragma unroll
+                for(int m_sub = 0; m_sub < 2; ++m_sub) {
+                    acc[m_sub][n_sub] = __builtin_amdgcn_wmma_f32_16x16x16_f16_w32(
+                        A_frags[m_sub], B_frag, acc[m_sub][n_sub]);
+                }
+            }
+        }
+
+        __syncthreads();
+    }
+
+    // ---- Store 2x2 grid of this wave's 16x16 sub-tiles ----
+    #pragma unroll
+    for(int m_sub = 0; m_sub < 2; ++m_sub) {
+        #pragma unroll
+        for(int n_sub = 0; n_sub < 2; ++n_sub) {
+            const int mo = m0 + wm * 32 + m_sub * 16;
+            const int no = n0 + wn * 32 + n_sub * 16;
+            #pragma unroll
+            for(int r = 0; r < 8; ++r) {
+                const int m_out = mo + 2 * r + half;
+                const int n_out = no + row_lane;
+                if(m_out < M && n_out < N) {
+                    C[m_out * N + n_out] = __float2half(acc[m_sub][n_sub][r]);
+                }
+            }
+        }
+    }
+}
+
 // Phase 4: 2 waves per block (64 threads) computing a 32x16 output tile.
 // LDS staging for A and B — both waves share the K loads:
 //   A_lds : [32, 32] FP16 = 2 KiB  (two 16-row halves, one per wave)
@@ -736,6 +996,36 @@ void rcpp_standalone_launch_wmma_2x4(
     dim3 block(32, 1, 1);
     dim3 grid((N + 63) / 64, (M + 31) / 32, 1);
     hipLaunchKernelGGL(standalone_ternary_gemm_wmma_2x4,
+                       grid, block, 0, (hipStream_t)stream,
+                       static_cast<const __half*>(A_dev),
+                       static_cast<const uint8_t*>(B_dev),
+                       static_cast<__half*>(C_dev),
+                       M, N, K);
+}
+
+// Phase 4f: 4 waves (2x2), 64x64 output, A+B both in LDS.
+void rcpp_standalone_launch_wmma_2x2wave(
+    const void* A_dev, const void* B_dev, void* C_dev,
+    int M, int N, int K, void* stream)
+{
+    dim3 block(128, 1, 1);
+    dim3 grid((N + 63) / 64, (M + 63) / 64, 1);
+    hipLaunchKernelGGL(standalone_ternary_gemm_wmma_2x2wave,
+                       grid, block, 0, (hipStream_t)stream,
+                       static_cast<const __half*>(A_dev),
+                       static_cast<const uint8_t*>(B_dev),
+                       static_cast<__half*>(C_dev),
+                       M, N, K);
+}
+
+// Phase 4d: 1 wave, 32x64 output, B decoded to LDS once per j block.
+void rcpp_standalone_launch_wmma_2x4_ldsB(
+    const void* A_dev, const void* B_dev, void* C_dev,
+    int M, int N, int K, void* stream)
+{
+    dim3 block(32, 1, 1);
+    dim3 grid((N + 63) / 64, (M + 31) / 32, 1);
+    hipLaunchKernelGGL(standalone_ternary_gemm_wmma_2x4_ldsB,
                        grid, block, 0, (hipStream_t)stream,
                        static_cast<const __half*>(A_dev),
                        static_cast<const uint8_t*>(B_dev),
