@@ -1,7 +1,13 @@
-# 15 — `bitnet_tui` spec sheet
+# 15 — `bitnet_tui` spec sheet (terminal interface)
 
-Living spec for the FTXUI frontend on `librocm_cpp`. Contributors: pick
-a milestone, file a PR. Keep scope tight — this doc is the contract.
+Living spec for the FTXUI **terminal / over-SSH** frontend on
+`librocm_cpp`. The desktop interface (floating tabs, frosted glass,
+GPU-shaded wallpaper) is a companion spec at
+[`docs/17-desktop-gui-spec.md`](17-desktop-gui-spec.md) — Dear ImGui +
+SDL2, talks to the same HTTP server. One backend, two renderers.
+
+Contributors: pick a milestone, file a PR. Keep scope tight — this doc
+is the contract.
 
 ## Contribution rules (read first)
 
@@ -14,7 +20,9 @@ If you want to add to this project, these are non-negotiable:
    scheme substitutes. If a feature makes sense for BitNet it ships; if
    it's a generalization to other quant, it goes in another project.
 3. **No Python at runtime.** Build-time tooling is fine; inference is C++.
-4. **FTXUI only for UI.** No Qt, no web, no Electron, no browser layer.
+4. **UI stack is fixed.** **FTXUI** for the terminal / SSH interface
+   (this spec). **Dear ImGui + SDL2** for the desktop GUI (see spec 17).
+   No Qt, no web, no Electron, no browser layer.
 5. **The install script stays working.** If your PR breaks `install.sh`
    on a clean Strix Halo box, it doesn't land.
 

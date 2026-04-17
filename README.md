@@ -40,18 +40,23 @@ If you have a Strix Halo box (Ryzen AI MAX+ 395, 128 GB unified), run the
 install script and send feedback. Every edge case — different ROCm dists,
 different BitNet checkpoints, different models — is useful signal.
 
-We're also looking for **FTXUI contributors** to build a TUI frontend
-around `tools/bitnet_decode.cpp`:
+We're also looking for **UI contributors** on two tracks:
 
-- live token stream panel (chat-style output)
-- per-layer timing + tok/s stats panel
-- KV-cache heatmap across 30 layers
-- event loop that wraps the existing `forward_token` decode lambda
-- works over SSH, zero X11
+**FTXUI terminal TUI** (`tools/bitnet_tui.cpp` already scaffolded):
+- live token stream panel + prompt input (M1+M2 shipped)
+- per-layer timing + KV cache heatmap (M3+M4 open)
+- Man Cave voice page (M5+ open)
+- works over SSH, zero X11 — full spec: [`docs/15-tui-spec.md`](docs/15-tui-spec.md)
 
-FTXUI (MIT, C++20, header-only core) only — no Qt, no Electron, no web
-layer. Seed code lives in `tools/bitnet_decode.cpp`; the TUI target
-should build alongside it via the existing CMake flow.
+**Dear ImGui + SDL2 desktop GUI** (not yet scaffolded):
+- top-down floating-tile landing page — specialists drift around a
+  frosted-glass canvas over a daily-rotating wallpaper
+- chat page (F1), Man Cave voice page (F2), backend selector (local
+  BitNet / OpenAI / Anthropic / Groq / etc.)
+- full spec: [`docs/17-desktop-gui-spec.md`](docs/17-desktop-gui-spec.md)
+
+Both frontends talk to the same HTTP server (`bitnet_decode --server`),
+so specialist logic stays in agent-cpp. No Qt, no Electron, no web.
 
 ## Headline numbers (gfx1151, Phase 5 dot4)
 
