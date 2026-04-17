@@ -5,6 +5,60 @@ Each entry: paper, date, one-line takeaway, concrete relevance to rocm-cpp.
 
 ## Live entries (2026)
 
+### BitDecoding GitHub — open-source implementation (github.com/OpenBitSys/BitDecoding, github.com/DD-DuDa/BitDecoding)
+**Takeaway:** The BitDecoding paper above has working CUDA code open-sourced.
+Tensor-Cores-Centric BitFusion, warp-efficient parallel decoder, async pipeline.
+**Relevance:** **Direct port reference for our KV cache work.** Their CUDA
+kernels use Tensor Core primitives; gfx11 has WMMA which is the analog.
+Porting their 4-bit K/V decode kernel to gfx11 WMMA is Phase 6 concrete scope.
+Perf targets: 7.5x RTX 4090, 4.8x A100, 8.9x H100 — our gfx1151 target is
+the gap-to-FA3-like FP16 decode on long context.
+**Status:** FLAGGED — Phase 6 primary reference.
+
+### carlosfundora/llama.cpp-1-bit-turbo (github.com/carlosfundora/llama.cpp-1-bit-turbo)
+**Takeaway:** HIP/ROCm llama.cpp fork optimized for RDNA2 (gfx1030) with:
+  - PrismML Q1_0_G128 support (their 1-bit format)
+  - **RotorQuant** (ICLR 2026) — geometric-rotation KV cache quant
+  - **TurboQuant** — extreme KV cache quant
+  - EAGLE3 + P-EAGLE speculative decoding
+  - Wave32 kernel optimizations
+**Relevance:** **Direct-adjacent stack.** They target RDNA2/gfx1030; we
+target RDNA3.5/gfx1151. Same architectural family, same 1-bit weight format
+interest. Their RotorQuant integration in GGML is proven to work on HIP.
+Study their PR history and Wave32 kernel patterns as prior art for our
+RDNA3.5 work. Not a fork we adopt — reference-only.
+**Status:** FLAGGED — prior-art reference for KV cache + Wave32.
+
+### RotorQuant — Geometric rotation KV cache quant (ICLR 2026)
+**Takeaway:** Pre-rotates K/V via geometric transforms before quantization,
+making them quantization-friendly. Already integrated into llama.cpp GGML
+with CPU + CUDA/HIP + Flash Attention support.
+**Relevance:** The quantization-side complement to BitDecoding's kernel-side.
+If we add a KV cache kernel, adopting RotorQuant pre-rotations at cache-write
+time (trivial HIP kernel) preserves accuracy under aggressive K/V quant.
+**Status:** FLAGGED — pair with BitDecoding port.
+
+### TurboQuant — Extreme KV cache quant (llama.cpp discussion #20969)
+**Takeaway:** Extreme low-bit KV cache quant in active llama.cpp development.
+**Relevance:** Downstream of our kernel work. Their llama.cpp integration
+could consume our KV cache kernels once we ship them.
+**Status:** FLAGGED — integration target.
+
+### Qwen3 Quantization Empirical Study (arxiv:2505.02214)
+**Takeaway:** Systematic PTQ sweep on Qwen3 across 1-8 bit. Qwen3 holds up
+at moderate bits, degrades under ultra-low precision on linguistic tasks.
+**Relevance:** Not our weights today (we track Bonsai / BitNet), but if the
+community quants Qwen3 to 1-bit, our Phase 5 GEMV would be the natural
+inference kernel.
+**Status:** NO ACTION. Market watch.
+
+### PT-BitNet (ScienceDirect S089360802500735X)
+**Takeaway:** Post-training BitNet quantization — scales existing FP LLMs
+to 1-bit without retraining.
+**Relevance:** Weights-side. Would feed into our Phase 5 kernel. If it
+lands with Llama-3-70B or similar, our stack has a much bigger model catalog.
+**Status:** WATCH.
+
 ### BitDecoding — Low-bit KV cache with Tensor Cores (arxiv:2503.18773)
 **Takeaway:** CUDA+Tensor Core pipeline for low-bit KV cache GEMV in long-context
 decode. Dequant kernel + GEMM overlap + extra metadata movement. Claims up to
