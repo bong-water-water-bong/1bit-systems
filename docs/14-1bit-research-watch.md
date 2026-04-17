@@ -5,6 +5,80 @@ Each entry: paper, date, one-line takeaway, concrete relevance to rocm-cpp.
 
 ## Live entries (2026)
 
+### BitDecoding — Low-bit KV cache with Tensor Cores (arxiv:2503.18773)
+**Takeaway:** CUDA+Tensor Core pipeline for low-bit KV cache GEMV in long-context
+decode. Dequant kernel + GEMM overlap + extra metadata movement. Claims up to
+**8.6× over FP16 FlashDecoding-v2** on long-context workloads.
+**Relevance:** **WE DO NOT HAVE A KV CACHE KERNEL.** The library currently
+ships a prefill GEMM + decode weight-GEMV path but doesn't touch KV cache
+attention compute. Adding a low-bit KV cache variant is the next real
+feature-level gap for long-context usage. Porting their software-pipeline
+approach to gfx11 WMMA would be 1–2 sessions of kernel work.
+**Status:** FLAGGED — next feature. Phase 6 candidate.
+
+### Arbitrary Precision Acceleration for LLMs on GPU Tensor Cores (arxiv:2409.17870)
+**Takeaway:** Bit-level matrix decomposition recovers arbitrary-precision
+matmul on tensor cores. Includes W1A2 (1-bit weights, 2-bit activations)
+schemes. Flexible precision on fixed-width hardware.
+**Relevance:** Our Phase 5 is W1.58A8. Their W1A2 scheme would cut both
+weight and activation bandwidth further on gfx11 WMMA. Requires custom
+bit-serial accumulation logic — non-trivial port. Read for technique,
+not direct adoption.
+**Status:** FLAGGED — future research lever.
+
+### ButterflyQuant — Ultra-low-bit via butterfly transforms (arxiv:2509.09679, Feb 2026)
+**Takeaway:** Replaces Hadamard rotation in quant pipelines with learnable
+butterfly transforms. O(n log n), smooth optimization, orthogonality preserved.
+Targets 2-bit regime where activation outliers kill naive quant.
+**Relevance:** Training-side. Could help if we ever do our own QAT training
+of a BitNet-variant. Not a kernel thing.
+**Status:** NO ACTION. Flag for training side.
+
+### LittleBit — 0.1 BPW via latent factorization (arxiv:2506.13771, Feb 2026)
+**Takeaway:** Sub-1-bit quantization down to 0.1 BPW (10× below BitNet 1.58).
+31× memory vs FP16. Llama2-13B fits in 0.9 GB. Factorization approach, not
+direct ternary.
+**Relevance:** Weights format is completely different from BitNet ternary —
+factored low-rank approximation, not ternary codes. Our Phase 5 GEMV kernel
+wouldn't apply. Watch if it matures; would need an entirely new kernel class.
+**Status:** NO ACTION. Watch maturity.
+
+### BTC-LLM — Sub-1-bit via adaptive transform + binary codebook (arxiv:2506.12040, Nov 2025)
+**Takeaway:** Sub-1-bit LLM quant. Claims **surpasses FP16 baseline on
+LLaMA-1-30B** under aggressive compression. Binary codebook with
+learnable transforms.
+**Relevance:** Different encoding (binary codebook, not ternary). Doesn't
+feed into our Phase 5 path but competitive positioning matters — their
+story is "sub-1-bit and still beats FP16." If adoption picks up, the
+community's reference 1-bit stack shifts.
+**Status:** WATCH. Not kernel-actionable today.
+
+### ParetoQ — Unified training+quant for sub-4-bit (arxiv:2502.02631, Oct 2025)
+**Takeaway:** First unified approach for sub-4-bit training and quant.
+Pareto-optimal scaling laws.
+**Relevance:** Training-side. Defines "what tradeoff to train for" in
+quant regime we care about.
+**Status:** NO ACTION. Training reference.
+
+### BitNet Distillation (arxiv:2510.13998)
+**Takeaway:** Distill full-precision teacher LLMs down to BitNet b1.58 students.
+**Relevance:** Training pipeline for our QAT work. Not kernel.
+**Status:** NO ACTION. Training reference.
+
+### Continual QAT Pre-Training for BitNet (arxiv:2502.11895)
+**Takeaway:** Train FP16 first, then transition to 1.58-bit QAT. Better than
+1.58-bit-from-scratch. Open question: when to transition.
+**Relevance:** Training-side. The "transition moment" question is their
+open problem. Not kernel.
+**Status:** NO ACTION. Training reference.
+
+### MAGNET — Autonomous expert generation + BitNet training (arxiv:2603.25813)
+**Takeaway:** 618M BitNet b1.58 model + decentralized autoresearch framework
+for expert generation.
+**Relevance:** Shows BitNet adoption beyond Microsoft's own models. Good
+signal for ecosystem momentum.
+**Status:** NO ACTION. Ecosystem watch.
+
 ### Sparse-BitNet (arxiv:2603.05168, March 2026)
 **Takeaway:** 1.58-bit BitNet weights naturally are ~42% zeros — semi-structured
 sparsity comes for free.
