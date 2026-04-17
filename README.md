@@ -24,7 +24,7 @@ rcpp_ck_gemm_run(h, A_fp16_dev, B_packed_dev, C_fp16_dev, stream);
 | Path | Shape | TFlops | vs rocBLAS FP16 | B memory |
 |---|---|---|---|---|
 | Prefill (CK backend) | 2560×6912×2560 (BitNet FFN up) | 30.20 | 0.96× | **¼** |
-| Prefill (CK-free standalone, Phase 4c) | 2560×6912×2560 | 22.35 | 0.71× | **¼** |
+| Prefill (CK-free standalone, Phase 4g) | 2560×6912×2560 | **28.28** | **0.94×** | **¼** |
 | Decode GEMV (v1) | 2560 × 2560 @ batch=1 | — | **4.9× faster** | **¹⁄₁₆** |
 | Decode GEMV (v1) | 4096 × 4096 @ batch=1 | — | **7.2× faster** | **¹⁄₁₆** |
 
