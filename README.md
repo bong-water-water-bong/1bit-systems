@@ -24,11 +24,11 @@ rcpp_ck_gemm_run(h, A_fp16_dev, B_packed_dev, C_fp16_dev, stream);
 | Path | Shape | TFlops | vs rocBLAS FP16 | B memory |
 |---|---|---|---|---|
 | Prefill (CK backend) | 2560×6912×2560 (BitNet FFN up) | 30.20 | 0.96× | **¼** |
-| Prefill (CK-free standalone, Phase 4g) | 2560×6912×2560 | **28.28** | **0.94×** | **¼** |
+| Prefill (CK-free standalone, Phase 4h) | 2560×6912×2560 | **30.75** | **1.017×** | **¼** |
 | Decode GEMV (v1) | 2560 × 2560 @ batch=1 | — | **4.9× faster** | **¹⁄₁₆** |
 | Decode GEMV (v1) | 4096 × 4096 @ batch=1 | — | **7.2× faster** | **¹⁄₁₆** |
 
-The CK-backed prefill requires TheRock ROCm 7.13. The standalone kernel (`src/prefill_standalone.hip`) has zero `ck/` includes — drop it into any HIP project. Decode GEMV has been gfx1151's first-ever 1-bit kernel since April 2026.
+The CK-backed prefill requires TheRock ROCm 7.13. The standalone kernel (`src/prefill_standalone.hip`) has zero `ck/` includes — drop it into any HIP project — and currently ships **at 101.7% of CK's tuned WMMA on BitNet FFN shapes**, bit-perfect. Decode GEMV has been gfx1151's first-ever 1-bit kernel since April 2026. Full build recipe + 5 honest regression phases in [`docs/12-how-we-did-it.md`](docs/12-how-we-did-it.md).
 
 ## What This Is
 
