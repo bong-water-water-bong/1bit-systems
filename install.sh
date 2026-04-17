@@ -78,11 +78,15 @@ fi
 # ─── Clone halo-1bit (for .h1b exporter + tokenizer) ──────────────────────────
 step "Clone halo-1bit"
 cd "$PREFIX"
+HALO_1BIT_BRANCH="${HALO_1BIT_BRANCH:-absmean-quant}"
 if [ -d halo-1bit/.git ]; then
-    green "halo-1bit already present, pulling latest"
+    green "halo-1bit already present, fetching $HALO_1BIT_BRANCH"
+    git -C halo-1bit fetch origin "$HALO_1BIT_BRANCH" || true
+    git -C halo-1bit checkout "$HALO_1BIT_BRANCH" 2>/dev/null || \
+        git -C halo-1bit checkout -b "$HALO_1BIT_BRANCH" "origin/$HALO_1BIT_BRANCH"
     git -C halo-1bit pull --ff-only || true
 else
-    git clone --depth 1 "$HALO_1BIT_REPO" halo-1bit
+    git clone --depth 1 --branch "$HALO_1BIT_BRANCH" "$HALO_1BIT_REPO" halo-1bit
 fi
 
 # ─── Model download + export ──────────────────────────────────────────────────
