@@ -11,25 +11,37 @@ A pure C++ inference and compute stack targeting AMD Strix Halo APUs. Custom Wav
 - **PrismML-Eng/Bonsai-demo#48** — Merged 2026-04-16 by @khosravipasha. Community benchmark page for ROCm HIP Q1_0 on Strix Halo landed upstream. [PR link](https://github.com/PrismML-Eng/Bonsai-demo/pull/48)
 - **First external fork** — @bogdan-d, 2026-04-16
 
-## Results (April 16, 2026)
+## Results (April 16, 2026 — TheRock 7.13 native)
 
 ### Full 1-Bit Burn — 7 Models
 
 ```
 Model                     Quant    Size       pp512 t/s    ±std     tg128 t/s    ±std
 ──────────────────────────────────────────────────────────────────────────────────────
-Bonsai-1.7B               Q1_0     231 MB     4,172.2     ±16.8      232.4      ±0.8
-BitNet-2B-4T              Q1_0     538 MB     3,030.4      ±3.1      110.5      ±0.3
-Bonsai-4B                 Q1_0     540 MB     2,014.1      ±4.7      125.3      ±1.0
-Bonsai-8B                 Q1_0     1.07 GB    1,278.1      ±3.5       94.1      ±0.1
-Qwen3-Coder-Next 80B      IQ1_S    17.6 GB      642.6      ±9.0       50.5      ±0.0
-Llama-4-Scout 108B         IQ1_S    27.2 GB      323.3      ±2.3       21.2      ±0.0
-BitNet-2B-4T              TQ1_0    1.02 GB      272.1      ±0.5       50.0      ±0.0
+Bonsai-1.7B               Q1_0     231 MB     5,001.2     ±38.2      230.9      ±0.8
+BitNet-2B-4T              Q1_0     538 MB     3,651.9     ±14.8      120.2      ±3.3
+Bonsai-4B                 Q1_0     540 MB     2,124.9      ±1.8      125.6      ±0.3
+Bonsai-8B                 Q1_0     1.07 GB    1,324.5      ±4.5       96.1      ±0.1
+Qwen3-Coder-Next 80B      IQ1_S    17.6 GB      661.6      ±5.1       50.8      ±0.0
+Llama-4-Scout 108B         IQ1_S    27.2 GB      325.7      ±0.7       21.3      ±0.0
+BitNet-2B-4T              TQ1_0    1.02 GB      281.6      ±1.0       49.7      ±0.0
 
-PrismML prism branch + TheRock gfx1151, llama-bench 3 rounds, ngl=99
+PrismML-Eng llama.cpp prism branch (e2d6742) + TheRock ROCm 7.13 native gfx1151,
+llama-bench 3 rounds, ngl=99, ROCBLAS_USE_HIPBLASLT=1
 ```
 
-80B MoE at 51 tok/s. 108B at 21 tok/s. 8B in 1 GB at 94 tok/s. All on one APU.
+80B MoE at 51 tok/s. 108B at 21 tok/s. 8B in 1 GB at 96 tok/s. Bonsai-1.7B breaks 5,000 tok/s prompt. All on one APU.
+
+### TheRock 7.13 Uplift (this burn vs earlier TheRock build)
+
+```
+Model                     pp512 prior    pp512 new    Δ         tg128 prior    tg128 new    Δ
+────────────────────────────────────────────────────────────────────────────────────────────────
+Bonsai-1.7B               4,172          5,001        +20%       232            231          ~same
+BitNet-2B-4T Q1_0         3,030          3,652        +21%       110            120          +9%
+Bonsai-4B                 2,014          2,125         +5%       125            126          ~same
+Bonsai-8B                 1,278          1,325         +4%        94             96          +2%
+```
 
 ### ROCm vs Vulkan (Q1_0, same hardware)
 
@@ -91,14 +103,14 @@ Shape (MxK)          v1 (us)   v2 (us)   Status
 
 Design doc: [docs/09-kernel-v2-design.md](docs/09-kernel-v2-design.md). Source: `kernels/ternary_gemv_v2.hip`.
 
-### Q1_0 vs TQ1_0 (BitNet-2B-4T)
+### Q1_0 vs TQ1_0 (BitNet-2B-4T) — TheRock 7.13
 
 ```
 Format      Size      pp512 t/s    tg128 t/s    Speedup
 ──────────────────────────────────────────────────────────
-Q1_0        538 MB    3,030         110          DP4A kernel
-TQ1_0       1.02 GB     272          50          generic path
-                        11.1x        2.2x
+Q1_0        538 MB    3,652         120          DP4A kernel
+TQ1_0       1.02 GB     282          50          generic path
+                        12.9x        2.4x
 ```
 
 ## The Problem
