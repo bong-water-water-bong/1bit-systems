@@ -129,6 +129,30 @@ Each lands as a separate PR. Claim one in an issue before starting.
 | 6 | Backend selection UI + `~/.config/halo-ai/backend.json` persistence | small |
 | 7 | Man Cave page (F2) — Muse orb with shader visualization, voice loop over unix sockets | large |
 
+## Don't reinvent — start from these
+
+Every piece of this has a working reference upstream. Fork / copy / learn
+from them before writing anything from scratch.
+
+| Need | Steal from | License |
+|---|---|---|
+| SDL2 + ImGui boot, event loop, GL context | ImGui official `examples/example_sdl2_opengl3/main.cpp` | MIT |
+| Docking + multi-viewport windows | ImGui's `docking` branch (now in master) | MIT |
+| Production-grade ImGui app layout (menu, plugin system, themes) | [WerWolv/ImHex](https://github.com/WerWolv/ImHex) | GPL — read, don't vendor |
+| ImGui-based performance dashboard / real-time panels | [wolfpld/tracy](https://github.com/wolfpld/tracy) | BSD-3 |
+| Kawase / dual-filter blur shader GLSL | [intel/blurbench](https://github.com/intel/blurbench) samples + shadertoy community | MIT / CC0 |
+| Frosted-glass UI patterns in shader | [Playdeck/ImGuiBundle](https://github.com/pthom/imgui_bundle) demo effects | MIT |
+| HTTP client pattern in ImGui apps | Tracy's `TracyOpenGL` server interface | BSD-3 |
+| Daily wallpaper rotation (Linux) | [jeffbowman/variety](https://github.com/varietywalls/variety) logic, ported | GPL — read |
+| Config-file persistence, themes | ImGui official `imgui_demo.cpp` + `imgui.ini` patterns | MIT |
+
+**Rules:**
+- Start from ImGui's SDL2 example. Get a blank window up, *then* layer.
+- Vendor via `FetchContent_Declare` — single source of truth for versions.
+- If a reference is GPL, read it and re-implement; don't link.
+- If a pattern exists in ImGui's `imgui_demo.cpp`, that's the canonical
+  way — don't invent a cleverer one.
+
 ## File tree
 
 ```
