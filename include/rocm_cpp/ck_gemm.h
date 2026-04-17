@@ -136,6 +136,19 @@ rcpp_residual_add_fp16(void* y_dev, const void* src_dev, int N, void* stream);
 rcpp_status_t
 rcpp_argmax_fp32(const void* logits_dev, void* out_idx_dev, int V, void* stream);
 
+// Softmax with optional temperature — in-place. logits[] becomes probs[].
+//   probs[v] = exp(logits[v] / T - max) / sum
+// temperature must be > 0. Pass 1.0 for standard softmax.
+rcpp_status_t
+rcpp_softmax_fp32(void* logits_dev, int V, float temperature, void* stream);
+
+// Multinomial sample — given a probability distribution probs[V] (from the
+// softmax above), and a uniform random r in [0,1), returns the smallest index
+// v such that cumsum(probs[0..v]) > r. Caller generates r on CPU (any PRNG).
+rcpp_status_t
+rcpp_sample_multinomial_fp32(const void* probs_dev, float r,
+                             void* out_idx_dev, int V, void* stream);
+
 // -----------------------------------------------------------------------------
 // Phase 6 — KV cache attention for batch=1 decode (Flash-Decoding style).
 //

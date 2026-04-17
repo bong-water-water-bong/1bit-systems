@@ -196,6 +196,95 @@ __global__ void residual_add_fp16_kernel(
 }
 
 // ============================================================================
+// 8. Softmax (FP32) with optional temperature — in place on logits.
+//    y[v] = exp((x[v] - max) / T) / sum
+// ============================================================================
+
+__global__ void softmax_fp32_kernel(
+    float* __restrict__ logits,
+    int V, float inv_T)
+{
+    __shared__ float s_max;
+    __shared__ float s_sum;
+    __shared__ float s_val[BLOCK / WARP];
+
+    const int tid  = threadIdx.x;
+    const int lane = tid & (WARP - 1);
+    const int wid  = tid / WARP;
+
+    // 1) max reduction
+    float lmax = -INFINITY;
+    for (int v = tid; v < V; v += BLOCK) {
+        float x = logits[v] * inv_T;
+        if (x > lmax) lmax = x;
+    }
+    #pragma unroll
+    for (int o = WARP / 2; o > 0; o >>= 1) {
+        float ov = __shfl_xor(lmax, o);
+        if (ov > lmax) lmax = ov;
+    }
+    if (lane == 0) s_val[wid] = lmax;
+    __syncthreads();
+    if (wid == 0) {
+        float v = (lane < BLOCK / WARP) ? s_val[lane] : -INFINITY;
+        #pragma unroll
+        for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) {
+            float ov = __shfl_xor(v, o);
+            if (ov > v) v = ov;
+        }
+        if (lane == 0) s_max = v;
+    }
+    __syncthreads();
+
+    // 2) exp + sum
+    float lsum = 0.0f;
+    const float m = s_max;
+    for (int v = tid; v < V; v += BLOCK) {
+        float e = std::expf(logits[v] * inv_T - m);
+        logits[v] = e;   // reuse buffer
+        lsum += e;
+    }
+    #pragma unroll
+    for (int o = WARP / 2; o > 0; o >>= 1) lsum += __shfl_xor(lsum, o);
+    if (lane == 0) s_val[wid] = lsum;
+    __syncthreads();
+    if (wid == 0) {
+        float s = (lane < BLOCK / WARP) ? s_val[lane] : 0.0f;
+        #pragma unroll
+        for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) s += __shfl_xor(s, o);
+        if (lane == 0) s_sum = s;
+    }
+    __syncthreads();
+
+    // 3) normalize
+    const float inv = 1.0f / s_sum;
+    for (int v = tid; v < V; v += BLOCK) logits[v] *= inv;
+}
+
+// ============================================================================
+// 9. Multinomial sample — given probs[V] and a uniform r ∈ [0, 1),
+//    return the smallest v where cumsum(probs[0..v]) > r.
+//    Linear scan on one thread — correct but could be faster (inverse-CDF
+//    binary search). Good enough for one-token-per-step decode.
+// ============================================================================
+
+__global__ void sample_multinomial_fp32_kernel(
+    const float* __restrict__ probs,
+    float                     r,
+    int* __restrict__ out_idx,
+    int V)
+{
+    if (threadIdx.x != 0 || blockIdx.x != 0) return;
+    float cumu = 0.0f;
+    int picked = V - 1;
+    for (int v = 0; v < V; ++v) {
+        cumu += probs[v];
+        if (cumu >= r) { picked = v; break; }
+    }
+    *out_idx = picked;
+}
+
+// ============================================================================
 // 7. Argmax sampling — returns index of max element in logits[V]
 //    Single block, block-wide reduction.
 // ============================================================================
@@ -352,6 +441,35 @@ rcpp_argmax_fp32(const void* logits_dev, void* out_idx_dev, int V, void* stream)
     hipLaunchKernelGGL(argmax_fp32_kernel,
                        grid, block, 0, (hipStream_t)stream,
                        static_cast<const float*>(logits_dev),
+                       static_cast<int*>(out_idx_dev),
+                       V);
+    return RCPP_OK;
+}
+
+rcpp_status_t
+rcpp_softmax_fp32(void* logits_dev, int V, float temperature, void* stream)
+{
+    if (!logits_dev || V <= 0 || temperature <= 0.0f) return RCPP_INVALID_ARG;
+    dim3 grid(1, 1, 1), block(BLOCK, 1, 1);
+    hipLaunchKernelGGL(softmax_fp32_kernel,
+                       grid, block, 0, (hipStream_t)stream,
+                       static_cast<float*>(logits_dev),
+                       V, 1.0f / temperature);
+    return RCPP_OK;
+}
+
+rcpp_status_t
+rcpp_sample_multinomial_fp32(const void* probs_dev, float r,
+                             void* out_idx_dev, int V, void* stream)
+{
+    if (!probs_dev || !out_idx_dev || V <= 0) return RCPP_INVALID_ARG;
+    if (r < 0.0f) r = 0.0f;
+    if (r >= 1.0f) r = 1.0f - 1e-7f;
+    dim3 grid(1, 1, 1), block(1, 1, 1);
+    hipLaunchKernelGGL(sample_multinomial_fp32_kernel,
+                       grid, block, 0, (hipStream_t)stream,
+                       static_cast<const float*>(probs_dev),
+                       r,
                        static_cast<int*>(out_idx_dev),
                        V);
     return RCPP_OK;
