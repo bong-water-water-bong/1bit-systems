@@ -39,8 +39,8 @@ set(CMAKE_HIP_ARCHITECTURES "gfx1151")
 # Host packer is pure C++ (no CK). Device kernel uses CK headers only — no
 # libutility.a link. Once we vendor the device kernel (Phase 1+), this target
 # has no CK dependency at all.
-add_library(rocm_cpp SHARED src/ck_gemm.cpp)
-set_source_files_properties(src/ck_gemm.cpp PROPERTIES LANGUAGE HIP)
+add_library(rocm_cpp SHARED src/ck_gemm.cpp src/prefill_standalone.hip)
+set_source_files_properties(src/ck_gemm.cpp src/prefill_standalone.hip PROPERTIES LANGUAGE HIP)
 target_include_directories(rocm_cpp PUBLIC
     $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>)
@@ -58,6 +58,14 @@ target_compile_options(test_ck_gemm PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
 target_link_libraries(test_ck_gemm PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(test_ck_gemm PROPERTIES HIP_ARCHITECTURES "gfx1151")
+
+# -- tests/test_standalone : correctness diff CK vs standalone kernel ----------
+add_executable(test_standalone tests/test_standalone.cpp)
+set_source_files_properties(tests/test_standalone.cpp PROPERTIES LANGUAGE HIP)
+target_compile_options(test_standalone PRIVATE
+    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_link_libraries(test_standalone PRIVATE rocm_cpp hip::host hip::device)
+set_target_properties(test_standalone PROPERTIES HIP_ARCHITECTURES "gfx1151")
 
 # -- ck-prefill : research binaries (kept building for tuning) ------------------
 add_subdirectory(ck-prefill)
