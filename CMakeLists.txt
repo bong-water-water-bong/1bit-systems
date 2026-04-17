@@ -28,21 +28,27 @@ set(ROCM_ROOT "$ENV{HOME}/therock/build/dist/rocm")
 list(PREPEND CMAKE_PREFIX_PATH "${ROCM_ROOT}" "${ROCM_ROOT}/lib/cmake")
 
 find_package(hip REQUIRED CONFIG PATHS "${ROCM_ROOT}")
-find_package(composable_kernel REQUIRED CONFIG COMPONENTS utility PATHS "${ROCM_ROOT}")
+
+# CK is still needed for the device-side GEMM template (header-only). Option B
+# phases 1-4 will replace that; once they land, this find_package goes away too.
+find_package(composable_kernel REQUIRED CONFIG PATHS "${ROCM_ROOT}")
 
 set(CMAKE_HIP_ARCHITECTURES "gfx1151")
 
 # -- librocm_cpp : shared library exposing the C API ----------------------------
+# Host packer is pure C++ (no CK). Device kernel uses CK headers only — no
+# libutility.a link. Once we vendor the device kernel (Phase 1+), this target
+# has no CK dependency at all.
 add_library(rocm_cpp SHARED src/ck_gemm.cpp)
 set_source_files_properties(src/ck_gemm.cpp PROPERTIES LANGUAGE HIP)
 target_include_directories(rocm_cpp PUBLIC
     $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>)
+target_include_directories(rocm_cpp SYSTEM PRIVATE "${ROCM_ROOT}/include")
 target_compile_options(rocm_cpp PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -ffast-math -munsafe-fp-atomics
         -Wno-unused-result -Wno-unused-parameter -Wno-unused-variable>)
-target_link_libraries(rocm_cpp PRIVATE
-    composable_kernel::utility hip::host hip::device)
+target_link_libraries(rocm_cpp PRIVATE hip::host hip::device)
 set_target_properties(rocm_cpp PROPERTIES HIP_ARCHITECTURES "gfx1151")
 
 # -- tests/test_ck_gemm : end-to-end functional proof --------------------------

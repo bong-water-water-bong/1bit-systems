@@ -12,8 +12,6 @@
 #include "ck/tensor_operation/gpu/device/impl/device_gemm_wmma_cshuffle_v3.hpp"
 #include "ck/tensor_operation/gpu/element/element_wise_operation.hpp"
 
-#include "ck/library/utility/host_tensor.hpp"
-
 #include <hip/hip_runtime.h>
 
 #include <cstdint>
@@ -133,106 +131,100 @@ rcpp_ck_gemm_instance_string(const rcpp_ck_gemm_handle_t* h) {
 }
 
 // Offline packer — ternary int8 {-1, 0, +1} col-major [K, N] -> pk_i4
-// WMMA-permuted bytes [K*N/2]. Uses CK's Tensor type internally to apply the
-// same PermuteB pipeline the GPU kernel expects.
+// WMMA-permuted bytes [K*N/2].
+//
+// Byte-level semantics (replacement for CK's ck::Tensor<pk_i4_t> approach):
+//
+//   Un-permuted byte layout, col-major B:
+//     For each column n in [0,N), each K-pair (k, k+1):
+//       byte[(n*K + k)/2] = (hi << 4) | lo
+//     where hi = nibble(ternary[n, k    ])  -- first element, HIGH nibble
+//           lo = nibble(ternary[n, k + 1])  -- second element, LOW nibble
+//     (High-first ordering is required by CK_USE_PK4_LAYOUT_SHUFFLE=1 set
+//      in ck.hpp — see ck/utility/type_convert.hpp:type_convert<half2_t,pk_i4_t>.)
+//
+//   Nibble map compensates for CK's "n - 8" FP16 decode:
+//     -1 -> 0x7  (decodes 7 - 8 = -1)
+//      0 -> 0x8  (decodes 8 - 8 =  0)
+//     +1 -> 0x9  (decodes 9 - 8 = +1)
+//
+//   Block permute (K -> [K0, N, K1] with K1 = KPerBlock = 32):
+//     CK's reference uses 1-arg access on a pk_i4_t 2D tensor with NDEBUG;
+//     resolves to a byte-for-byte memcpy at K1/2 byte granularity:
+//       dst_byte = (j * N * K1/2) + (i * K1/2) + (jj/2)
+//       src_byte = (i * K/2)      + (j * K1/2) + (jj/2)
+//     With K1 = 32, that's a 16-byte contiguous copy per (j, i).
+//
+//   Within-8 nibble permute (01234567 -> 20643175, per upstream example):
+//     For each column i in [0,N), each K-group of 8 (j step 8):
+//       read the 4 bytes at byte-offset (i*K + j)/2
+//       decompose 8 nibbles (high-first) into input[0..7]
+//       write back 4 bytes with nibble permutation
+//         byte[k+0,k+1] := (input[2]<<4)|input[0]
+//         byte[k+2,k+3] := (input[6]<<4)|input[4]
+//         byte[k+4,k+5] := (input[3]<<4)|input[1]
+//         byte[k+6,k+7] := (input[7]<<4)|input[5]
+//
+// No CK headers, no libutility.a linkage — pure C++ with one std::vector.
 rcpp_status_t
 rcpp_ternary_pack_pk_i4(const int8_t* ternary_host, int8_t* packed_host,
                         int K, int N) {
     if(!ternary_host || !packed_host || K <= 0 || N <= 0) return RCPP_INVALID_ARG;
     if(K % KPerBlock != 0 || K % 8 != 0)                  return RCPP_INVALID_ARG;
 
-    // Build CK tensors in pk_i4 layout: descriptor says [K, N] col-major but
-    // storage is K*N/2 bytes (packed_size_v<pk_i4_t> = 2).
-    using BDataType = pk_i4_t;
-
-    // Ternary -> int4 nibble map, compensating for CK's "n - 8" decode
-    // (see ck/utility/type_convert.hpp::type_convert<half2_t, pk_i4_t>).
-    //   -1 -> 0x7  (decodes 7 - 8 = -1)
-    //    0 -> 0x8  (decodes 8 - 8 =  0)
-    //   +1 -> 0x9  (decodes 9 - 8 = +1)
     auto t_to_i4 = [](int8_t t) -> uint8_t {
         if(t == 0)  return 0x8;
         if(t >  0)  return 0x9;
         return 0x7;
     };
 
-    // Source bytes: pack ternary pairs (col-major) into byte layout CK expects
-    // for the un-permuted tensor. With CK_USE_PK4_LAYOUT_SHUFFLE defined
-    // (default, set in ck.hpp), the HIGH nibble of each byte holds the FIRST
-    // element (K=2k), LOW nibble holds the SECOND element (K=2k+1).
-    ck::HostTensorDescriptor desc_knn(
-        {static_cast<std::size_t>(K), static_cast<std::size_t>(N)},
-        {static_cast<std::size_t>(1), static_cast<std::size_t>(K)});  // col-major stride {1, K}
-    ck::Tensor<BDataType> b_k_n(desc_knn);
-    {
-        int8_t* dst = reinterpret_cast<int8_t*>(b_k_n.mData.data());
-        for(int n = 0; n < N; ++n) {
-            for(int k = 0; k < K; k += 2) {
-                uint8_t hi = t_to_i4(ternary_host[(std::size_t)n * K + k    ]);  // first elem -> high nibble
-                uint8_t lo = t_to_i4(ternary_host[(std::size_t)n * K + k + 1]);  // second elem -> low nibble
-                dst[((std::size_t)n * K + k) / 2] = (int8_t)((hi << 4) | lo);
-            }
+    const std::size_t nbytes = (std::size_t)K * N / 2;
+
+    // Stage A: pack ternary -> un-permuted pk_i4 bytes (col-major [K, N]).
+    std::vector<uint8_t> unpermuted(nbytes);
+    for(int n = 0; n < N; ++n) {
+        for(int k = 0; k < K; k += 2) {
+            uint8_t hi = t_to_i4(ternary_host[(std::size_t)n * K + k    ]);
+            uint8_t lo = t_to_i4(ternary_host[(std::size_t)n * K + k + 1]);
+            unpermuted[((std::size_t)n * K + k) / 2] = (uint8_t)((hi << 4) | lo);
         }
     }
 
-    // Allocate b_k_n_permute with same descriptor.
-    ck::Tensor<BDataType> b_k_n_permute(desc_knn);
-
-    // Block-reshape [K, N] -> [K0, N, K1]  (exact replication of upstream).
-    constexpr int K1 = KPerBlock;
-    const int     K0 = K / K1;
+    // Stage B: block-reshape K -> [K0, N, K1] at K1/2-byte granularity into
+    // the output buffer. After this the output holds the "block-permuted"
+    // bytes; the within-8 nibble permute rewrites them in place.
+    constexpr int K1       = KPerBlock;   // 32
+    constexpr int K1_bytes = K1 / 2;      // 16
+    const     int K0       = K / K1;
+    uint8_t* dst = reinterpret_cast<uint8_t*>(packed_host);
     for(int j = 0; j < K0; ++j) {
         for(int i = 0; i < N; ++i) {
-            for(int jj = 0; jj < K1; ++jj) {
-                b_k_n_permute(j * N * K1 + i * K1 + jj) =
-                    b_k_n(i * K + (j * K1 + jj));
-            }
+            const std::size_t dst_off =
+                (std::size_t)j * N * K1_bytes + (std::size_t)i * K1_bytes;
+            const std::size_t src_off =
+                (std::size_t)i * (K / 2) + (std::size_t)j * K1_bytes;
+            std::memcpy(dst + dst_off, unpermuted.data() + src_off, K1_bytes);
         }
     }
 
-    // Within-8 nibble permute (01234567 -> 20643175). Exact replication of
-    // gemm_wmma_fp16_pk_i4_v3.cpp lines 168-215.
+    // Stage C: within-8 nibble permute in place on the output bytes, using
+    // the (j, i) indexing that CK's reference uses post-block-permute:
+    //   byte-offset = (i * K + j) / 2, 4 bytes per group.
     for(int i = 0; i < N; ++i) {
         for(int j = 0; j < K; j += 8) {
+            uint8_t* p = dst + ((std::size_t)i * K + j) / 2;  // 4 contiguous bytes
             int input[8];
             for(int kk = 0; kk < 4; ++kk) {
-                int i4x2         = b_k_n_permute(j + kk * 2, i).data;
-                input[kk * 2 + 0] = (i4x2 >> 4) & 0xf;
-                input[kk * 2 + 1] = (i4x2 >> 0) & 0xf;
+                int b = p[kk];
+                input[kk * 2 + 0] = (b >> 4) & 0xf;
+                input[kk * 2 + 1] = (b >> 0) & 0xf;
             }
-
-            {
-                int hi   = input[2];
-                int lo   = input[0];
-                int i4x2 = (hi << 4) | lo;
-                b_k_n_permute(j + 0, i) = (int8_t)i4x2;
-            }
-            {
-                int hi   = input[6];
-                int lo   = input[4];
-                int i4x2 = (hi << 4) | lo;
-                b_k_n_permute(j + 2, i) = (int8_t)i4x2;
-            }
-            {
-                int hi   = input[3];
-                int lo   = input[1];
-                int i4x2 = (hi << 4) | lo;
-                b_k_n_permute(j + 4, i) = (int8_t)i4x2;
-            }
-            {
-                int hi   = input[7];
-                int lo   = input[5];
-                int i4x2 = (hi << 4) | lo;
-                b_k_n_permute(j + 6, i) = (int8_t)i4x2;
-            }
+            p[0] = (uint8_t)((input[2] << 4) | input[0]);
+            p[1] = (uint8_t)((input[6] << 4) | input[4]);
+            p[2] = (uint8_t)((input[3] << 4) | input[1]);
+            p[3] = (uint8_t)((input[7] << 4) | input[5]);
         }
     }
-
-    // Copy packed bytes out. Tensor<pk_i4_t>.mData is a vector<pk_i4_t> which
-    // is actually sizeof(int8_t) per element — storage is K*N/2 bytes but the
-    // vector reports K*N elements. Each element is one BYTE (pk_i4_t::data).
-    const int8_t* src = reinterpret_cast<const int8_t*>(b_k_n_permute.mData.data());
-    std::memcpy(packed_host, src, (std::size_t)K * N / 2);
     return RCPP_OK;
 }
 
