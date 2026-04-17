@@ -2,6 +2,38 @@
 
 Native ROCm C++ for Strix Halo (gfx1151). Built from scratch. No Python at runtime.
 
+## April 17, 2026 — BitNet-2B-4T decodes end-to-end on librocm_cpp
+
+The full inference pipeline now runs against real BitNet-b1.58-2B-4T weights
+with **coherent English output** at **82 tok/s**, top-5 logits bit-matching
+a PyTorch reference trace. Zero MLX, zero framework deps.
+
+```
+$ bitnet_decode models/halo-1bit-2b-absmean.h1b 128000 32
+tokens: 279 4320 374 220 18 13 20 13 220 18 13 20 374 279 4320 13 ...
+# "the answer is 3.5" (greedy argmax, loops because no prompt context)
+```
+
+**Five correctness gaps found and closed in one session** (see `tools/bitnet_decode.cpp`):
+
+1. `.h1b` loader was reading FP16 where the exporter writes FP32
+2. `attn_sub_norm` and `ffn_sub_norm` were loaded but never applied
+3. Wrong activation — SiLU instead of BitNet's ReLU² GLU (`hidden_act="relu2"`)
+4. Per-row absmax quant instead of BitNet's per-tensor `1/mean(|W|)` absmean
+5. FP16 overflow in `relu²(gate) * up` hitting 10⁹ mid-network — now fused
+   with `ffn_sub_norm` in a single FP32-internal kernel, emitting FP16 only
+   after the norm brings the value back to bounded scale
+
+## Quick start — install everything
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/stampby/rocm-cpp/main/install.sh | bash
+```
+
+Or see [`install.sh`](install.sh) — clones rocm-cpp + halo-1bit, builds
+against an existing TheRock ROCm dist (or a vanilla `/opt/rocm`), exports
+a BitNet-2B-4T `.h1b`, and runs `bitnet_decode` as a smoke test.
+
 ## Headline numbers (gfx1151, Phase 5 dot4)
 
 - **Prefill 2560×6912×2560 (BitNet FFN up):** 30.15 TFlops, **1.02× rocBLAS FP16** at ¼ B memory. Bit-perfect.
