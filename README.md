@@ -34,6 +34,25 @@ Or see [`install.sh`](install.sh) — clones rocm-cpp + halo-1bit, builds
 against an existing TheRock ROCm dist (or a vanilla `/opt/rocm`), exports
 a BitNet-2B-4T `.h1b`, and runs `bitnet_decode` as a smoke test.
 
+## Wanted — beta testers & FTXUI contributors
+
+If you have a Strix Halo box (Ryzen AI MAX+ 395, 128 GB unified), run the
+install script and send feedback. Every edge case — different ROCm dists,
+different BitNet checkpoints, different models — is useful signal.
+
+We're also looking for **FTXUI contributors** to build a TUI frontend
+around `tools/bitnet_decode.cpp`:
+
+- live token stream panel (chat-style output)
+- per-layer timing + tok/s stats panel
+- KV-cache heatmap across 30 layers
+- event loop that wraps the existing `forward_token` decode lambda
+- works over SSH, zero X11
+
+FTXUI (MIT, C++20, header-only core) only — no Qt, no Electron, no web
+layer. Seed code lives in `tools/bitnet_decode.cpp`; the TUI target
+should build alongside it via the existing CMake flow.
+
 ## Headline numbers (gfx1151, Phase 5 dot4)
 
 - **Prefill 2560×6912×2560 (BitNet FFN up):** 30.15 TFlops, **1.02× rocBLAS FP16** at ¼ B memory. Bit-perfect.
