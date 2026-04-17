@@ -39,8 +39,17 @@ set(CMAKE_HIP_ARCHITECTURES "gfx1151")
 # Host packer is pure C++ (no CK). Device kernel uses CK headers only — no
 # libutility.a link. Once we vendor the device kernel (Phase 1+), this target
 # has no CK dependency at all.
-add_library(rocm_cpp SHARED src/ck_gemm.cpp src/prefill_standalone.hip src/wmma_peak_probe.hip)
-set_source_files_properties(src/ck_gemm.cpp src/prefill_standalone.hip src/wmma_peak_probe.hip PROPERTIES LANGUAGE HIP)
+add_library(rocm_cpp SHARED
+    src/ck_gemm.cpp
+    src/prefill_standalone.hip
+    src/wmma_peak_probe.hip
+    kernels/ternary_gemv_phase5_dot4.hip)
+set_source_files_properties(
+    src/ck_gemm.cpp
+    src/prefill_standalone.hip
+    src/wmma_peak_probe.hip
+    kernels/ternary_gemv_phase5_dot4.hip
+    PROPERTIES LANGUAGE HIP)
 target_include_directories(rocm_cpp PUBLIC
     $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>)

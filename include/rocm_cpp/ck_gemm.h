@@ -61,6 +61,29 @@ const char*
 rcpp_ck_gemm_instance_string(const rcpp_ck_gemm_handle_t* handle);
 
 // -----------------------------------------------------------------------------
+// Phase 5 decode GEMV — ternary × INT8 activations.
+//
+// For batch=1 decode (1 output vector = 1 token). Takes INT8 activations
+// (user pre-quantizes with per-vector scale), packed ternary weights in v1
+// format (2 bits per value, 16 values per uint32), per-row weight scales,
+// and writes FP32 output.
+//
+// Uses the v_dot4_i32_iu8 builtin (gfx11 dot8-insts) with 8 rows per block.
+// Benchmarked at 2.4-7.1× faster than rocBLAS FP16 GEMV across all measured
+// shapes on gfx1151.
+//
+// Shape constraints: K must be a multiple of 16 (for the packed encoding) and
+// ideally a multiple of LDS_TILE_I8 = 2048 for best perf (tail path exists).
+rcpp_status_t
+rcpp_ternary_gemv(const void* packed_weights_dev,   // [M, K/16] uint32
+                  const void* activations_i8_dev,   // [K] int8
+                  float       activation_scale,     // scalar — real_a = i8 * scale
+                  const void* row_scales_dev,       // [M] float — per-row weight scale
+                  void*       output_dev,           // [M] float — post-dequant output
+                  int M, int K,
+                  void*       stream);              // hipStream_t (nullable)
+
+// -----------------------------------------------------------------------------
 // Standalone (CK-free) prefill launcher.
 //
 // Same inputs as rcpp_ck_gemm_run. Produces bit-identical output to the CK

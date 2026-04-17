@@ -134,6 +134,21 @@ rcpp_ck_gemm_instance_string(const rcpp_ck_gemm_handle_t* h) {
 extern void rcpp_standalone_launch_wmma_4x4_vec(const void*, const void*, void*,
                                                 int, int, int, void*);
 
+// Phase 5 decode GEMV — wired to the dot4 variant (current winner).
+extern void ternary_gemv_phase5_dot4_launch(const void*, const void*, float,
+                                            const void*, void*, int, int, void*);
+
+rcpp_status_t
+rcpp_ternary_gemv(const void* packed, const void* x_i8, float x_scale,
+                  const void* row_scales, void* y,
+                  int M, int K, void* stream) {
+    if(!packed || !x_i8 || !row_scales || !y) return RCPP_INVALID_ARG;
+    if(M <= 0 || K <= 0)                      return RCPP_INVALID_ARG;
+    if(K % 16 != 0)                           return RCPP_INVALID_ARG;  // 16 values per uint32
+    ternary_gemv_phase5_dot4_launch(packed, x_i8, x_scale, row_scales, y, M, K, stream);
+    return RCPP_OK;
+}
+
 rcpp_status_t
 rcpp_standalone_gemm(const void* A_dev, const void* B_dev_packed, void* C_dev,
                      int M, int N, int K, void* stream) {
