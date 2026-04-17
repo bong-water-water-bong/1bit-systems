@@ -2,6 +2,34 @@
 
 Native ROCm C++ for Strix Halo (gfx1151). Built from scratch. No Python at runtime.
 
+## For integrators — drop-in 1-bit backend
+
+If you are building a C++ inference engine targeting AMD Strix Halo — **Lemonade**, **llama.cpp HIP backend**, **MLX ROCm**, or any `WrappedServer`-style router — `librocm_cpp.so` is the BitNet / ternary compute path you were going to write. It already exists, it's measured against rocBLAS, and it ships behind a single C header so you don't pull CK or HIP templates into your translation units.
+
+```c
+#include <rocm_cpp/ck_gemm.h>
+
+// Once at model load: convert your ternary weights {-1, 0, +1} to the
+// WMMA-permuted pk_i4 layout the GPU kernel expects.
+rcpp_ternary_pack_pk_i4(ternary_KN, packed_KN_div2, K, N);
+
+// Hot path, per-layer prefill:
+rcpp_ck_gemm_handle_t* h;
+rcpp_ck_gemm_create(M, N, K, &h);
+rcpp_ck_gemm_run(h, A_fp16_dev, B_packed_dev, C_fp16_dev, stream);
+```
+
+**On gfx1151 (Radeon 8060S), versus rocBLAS FP16 on the same shapes:**
+
+| Path | Shape | TFlops | vs rocBLAS FP16 | B memory |
+|---|---|---|---|---|
+| Prefill (CK backend) | 2560×6912×2560 (BitNet FFN up) | 30.20 | 0.96× | **¼** |
+| Prefill (CK-free standalone, Phase 4c) | 2560×6912×2560 | 22.35 | 0.71× | **¼** |
+| Decode GEMV (v1) | 2560 × 2560 @ batch=1 | — | **4.9× faster** | **¹⁄₁₆** |
+| Decode GEMV (v1) | 4096 × 4096 @ batch=1 | — | **7.2× faster** | **¹⁄₁₆** |
+
+The CK-backed prefill requires TheRock ROCm 7.13. The standalone kernel (`src/prefill_standalone.hip`) has zero `ck/` includes — drop it into any HIP project. Decode GEMV has been gfx1151's first-ever 1-bit kernel since April 2026.
+
 ## What This Is
 
 A pure C++ inference and compute stack targeting AMD Strix Halo APUs. Custom Wave32 HIP kernels for 1-bit / ternary, CK-backed WMMA prefill, native Tensile GEMM from source. All C++, all on RDNA 3.5 silicon.
