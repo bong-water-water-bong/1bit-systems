@@ -15,7 +15,8 @@
 #include <random>
 #include <vector>
 
-extern "C" void rcpp_standalone_launch(const void*, const void*, void*, int, int, int, void*);
+extern "C" void rcpp_standalone_launch    (const void*, const void*, void*, int, int, int, void*);
+extern "C" void rcpp_standalone_launch_lds(const void*, const void*, void*, int, int, int, void*);
 
 #define HIP_OK(e) do { auto _s=(e); if(_s!=hipSuccess){fprintf(stderr,"HIP err %d %s:%d\n",_s,__FILE__,__LINE__); std::abort();}} while(0)
 #define RC_OK(e)  do { auto _s=(e); if(_s!=RCPP_OK){fprintf(stderr,"rcpp err %d %s:%d\n",(int)_s,__FILE__,__LINE__); std::abort();}} while(0)
@@ -46,10 +47,12 @@ int main(int argc, char** argv) {
     int8_t*   dB = nullptr;
     _Float16* dC_ck   = nullptr;
     _Float16* dC_std  = nullptr;
+    _Float16* dC_lds  = nullptr;
     HIP_OK(hipMalloc(&dA,      A.size() * sizeof(_Float16)));
     HIP_OK(hipMalloc(&dB,      B_packed.size()));
     HIP_OK(hipMalloc(&dC_ck,   (size_t)M * N * sizeof(_Float16)));
     HIP_OK(hipMalloc(&dC_std,  (size_t)M * N * sizeof(_Float16)));
+    HIP_OK(hipMalloc(&dC_lds,  (size_t)M * N * sizeof(_Float16)));
     HIP_OK(hipMemcpy(dA, A.data(),        A.size() * sizeof(_Float16), hipMemcpyHostToDevice));
     HIP_OK(hipMemcpy(dB, B_packed.data(), B_packed.size(),             hipMemcpyHostToDevice));
 
@@ -59,63 +62,67 @@ int main(int argc, char** argv) {
     RC_OK(rcpp_ck_gemm_run(h, dA, dB, dC_ck, nullptr));
     HIP_OK(hipDeviceSynchronize());
 
-    // Run standalone path
-    rcpp_standalone_launch(dA, dB, dC_std, M, N, K, nullptr);
+    // Run standalone paths
+    rcpp_standalone_launch    (dA, dB, dC_std, M, N, K, nullptr);
+    rcpp_standalone_launch_lds(dA, dB, dC_lds, M, N, K, nullptr);
     HIP_OK(hipDeviceSynchronize());
 
     // Diff
-    std::vector<_Float16> C_ck((size_t)M * N), C_std((size_t)M * N);
+    std::vector<_Float16> C_ck((size_t)M * N), C_std((size_t)M * N), C_lds((size_t)M * N);
     HIP_OK(hipMemcpy(C_ck.data(),  dC_ck,  C_ck.size()  * sizeof(_Float16), hipMemcpyDeviceToHost));
     HIP_OK(hipMemcpy(C_std.data(), dC_std, C_std.size() * sizeof(_Float16), hipMemcpyDeviceToHost));
+    HIP_OK(hipMemcpy(C_lds.data(), dC_lds, C_lds.size() * sizeof(_Float16), hipMemcpyDeviceToHost));
 
-    float max_abs = 0.0f, max_rel = 0.0f;
-    double sum_abs = 0.0;
-    for(size_t i = 0; i < C_ck.size(); ++i) {
-        float a = (float)C_ck[i];
-        float b = (float)C_std[i];
-        float d = std::fabs(a - b);
-        max_abs = std::max(max_abs, d);
-        float denom = std::max(std::fabs(a), 1e-3f);
-        max_rel = std::max(max_rel, d / denom);
-        sum_abs += d;
-    }
-    double mean_abs = sum_abs / C_ck.size();
-    printf("Standalone vs CK output diff:\n");
-    printf("  max abs  : %.6f\n", max_abs);
-    printf("  max rel  : %.6f\n", max_rel);
-    printf("  mean abs : %.6f\n", mean_abs);
+    auto diff = [&](const char* label, const std::vector<_Float16>& ref, const std::vector<_Float16>& got) {
+        float max_abs = 0.0f;
+        for(size_t i = 0; i < ref.size(); ++i) {
+            float d = std::fabs((float)ref[i] - (float)got[i]);
+            max_abs = std::max(max_abs, d);
+        }
+        printf("  %-22s  max abs = %.6f\n", label, max_abs);
+        return max_abs;
+    };
 
-    // Perf sanity (not a goal at Phase 1)
-    const int runs = 10;
+    printf("Diffs vs CK:\n");
+    float max_abs = diff("Phase 1 naive", C_ck, C_std);
+    float max_abs_lds = diff("Phase 2 LDS",   C_ck, C_lds);
+
+    // Perf sanity (perf climbs across phases)
+    const int runs = 20;
     hipEvent_t e0, e1; HIP_OK(hipEventCreate(&e0)); HIP_OK(hipEventCreate(&e1));
-
-    HIP_OK(hipEventRecord(e0, nullptr));
-    for(int r = 0; r < runs; ++r) rcpp_standalone_launch(dA, dB, dC_std, M, N, K, nullptr);
-    HIP_OK(hipEventRecord(e1, nullptr));
-    HIP_OK(hipEventSynchronize(e1));
-    float ms_std = 0.0f; HIP_OK(hipEventElapsedTime(&ms_std, e0, e1));
-    ms_std /= runs;
-
-    HIP_OK(hipEventRecord(e0, nullptr));
-    for(int r = 0; r < runs; ++r) RC_OK(rcpp_ck_gemm_run(h, dA, dB, dC_ck, nullptr));
-    HIP_OK(hipEventRecord(e1, nullptr));
-    HIP_OK(hipEventSynchronize(e1));
-    float ms_ck = 0.0f; HIP_OK(hipEventElapsedTime(&ms_ck, e0, e1));
-    ms_ck /= runs;
-
     double flops = 2.0 * (double)M * N * K;
-    printf("Perf (expected: standalone much slower at Phase 1):\n");
-    printf("  CK         : %.3f ms  %.2f TFlops\n", ms_ck,  flops / (ms_ck  * 1e-3) / 1e12);
-    printf("  Standalone : %.3f ms  %.2f TFlops  (%.1fx vs CK)\n",
-           ms_std, flops / (ms_std * 1e-3) / 1e12, ms_std / ms_ck);
+
+    auto time_ms = [&](auto launch) -> double {
+        // warmup
+        for(int w = 0; w < 3; ++w) launch();
+        HIP_OK(hipDeviceSynchronize());
+        HIP_OK(hipEventRecord(e0, nullptr));
+        for(int r = 0; r < runs; ++r) launch();
+        HIP_OK(hipEventRecord(e1, nullptr));
+        HIP_OK(hipEventSynchronize(e1));
+        float ms = 0.0f; HIP_OK(hipEventElapsedTime(&ms, e0, e1));
+        return (double)ms / runs;
+    };
+
+    double ms_ck  = time_ms([&](){ RC_OK(rcpp_ck_gemm_run(h, dA, dB, dC_ck, nullptr)); });
+    double ms_std = time_ms([&](){ rcpp_standalone_launch    (dA, dB, dC_std, M, N, K, nullptr); });
+    double ms_lds = time_ms([&](){ rcpp_standalone_launch_lds(dA, dB, dC_lds, M, N, K, nullptr); });
+
+    printf("Perf:\n");
+    printf("  %-22s  %.3f ms  %6.2f TFlops   (1.0x)\n",
+           "CK reference",   ms_ck,  flops / (ms_ck  * 1e-3) / 1e12);
+    printf("  %-22s  %.3f ms  %6.2f TFlops  (%.1fx vs CK)\n",
+           "Phase 1 naive",  ms_std, flops / (ms_std * 1e-3) / 1e12, ms_std / ms_ck);
+    printf("  %-22s  %.3f ms  %6.2f TFlops  (%.1fx vs CK)\n",
+           "Phase 2 LDS",    ms_lds, flops / (ms_lds * 1e-3) / 1e12, ms_lds / ms_ck);
 
     const float pass_abs = 0.25f;
-    const int pass = (max_abs < pass_abs);
+    const int pass = (max_abs < pass_abs) && (max_abs_lds < pass_abs);
     printf("Verdict: %s (threshold max_abs < %.3f)\n", pass ? "PASS" : "FAIL", pass_abs);
 
     rcpp_ck_gemm_destroy(h);
     HIP_OK(hipFree(dA)); HIP_OK(hipFree(dB));
-    HIP_OK(hipFree(dC_ck)); HIP_OK(hipFree(dC_std));
+    HIP_OK(hipFree(dC_ck)); HIP_OK(hipFree(dC_std)); HIP_OK(hipFree(dC_lds));
     HIP_OK(hipEventDestroy(e0)); HIP_OK(hipEventDestroy(e1));
     return pass ? 0 : 1;
 }
