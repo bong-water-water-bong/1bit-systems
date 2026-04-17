@@ -182,6 +182,65 @@ __global__ void silu_glu_fp16_kernel(
 }
 
 // ============================================================================
+// 6. Residual add — y[i] += src[i]  (in-place)
+// ============================================================================
+
+__global__ void residual_add_fp16_kernel(
+    __half* __restrict__ y,
+    const __half* __restrict__ src,
+    int N)
+{
+    const int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid >= N) return;
+    y[tid] = __float2half((float)y[tid] + (float)src[tid]);
+}
+
+// ============================================================================
+// 7. Argmax sampling — returns index of max element in logits[V]
+//    Single block, block-wide reduction.
+// ============================================================================
+
+__global__ void argmax_fp32_kernel(
+    const float* __restrict__ logits,
+    int* __restrict__ out_idx,
+    int V)
+{
+    __shared__ float s_val[BLOCK / WARP];
+    __shared__ int   s_idx[BLOCK / WARP];
+
+    const int tid  = threadIdx.x;
+    const int lane = tid & (WARP - 1);
+    const int wid  = tid / WARP;
+
+    float best_v = -INFINITY;
+    int   best_i = 0;
+    for (int v = tid; v < V; v += BLOCK) {
+        float x = logits[v];
+        if (x > best_v) { best_v = x; best_i = v; }
+    }
+    #pragma unroll
+    for (int o = WARP / 2; o > 0; o >>= 1) {
+        float ov = __shfl_xor(best_v, o);
+        int   oi = __shfl_xor(best_i, o);
+        if (ov > best_v) { best_v = ov; best_i = oi; }
+    }
+    if (lane == 0) { s_val[wid] = best_v; s_idx[wid] = best_i; }
+    __syncthreads();
+
+    if (wid == 0) {
+        float v = (lane < BLOCK / WARP) ? s_val[lane] : -INFINITY;
+        int   i = (lane < BLOCK / WARP) ? s_idx[lane] : 0;
+        #pragma unroll
+        for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) {
+            float ov = __shfl_xor(v, o);
+            int   oi = __shfl_xor(i, o);
+            if (ov > v) { v = ov; i = oi; }
+        }
+        if (lane == 0) *out_idx = i;
+    }
+}
+
+// ============================================================================
 // 5. Embedding lookup — y[k] = E[token_id, k]  for k in 0..hidden-1
 // ============================================================================
 
@@ -269,6 +328,32 @@ rcpp_embedding_lookup_fp16(const void* embedding_dev, int token_id,
                        token_id,
                        static_cast<__half*>(y_dev),
                        hidden);
+    return RCPP_OK;
+}
+
+rcpp_status_t
+rcpp_residual_add_fp16(void* y_dev, const void* src_dev, int N, void* stream)
+{
+    if (!y_dev || !src_dev || N <= 0) return RCPP_INVALID_ARG;
+    dim3 grid((N + BLOCK - 1) / BLOCK, 1, 1), block(BLOCK, 1, 1);
+    hipLaunchKernelGGL(residual_add_fp16_kernel,
+                       grid, block, 0, (hipStream_t)stream,
+                       static_cast<__half*>(y_dev),
+                       static_cast<const __half*>(src_dev),
+                       N);
+    return RCPP_OK;
+}
+
+rcpp_status_t
+rcpp_argmax_fp32(const void* logits_dev, void* out_idx_dev, int V, void* stream)
+{
+    if (!logits_dev || !out_idx_dev || V <= 0) return RCPP_INVALID_ARG;
+    dim3 grid(1, 1, 1), block(BLOCK, 1, 1);
+    hipLaunchKernelGGL(argmax_fp32_kernel,
+                       grid, block, 0, (hipStream_t)stream,
+                       static_cast<const float*>(logits_dev),
+                       static_cast<int*>(out_idx_dev),
+                       V);
     return RCPP_OK;
 }
 

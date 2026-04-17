@@ -127,6 +127,16 @@ rcpp_embedding_lookup_fp16(const void* embedding_dev, int token_id,
                            void* y_dev, int hidden, void* stream);
 
 // -----------------------------------------------------------------------------
+// Residual add: y[i] += src[i]
+rcpp_status_t
+rcpp_residual_add_fp16(void* y_dev, const void* src_dev, int N, void* stream);
+
+// Argmax over FP32 logits — writes the max-index to *out_idx_dev.
+// Caller allocates one int on the device for out_idx_dev.
+rcpp_status_t
+rcpp_argmax_fp32(const void* logits_dev, void* out_idx_dev, int V, void* stream);
+
+// -----------------------------------------------------------------------------
 // Phase 6 — KV cache attention for batch=1 decode (Flash-Decoding style).
 //
 // Computes: out[h] = softmax(scale * Q[h] · K[*, h//gqa_ratio]) · V[*, h//gqa_ratio]
