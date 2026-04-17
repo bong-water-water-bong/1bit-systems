@@ -961,6 +961,158 @@ void standalone_ternary_gemm_wmma_4x4_vec(
     }
 }
 
+// Phase 4i-FP16: 4i kernel but B is an FP16 buffer (no pk_i4 decode on the hot path).
+// For consumers willing to materialize FP16 B once (one decode kernel per weight
+// tensor at model load), this skips the per-step nibble-extract + -8 bias and
+// closes the rocBLAS gap on square shapes. Same 64x64 tile as 4i.
+// B layout: col-major [K, N] FP16, stride K. Same as rocBLAS.
+__global__ __launch_bounds__(32)
+void standalone_gemm_fp16b(
+    const __half* __restrict__ A,
+    const __half* __restrict__ B,       // col-major [K, N], stride K
+    __half* __restrict__ C,
+    int M, int N, int K)
+{
+    constexpr int TILE_M = 64;
+    constexpr int TILE_N = 64;
+
+    const int lane     = threadIdx.x;
+    const int row_lane = lane & 15;
+    const int half     = lane >> 4;
+
+    const int m0 = blockIdx.y * TILE_M;
+    const int n0 = blockIdx.x * TILE_N;
+
+    float8_t acc[4][4] = {};
+    const int K0 = K / K1;
+
+    for(int j = 0; j < K0; ++j) {
+        // ------- Vectorized A load: 4 half4_t per m_sub, covers both K steps -------
+        half16_t A_cache[4][2];
+        #pragma unroll
+        for(int m_sub = 0; m_sub < 4; ++m_sub) {
+            const int m_row = m0 + m_sub * 16 + row_lane;
+            if(m_row < M) {
+                const __half* arow = A + m_row * K + j * K1;
+                const half4_t* arow4 = reinterpret_cast<const half4_t*>(arow);
+                #pragma unroll
+                for(int v = 0; v < 4; ++v) {
+                    half4_t q = arow4[v];
+                    A_cache[m_sub][0][v*4+0] = q[0];
+                    A_cache[m_sub][0][v*4+1] = q[1];
+                    A_cache[m_sub][0][v*4+2] = q[2];
+                    A_cache[m_sub][0][v*4+3] = q[3];
+                }
+                #pragma unroll
+                for(int v = 0; v < 4; ++v) {
+                    half4_t q = arow4[4+v];
+                    A_cache[m_sub][1][v*4+0] = q[0];
+                    A_cache[m_sub][1][v*4+1] = q[1];
+                    A_cache[m_sub][1][v*4+2] = q[2];
+                    A_cache[m_sub][1][v*4+3] = q[3];
+                }
+            } else {
+                #pragma unroll
+                for(int c = 0; c < K1; ++c) A_cache[m_sub][c/16][c&15] = (__fp16)0;
+            }
+        }
+
+        // ------- Per N sub-tile: B fragments loaded directly from FP16 buffer -------
+        #pragma unroll
+        for(int n_sub = 0; n_sub < 4; ++n_sub) {
+            const int n_col = n0 + n_sub * 16 + row_lane;
+            half16_t B_cache[2];
+            if(n_col < N) {
+                // B col-major: col n_col starts at B + n_col*K, j-block offset = j*K1
+                const __half* bcol = B + (size_t)n_col * K + j * K1;
+                const half4_t* bcol4 = reinterpret_cast<const half4_t*>(bcol);
+                #pragma unroll
+                for(int v = 0; v < 4; ++v) {
+                    half4_t q = bcol4[v];
+                    B_cache[0][v*4+0] = q[0];
+                    B_cache[0][v*4+1] = q[1];
+                    B_cache[0][v*4+2] = q[2];
+                    B_cache[0][v*4+3] = q[3];
+                }
+                #pragma unroll
+                for(int v = 0; v < 4; ++v) {
+                    half4_t q = bcol4[4+v];
+                    B_cache[1][v*4+0] = q[0];
+                    B_cache[1][v*4+1] = q[1];
+                    B_cache[1][v*4+2] = q[2];
+                    B_cache[1][v*4+3] = q[3];
+                }
+            } else {
+                #pragma unroll
+                for(int c = 0; c < K1; ++c) B_cache[c/16][c&15] = (__fp16)0;
+            }
+
+            #pragma unroll
+            for(int step = 0; step < 2; ++step) {
+                #pragma unroll
+                for(int m_sub = 0; m_sub < 4; ++m_sub) {
+                    acc[m_sub][n_sub] = __builtin_amdgcn_wmma_f32_16x16x16_f16_w32(
+                        A_cache[m_sub][step], B_cache[step], acc[m_sub][n_sub]);
+                }
+            }
+        }
+    }
+
+    #pragma unroll
+    for(int m_sub = 0; m_sub < 4; ++m_sub) {
+        #pragma unroll
+        for(int n_sub = 0; n_sub < 4; ++n_sub) {
+            const int mo = m0 + m_sub * 16;
+            const int no = n0 + n_sub * 16;
+            #pragma unroll
+            for(int r = 0; r < 8; ++r) {
+                const int m_out = mo + 2 * r + half;
+                const int n_out = no + row_lane;
+                if(m_out < M && n_out < N) {
+                    C[m_out * N + n_out] = __float2half(acc[m_sub][n_sub][r]);
+                }
+            }
+        }
+    }
+}
+
+// Simple B decoder: pk_i4 WMMA-permuted bytes -> col-major FP16 [K, N], stride K.
+// Run once per weight tensor, before the first GEMM that uses it.
+// 64 threads/block, 1 block per N column for parallelism.
+__global__ __launch_bounds__(64)
+void decode_pk_i4_to_fp16(
+    const uint8_t* __restrict__ B_packed,
+    __half* __restrict__ B_fp16,
+    int K, int N)
+{
+    const int n = blockIdx.x;
+    if(n >= N) return;
+    const int tid = threadIdx.x;
+    const int K0  = K / K1;
+
+    // Each thread handles (K / 64) K1-blocks along K axis for this column.
+    const int forward_perm[8] = {2, 0, 6, 4, 3, 1, 7, 5};
+
+    for(int j_step = tid; j_step < K0; j_step += 64) {
+        const int j = j_step;
+        const int b_base = j * N * K1_BYTES + n * K1_BYTES;
+        #pragma unroll
+        for(int c = 0; c < K1; ++c) {
+            const int grp_base = (c / 8) * 8;
+            const int slot_out = c & 7;
+            const int orig_s   = forward_perm[slot_out];
+            const int kk       = grp_base + orig_s;     // ORIGINAL K position
+            // The byte at perm_jj=c holds two nibbles; read each and map to its
+            // original K slot.
+            const uint8_t byte = B_packed[b_base + (c >> 1)];
+            const uint8_t nib  = ((c & 1) == 0)
+                ? ((byte >> 4) & 0xF)
+                : (byte & 0xF);
+            B_fp16[(size_t)n * K + j * K1 + kk] = __float2half((float)((int)nib - 8));
+        }
+    }
+}
+
 // Phase 4f: 4 waves per block (128 threads) in 2x2 layout, 64x64 output.
 // LDS shared by all 4 waves — this is where LDS finally pays off (amortizes
 // A and B loads across 4x the WMMA work per load).
@@ -1367,6 +1519,35 @@ void rcpp_standalone_launch_wmma_4x4_vec(
                        static_cast<const uint8_t*>(B_dev),
                        static_cast<__half*>(C_dev),
                        M, N, K);
+}
+
+// FP16-B variant: skip pk_i4 decode. Consumer holds materialized FP16 B.
+void rcpp_standalone_launch_fp16b(
+    const void* A_dev, const void* B_fp16_dev, void* C_dev,
+    int M, int N, int K, void* stream)
+{
+    dim3 block(32, 1, 1);
+    dim3 grid((N + 63) / 64, (M + 63) / 64, 1);
+    hipLaunchKernelGGL(standalone_gemm_fp16b,
+                       grid, block, 0, (hipStream_t)stream,
+                       static_cast<const __half*>(A_dev),
+                       static_cast<const __half*>(B_fp16_dev),
+                       static_cast<__half*>(C_dev),
+                       M, N, K);
+}
+
+// Decode pk_i4 WMMA-permuted bytes to col-major FP16 on device.
+void rcpp_decode_pk_i4_to_fp16_launch(
+    const void* B_packed_dev, void* B_fp16_dev,
+    int K, int N, void* stream)
+{
+    dim3 block(64, 1, 1);
+    dim3 grid((unsigned)N, 1, 1);
+    hipLaunchKernelGGL(decode_pk_i4_to_fp16,
+                       grid, block, 0, (hipStream_t)stream,
+                       static_cast<const uint8_t*>(B_packed_dev),
+                       static_cast<__half*>(B_fp16_dev),
+                       K, N);
 }
 
 // Phase 4f: 4 waves (2x2), 64x64 output, A+B both in LDS.
