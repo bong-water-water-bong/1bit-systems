@@ -745,6 +745,112 @@ void standalone_ternary_gemm_wmma_4x4(
     }
 }
 
+// Phase 4h: 1 wave, 64x64 output — A and B loaded ONCE per K1 block
+// (covering both WMMA K steps at 16 each), then 32 WMMAs reuse the cached
+// fragments. Halves per-block memory traffic vs 4g.
+//
+// Register pressure:
+//   A: 4 m_sub x 2 step x half16_t  = 128 halves = 64 VGPRs/lane
+//   B:         2 step x half16_t   =  32 halves = 16 VGPRs/lane (one n_sub at a time)
+//   acc: 4x4 float8_t              = 128 f32    = 128 VGPRs/lane
+// Plus loop vars + decode temps — ~215 VGPRs/lane, inside 256 budget.
+__global__ __launch_bounds__(32)
+void standalone_ternary_gemm_wmma_4x4_cached(
+    const __half* __restrict__ A,
+    const uint8_t* __restrict__ B,
+    __half* __restrict__ C,
+    int M, int N, int K)
+{
+    constexpr int TILE_M = 64;
+    constexpr int TILE_N = 64;
+
+    const int lane     = threadIdx.x;
+    const int row_lane = lane & 15;
+    const int half     = lane >> 4;
+
+    const int m0 = blockIdx.y * TILE_M;
+    const int n0 = blockIdx.x * TILE_N;
+
+    float8_t acc[4][4] = {};
+    const int inv_perm[8] = {1, 5, 0, 4, 3, 7, 2, 6};
+    const int K0 = K / K1;
+
+    for(int j = 0; j < K0; ++j) {
+        // ------- Load 4 A fragments, each holding BOTH K steps (32 halves) -------
+        // A_cache[m_sub][step] holds 16 halves along K. Loaded once per j.
+        half16_t A_cache[4][2];
+        #pragma unroll
+        for(int m_sub = 0; m_sub < 4; ++m_sub) {
+            const int m_row = m0 + m_sub * 16 + row_lane;
+            if(m_row < M) {
+                #pragma unroll
+                for(int c = 0; c < K1; ++c) {
+                    const float v = (float)A[m_row * K + j * K1 + c];
+                    A_cache[m_sub][c / 16][c & 15] = (__fp16)v;
+                }
+            } else {
+                #pragma unroll
+                for(int c = 0; c < K1; ++c) A_cache[m_sub][c / 16][c & 15] = (__fp16)0;
+            }
+        }
+
+        // ------- For each N sub-tile: decode B ONCE (both steps), then 4 WMMAs x 2 steps -------
+        #pragma unroll
+        for(int n_sub = 0; n_sub < 4; ++n_sub) {
+            const int n_col = n0 + n_sub * 16 + row_lane;
+
+            half16_t B_cache[2];
+            if(n_col < N) {
+                const int b_base = j * N * K1_BYTES + n_col * K1_BYTES;
+                #pragma unroll
+                for(int c = 0; c < K1; ++c) {
+                    const int jj_orig   = c;
+                    const int grp_base  = (jj_orig / 8) * 8;
+                    const int slot_out  = jj_orig & 7;
+                    const int perm_slot = inv_perm[slot_out];
+                    const int perm_jj   = grp_base + perm_slot;
+                    const uint8_t byte  = B[b_base + (perm_jj >> 1)];
+                    const uint8_t nib   = ((perm_jj & 1) == 0)
+                        ? ((byte >> 4) & 0xF)
+                        : (byte & 0xF);
+                    B_cache[c / 16][c & 15] = (__fp16)((float)((int)nib - 8));
+                }
+            } else {
+                #pragma unroll
+                for(int c = 0; c < K1; ++c) B_cache[c / 16][c & 15] = (__fp16)0;
+            }
+
+            // 2 K steps, 4 WMMAs each, all from registers
+            #pragma unroll
+            for(int step = 0; step < 2; ++step) {
+                #pragma unroll
+                for(int m_sub = 0; m_sub < 4; ++m_sub) {
+                    acc[m_sub][n_sub] = __builtin_amdgcn_wmma_f32_16x16x16_f16_w32(
+                        A_cache[m_sub][step], B_cache[step], acc[m_sub][n_sub]);
+                }
+            }
+        }
+    }
+
+    // ------- Store 4x4 grid -------
+    #pragma unroll
+    for(int m_sub = 0; m_sub < 4; ++m_sub) {
+        #pragma unroll
+        for(int n_sub = 0; n_sub < 4; ++n_sub) {
+            const int mo = m0 + m_sub * 16;
+            const int no = n0 + n_sub * 16;
+            #pragma unroll
+            for(int r = 0; r < 8; ++r) {
+                const int m_out = mo + 2 * r + half;
+                const int n_out = no + row_lane;
+                if(m_out < M && n_out < N) {
+                    C[m_out * N + n_out] = __float2half(acc[m_sub][n_sub][r]);
+                }
+            }
+        }
+    }
+}
+
 // Phase 4f: 4 waves per block (128 threads) in 2x2 layout, 64x64 output.
 // LDS shared by all 4 waves — this is where LDS finally pays off (amortizes
 // A and B loads across 4x the WMMA work per load).
@@ -1116,6 +1222,21 @@ void rcpp_standalone_launch_wmma_4x4(
     dim3 block(32, 1, 1);
     dim3 grid((N + 63) / 64, (M + 63) / 64, 1);
     hipLaunchKernelGGL(standalone_ternary_gemm_wmma_4x4,
+                       grid, block, 0, (hipStream_t)stream,
+                       static_cast<const __half*>(A_dev),
+                       static_cast<const uint8_t*>(B_dev),
+                       static_cast<__half*>(C_dev),
+                       M, N, K);
+}
+
+// Phase 4h: 1 wave, 64x64 output, A and B cached across K steps.
+void rcpp_standalone_launch_wmma_4x4_cached(
+    const void* A_dev, const void* B_dev, void* C_dev,
+    int M, int N, int K, void* stream)
+{
+    dim3 block(32, 1, 1);
+    dim3 grid((N + 63) / 64, (M + 63) / 64, 1);
+    hipLaunchKernelGGL(standalone_ternary_gemm_wmma_4x4_cached,
                        grid, block, 0, (hipStream_t)stream,
                        static_cast<const __half*>(A_dev),
                        static_cast<const uint8_t*>(B_dev),

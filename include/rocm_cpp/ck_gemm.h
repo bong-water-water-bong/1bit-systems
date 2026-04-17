@@ -60,6 +60,25 @@ rcpp_ternary_pack_pk_i4(const int8_t* ternary_host,
 const char*
 rcpp_ck_gemm_instance_string(const rcpp_ck_gemm_handle_t* handle);
 
+// -----------------------------------------------------------------------------
+// Standalone (CK-free) prefill launcher.
+//
+// Same inputs as rcpp_ck_gemm_run. Produces bit-identical output to the CK
+// backend on BitNet-realistic shapes; reaches 94% of CK's tuned WMMA perf on
+// gfx1151 with ZERO ck/ includes in this TU (see src/prefill_standalone.hip,
+// docs/11-de-ck-plan.md).
+//
+// Use this when you want the library to ship without the CK template surface —
+// e.g., for a binary distribution that should not depend on TheRock being
+// pre-built on the consumer's machine.
+//
+// Stateless: no handle needed. M, N, K must satisfy M % 64 == 0, N % 64 == 0,
+// K % 32 == 0 for the 64x64 output-tile kernel; callers with arbitrary shapes
+// should pad or fall back to the CK backend.
+rcpp_status_t
+rcpp_standalone_gemm(const void* A_dev, const void* B_dev_packed, void* C_dev,
+                     int M, int N, int K, void* stream);
+
 #ifdef __cplusplus
 }
 #endif
