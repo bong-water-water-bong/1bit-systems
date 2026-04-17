@@ -66,6 +66,26 @@ ships this. If you are building a local-LLM frontend, agent layer,
 voice stack, RAG pipeline, IDE integration, whatever — **point it at
 `bitnet_decode --server` and you're done on the engine side.**
 
+### Want multi-provider routing? Your frontend already does that.
+
+OpenWebUI, LibreChat, LobeChat and BigAGI all support **multiple
+OpenAI-compatible endpoints simultaneously**. Add our local engine as
+one connection, add OpenAI / Anthropic / Groq / DeepSeek / Gemini / xAI
+as more connections, switch between them per-chat or per-model.
+
+```
+Settings -> Connections -> Add
+  local-bitnet     http://127.0.0.1:8080/v1        (no key needed)
+  openai           https://api.openai.com/v1       sk-...
+  anthropic        https://api.anthropic.com/v1    sk-ant-...
+  groq             https://api.groq.com/openai/v1  gsk_...
+```
+
+Our own TUI and upcoming desktop GUI stay focused on what only we do —
+floating agent tiles, voice Man Cave, per-layer timings, KV heatmap.
+Multi-backend routing is a solved problem at the ecosystem layer; we
+don't duplicate it.
+
 ### No tracking. No telemetry. No phone-home.
 
 This engine does not collect your prompts, your completions, your token
