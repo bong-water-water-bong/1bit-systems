@@ -169,6 +169,15 @@ rcpp_kv_cache_attn_decode(const void* Q_dev, const void* K_dev, const void* V_de
                           int num_q_heads, int num_kv_heads, int head_dim,
                           int seq_len, float scale, void* stream);
 
+// Prefill attention — multi-token, causal mask. Each output position t attends
+// only to K/V[0..t]. All tensors in [seq_len, heads, head_dim] layout (Q uses
+// num_q_heads, K/V use num_kv_heads). Grid scales as seq_len * num_q_heads.
+rcpp_status_t
+rcpp_kv_cache_attn_prefill(const void* Q_dev, const void* K_dev, const void* V_dev,
+                           void* out_dev,
+                           int num_q_heads, int num_kv_heads, int head_dim,
+                           int seq_len, float scale, void* stream);
+
 // -----------------------------------------------------------------------------
 // Standalone (CK-free) prefill launcher.
 //
