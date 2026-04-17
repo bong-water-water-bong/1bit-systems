@@ -108,6 +108,7 @@ PY
 
     step "Quantize to .h1b (BitNet absmean)"
     if [ ! -f "$H1B_OUT" ] || [ "$MODEL_DIR/model.safetensors" -nt "$H1B_OUT" ]; then
+        mkdir -p "$(dirname "$H1B_OUT")"
         cd "$PREFIX/halo-1bit"
         python3 scripts/export_base_h1b.py "$MODEL_DIR" "$H1B_OUT"
     else
