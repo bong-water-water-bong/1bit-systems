@@ -67,16 +67,22 @@ int main(int argc, char** argv) {
     std::vector<std::string> stop_seqs;
     float temperature = 0.0f;          // 0 = greedy argmax (default, legacy)
     int   top_k_val    = 0;            // 0 = disabled
+    float top_p_val    = 1.0f;         // 1.0 = disabled (keep all mass)
+    float rep_penalty  = 1.0f;         // 1.0 = disabled (no penalty)
+    int   rep_last_n   = 64;           // window for repetition penalty
     uint64_t sampler_seed = (uint64_t)std::chrono::steady_clock::now().time_since_epoch().count();
     int argc_use = argc;
     for (int i = 3; i < argc; ++i) {
         std::string a = argv[i];
-        if (a == "--stop"  && i + 1 < argc) { stop_seqs.emplace_back(argv[++i]); }
-        else if (a == "--temp" && i + 1 < argc) { temperature = (float)std::atof(argv[++i]); }
-        else if (a == "--top-k" && i + 1 < argc) { top_k_val = std::atoi(argv[++i]); }
-        else if (a == "--seed"  && i + 1 < argc) { sampler_seed = (uint64_t)std::atoll(argv[++i]); }
+        if      (a == "--stop"         && i + 1 < argc) { stop_seqs.emplace_back(argv[++i]); }
+        else if (a == "--temp"         && i + 1 < argc) { temperature  = (float)std::atof(argv[++i]); }
+        else if (a == "--top-k"        && i + 1 < argc) { top_k_val    = std::atoi(argv[++i]); }
+        else if (a == "--top-p"        && i + 1 < argc) { top_p_val    = (float)std::atof(argv[++i]); }
+        else if (a == "--rep-penalty"  && i + 1 < argc) { rep_penalty  = (float)std::atof(argv[++i]); }
+        else if (a == "--rep-last-n"   && i + 1 < argc) { rep_last_n   = std::atoi(argv[++i]); }
+        else if (a == "--seed"         && i + 1 < argc) { sampler_seed = (uint64_t)std::atoll(argv[++i]); }
         else continue;
-        if (argc_use > i - 1) argc_use = i - 1;  // first flag caps positionals
+        if (argc_use > i - 1) argc_use = i - 1;
     }
 
     // Tokenize a chunk of text with NO bos; returns IDs.
@@ -230,11 +236,91 @@ int main(int argc, char** argv) {
         HIP_OK(hipMalloc(&V_caches[l], kv_size));
     }
 
+    // History the sampler sees — used for repetition penalty. Grows as
+    // forward_token is called; seeded with prompt IDs before the loop.
+    std::vector<int> sampler_history;
+    sampler_history.reserve(prompt_len + num_tokens);
+
     std::mt19937_64 rng(sampler_seed);
     if (temperature > 0.0f) {
-        fprintf(stderr, "[sampler] temp=%.3f  top_k=%d  seed=%llu\n",
-                temperature, top_k_val, (unsigned long long)sampler_seed);
+        fprintf(stderr, "[sampler] temp=%.3f top_k=%d top_p=%.3f rep=%.3f/%d seed=%llu\n",
+                temperature, top_k_val, top_p_val, rep_penalty, rep_last_n,
+                (unsigned long long)sampler_seed);
     }
+
+    // Host-side sampler (used only when temperature > 0). Reads the
+    // FP32 logits buffer from device, applies the full filter chain
+    // (repetition penalty -> top-k mask -> softmax(temp) -> top-p mask
+    // -> multinomial), returns the sampled token id. One hipMemcpy per
+    // token (~V*4 bytes, sub-1% of the 12 ms/tok decode cost) in
+    // exchange for zero sort-on-GPU complexity.
+    std::vector<float> logits_host(V);
+    auto sample_host = [&](const std::vector<int>& recent) -> int {
+        HIP_OK(hipMemcpy(logits_host.data(), logits, V * 4, hipMemcpyDeviceToHost));
+
+        // Repetition penalty: downweight logits of recently-emitted tokens.
+        // rep_penalty > 1 : discourage repeat (divide positive, multiply negative)
+        // rep_penalty < 1 : encourage repeat (rare).
+        if (rep_penalty != 1.0f && rep_last_n > 0) {
+            int start = std::max(0, (int)recent.size() - rep_last_n);
+            for (int i = start; i < (int)recent.size(); ++i) {
+                int id = recent[i];
+                if (id >= 0 && id < V) {
+                    float& l = logits_host[id];
+                    l = (l > 0.0f) ? (l / rep_penalty) : (l * rep_penalty);
+                }
+            }
+        }
+
+        // Top-k: keep only the top k, mask rest to -inf.
+        if (top_k_val > 0 && top_k_val < V) {
+            std::vector<float> tmp(logits_host);
+            std::nth_element(tmp.begin(), tmp.begin() + (V - top_k_val), tmp.end());
+            float thresh = tmp[V - top_k_val];
+            for (float& l : logits_host) if (l < thresh) l = -INFINITY;
+        }
+
+        // Softmax with temperature.
+        float m = -INFINITY;
+        for (float l : logits_host) if (l > m) m = l;
+        double sum = 0.0;
+        for (float& l : logits_host) { l = std::exp((l - m) / temperature); sum += l; }
+        const float inv = (float)(1.0 / (sum > 0 ? sum : 1.0));
+        for (float& l : logits_host) l *= inv;
+
+        // Top-p: sort descending, keep smallest prefix with cumsum >= p.
+        if (top_p_val > 0.0f && top_p_val < 1.0f) {
+            std::vector<int> idx(V);
+            for (int i = 0; i < V; ++i) idx[i] = i;
+            std::sort(idx.begin(), idx.end(),
+                      [&](int a, int b) { return logits_host[a] > logits_host[b]; });
+            float csum = 0.0f;
+            int cutoff = V;
+            for (int i = 0; i < V; ++i) {
+                csum += logits_host[idx[i]];
+                if (csum >= top_p_val) { cutoff = i + 1; break; }
+            }
+            // Zero out the tail.
+            for (int i = cutoff; i < V; ++i) logits_host[idx[i]] = 0.0f;
+            // Renormalize the kept head.
+            float keep_sum = 0.0f;
+            for (int i = 0; i < cutoff; ++i) keep_sum += logits_host[idx[i]];
+            if (keep_sum > 0) {
+                float s = 1.0f / keep_sum;
+                for (int i = 0; i < cutoff; ++i) logits_host[idx[i]] *= s;
+            }
+        }
+
+        // Multinomial draw.
+        std::uniform_real_distribution<float> u(0.0f, 1.0f);
+        float r = u(rng);
+        float acc = 0.0f;
+        for (int i = 0; i < V; ++i) {
+            acc += logits_host[i];
+            if (acc >= r) return i;
+        }
+        return V - 1;
+    };
 
     // ---- Forward pass for one token at position pos ----
     auto forward_token = [&](int token_id, int pos) -> int {
@@ -314,29 +400,26 @@ int main(int argc, char** argv) {
                                             m.rms_norm_eps, hs, nullptr));
         RC_OK(rcpp_fp16_gemv(m.embedding_dev, normed, logits, V, hs, nullptr));
 
-        // Sample: greedy argmax when temperature == 0, otherwise
-        // optional top-k filter -> temperature softmax -> multinomial
-        // with a CPU-generated uniform random. Keeps the fast path
-        // branch-free (argmax is ~100x cheaper than the full chain).
+        // Fast path: greedy argmax on device. Full sampler chain (rep
+        // penalty / top-k / top-p / multinomial) runs host-side when
+        // temperature > 0 — see sample_host lambda above main loop.
         int next_tok;
         if (temperature <= 0.0f) {
             RC_OK(rcpp_argmax_fp32(logits, next_tok_dev, V, nullptr));
+            HIP_OK(hipMemcpy(&next_tok, next_tok_dev, 4, hipMemcpyDeviceToHost));
         } else {
-            if (top_k_val > 0) {
-                RC_OK(rcpp_top_k_fp32(logits, top_k_val, V, nullptr));
-            }
-            RC_OK(rcpp_softmax_fp32(logits, V, temperature, nullptr));
-            std::uniform_real_distribution<float> u(0.0f, 1.0f);
-            float r = u(rng);
-            RC_OK(rcpp_sample_multinomial_fp32(logits, r, next_tok_dev, V, nullptr));
+            next_tok = sample_host(sampler_history);
         }
-        HIP_OK(hipMemcpy(&next_tok, next_tok_dev, 4, hipMemcpyDeviceToHost));
         return next_tok;
     };
 
     // ---- Prefill: feed prompt tokens[0..prompt_len-2] through the cache,
     //      producing the logits for position prompt_len-1 at the last step.
     //      Then generate num_tokens new tokens greedily.
+    // Seed sampler history with prompt tokens so repetition penalty
+    // can also discourage echoing the input back verbatim.
+    sampler_history = prompt_ids;
+
     double prefill_ms = 0.0;
     int next_tok = 0;
     for (int step = 0; step < prompt_len; ++step) {
@@ -387,6 +470,7 @@ int main(int argc, char** argv) {
         auto t1 = std::chrono::high_resolution_clock::now();
         decode_ms += std::chrono::duration<double, std::milli>(t1 - t0).count();
         generated.push_back(next_tok);
+        sampler_history.push_back(next_tok);
         fprintf(stderr, " %d", next_tok);
         fflush(stderr);
 
