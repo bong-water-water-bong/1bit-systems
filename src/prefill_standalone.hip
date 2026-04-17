@@ -1113,6 +1113,135 @@ void decode_pk_i4_to_fp16(
     }
 }
 
+// Phase 4j: software-pipelined double buffer on A across j iterations.
+// Geometry: 1 wave / 32x64 output (same as Phase 4c — 2A x 4B = 8 accumulators)
+//           so the VGPR budget fits the 2x A buffers.
+// Idea: at iteration j, while computing WMMAs over A_cache[cur], simultaneously
+// issue the global loads for A_cache[nxt] covering j+1. Compiler + hardware's
+// scoreboarding overlaps the load with compute, hiding global-load latency
+// behind the 8 WMMAs per K step.
+//
+// Register budget (per lane):
+//   acc[2][4]       = 8 x float8_t      =  64 VGPRs
+//   A_cache[2][2][2] = 2 buf x 2 msub x 2 step x half16_t = 128 halves = 64 VGPRs
+//   B_cache[2]      = 2 step x half16_t =  16 halves = 8 VGPRs
+//   Total ~ 144 VGPRs + loop state — same occupancy class as 4c/4i (1 wave/SIMD).
+//
+__global__ __launch_bounds__(32)
+void standalone_gemm_4c_pipelined(
+    const __half* __restrict__ A,
+    const uint8_t* __restrict__ B,
+    __half* __restrict__ C,
+    int M, int N, int K)
+{
+    constexpr int TILE_M = 32;
+    constexpr int TILE_N = 64;
+
+    const int lane     = threadIdx.x;
+    const int row_lane = lane & 15;
+    const int half     = lane >> 4;
+
+    const int m0 = blockIdx.y * TILE_M;
+    const int n0 = blockIdx.x * TILE_N;
+
+    float8_t acc[2][4] = {};
+    const int inv_perm[8] = {1, 5, 0, 4, 3, 7, 2, 6};
+    const int K0 = K / K1;
+
+    // Loader helper: fills A_cache[buf] (2 m_sub x 2 step x half16_t) for given j
+    half16_t A_cache[2][2][2];  // [buf][m_sub][step]
+    auto loadA = [&](int buf, int j) {
+        #pragma unroll
+        for(int m_sub = 0; m_sub < 2; ++m_sub) {
+            const int m_row = m0 + m_sub * 16 + row_lane;
+            if(m_row < M) {
+                const __half* arow = A + m_row * K + j * K1;
+                const half4_t* arow4 = reinterpret_cast<const half4_t*>(arow);
+                #pragma unroll
+                for(int v = 0; v < 4; ++v) {
+                    half4_t q = arow4[v];
+                    A_cache[buf][m_sub][0][v*4+0] = q[0];
+                    A_cache[buf][m_sub][0][v*4+1] = q[1];
+                    A_cache[buf][m_sub][0][v*4+2] = q[2];
+                    A_cache[buf][m_sub][0][v*4+3] = q[3];
+                }
+                #pragma unroll
+                for(int v = 0; v < 4; ++v) {
+                    half4_t q = arow4[4+v];
+                    A_cache[buf][m_sub][1][v*4+0] = q[0];
+                    A_cache[buf][m_sub][1][v*4+1] = q[1];
+                    A_cache[buf][m_sub][1][v*4+2] = q[2];
+                    A_cache[buf][m_sub][1][v*4+3] = q[3];
+                }
+            } else {
+                #pragma unroll
+                for(int c = 0; c < K1; ++c) A_cache[buf][m_sub][c/16][c&15] = (__fp16)0;
+            }
+        }
+    };
+
+    // Bootstrap: load j=0 into buffer 0
+    if(K0 > 0) loadA(0, 0);
+
+    for(int j = 0; j < K0; ++j) {
+        const int cur = j & 1;
+        const int nxt = 1 - cur;
+        // Prefetch next j into the other buffer (overlaps with WMMAs below)
+        if(j + 1 < K0) {
+            loadA(nxt, j + 1);
+        }
+
+        // Compute with cur buffer: 4 B fragments + 8 WMMAs per K step x 2 steps
+        #pragma unroll
+        for(int n_sub = 0; n_sub < 4; ++n_sub) {
+            const int n_col = n0 + n_sub * 16 + row_lane;
+            half16_t B_frags[2];
+            if(n_col < N) {
+                const int b_base = j * N * K1_BYTES + n_col * K1_BYTES;
+                #pragma unroll
+                for(int c = 0; c < K1; ++c) {
+                    const int grp_base  = (c / 8) * 8;
+                    const int perm_slot = inv_perm[c & 7];
+                    const int perm_jj   = grp_base + perm_slot;
+                    const uint8_t byte  = B[b_base + (perm_jj >> 1)];
+                    const uint8_t nib   = ((perm_jj & 1) == 0)
+                        ? ((byte >> 4) & 0xF)
+                        : (byte & 0xF);
+                    B_frags[c / 16][c & 15] = (__fp16)((float)((int)nib - 8));
+                }
+            } else {
+                #pragma unroll
+                for(int c = 0; c < K1; ++c) B_frags[c/16][c&15] = (__fp16)0;
+            }
+            #pragma unroll
+            for(int step = 0; step < 2; ++step) {
+                #pragma unroll
+                for(int m_sub = 0; m_sub < 2; ++m_sub) {
+                    acc[m_sub][n_sub] = __builtin_amdgcn_wmma_f32_16x16x16_f16_w32(
+                        A_cache[cur][m_sub][step], B_frags[step], acc[m_sub][n_sub]);
+                }
+            }
+        }
+    }
+
+    #pragma unroll
+    for(int m_sub = 0; m_sub < 2; ++m_sub) {
+        #pragma unroll
+        for(int n_sub = 0; n_sub < 4; ++n_sub) {
+            const int mo = m0 + m_sub * 16;
+            const int no = n0 + n_sub * 16;
+            #pragma unroll
+            for(int r = 0; r < 8; ++r) {
+                const int m_out = mo + 2 * r + half;
+                const int n_out = no + row_lane;
+                if(m_out < M && n_out < N) {
+                    C[m_out * N + n_out] = __float2half(acc[m_sub][n_sub][r]);
+                }
+            }
+        }
+    }
+}
+
 // Phase 4f: 4 waves per block (128 threads) in 2x2 layout, 64x64 output.
 // LDS shared by all 4 waves — this is where LDS finally pays off (amortizes
 // A and B loads across 4x the WMMA work per load).
@@ -1532,6 +1661,21 @@ void rcpp_standalone_launch_fp16b(
                        grid, block, 0, (hipStream_t)stream,
                        static_cast<const __half*>(A_dev),
                        static_cast<const __half*>(B_fp16_dev),
+                       static_cast<__half*>(C_dev),
+                       M, N, K);
+}
+
+// Phase 4j: 1 wave, 32x64 output, A double-buffered across j iterations.
+void rcpp_standalone_launch_4c_pipelined(
+    const void* A_dev, const void* B_dev, void* C_dev,
+    int M, int N, int K, void* stream)
+{
+    dim3 block(32, 1, 1);
+    dim3 grid((N + 63) / 64, (M + 31) / 32, 1);
+    hipLaunchKernelGGL(standalone_gemm_4c_pipelined,
+                       grid, block, 0, (hipStream_t)stream,
+                       static_cast<const __half*>(A_dev),
+                       static_cast<const uint8_t*>(B_dev),
                        static_cast<__half*>(C_dev),
                        M, N, K);
 }
