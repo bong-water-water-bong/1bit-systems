@@ -53,3 +53,4 @@ endfunction()
 
 add_ck_example(gemm_wmma_fp16_v3 gemm_wmma_fp16_v3.cpp)
 add_ck_example(gemm_wmma_fp16_pk_i4_v3 gemm_wmma_fp16_pk_i4_v3.cpp)
+add_ck_example(gemm_wmma_fp16_pk_i4_v3_pf gemm_wmma_fp16_pk_i4_v3_pf.cpp)
