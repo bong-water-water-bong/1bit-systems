@@ -54,12 +54,23 @@ __global__ void ternary_gemv_phase5_kernel(
         __syncthreads();
 
         // Cooperative INT8 load: 2048 bytes / 128 threads = 16 bytes each.
-        // One thread reads 16 consecutive bytes via int4 (128-bit) load.
-        #pragma unroll
-        for (int i = 0; i < LDS_TILE_I8 / BLOCK_SIZE; i++) {
-            int k_idx   = k_base + tid + i * BLOCK_SIZE;
-            int lds_idx = tid + i * BLOCK_SIZE;
-            x_shared[lds_idx] = (k_idx < K) ? x_i8[k_idx] : (int8_t)0;
+        // Vectorize via uint4 (128-bit) loads for coalesced global access.
+        using v16 = __attribute__((ext_vector_type(16))) int8_t;
+        const int k_start = k_base + tid * 16;
+        v16* __restrict__ lds_v = reinterpret_cast<v16*>(x_shared) + tid;
+        if (k_start + 16 <= K) {
+            const v16* __restrict__ src_v = reinterpret_cast<const v16*>(x_i8 + k_start);
+            *lds_v = *src_v;
+        } else {
+            // Tail: scalar for the last partial vector
+            int8_t tmp[16];
+            #pragma unroll
+            for (int b = 0; b < 16; ++b) {
+                int k = k_start + b;
+                tmp[b] = (k < K) ? x_i8[k] : (int8_t)0;
+            }
+            #pragma unroll
+            for (int b = 0; b < 16; ++b) x_shared[tid * 16 + b] = tmp[b];
         }
         __syncthreads();
 
