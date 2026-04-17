@@ -58,6 +58,101 @@ We're also looking for **UI contributors** on two tracks:
 Both frontends talk to the same HTTP server (`bitnet_decode --server`),
 so specialist logic stays in agent-cpp. No Qt, no Electron, no web.
 
+## Works with any OpenAI-compatible client
+
+`bitnet_decode --server` speaks the OpenAI `/v1/chat/completions` and
+`/v1/models` protocol. Anything that can point at a custom base URL will
+talk to it. No plugins, no adapters, just swap the URL.
+
+**Set once for the whole ecosystem:**
+
+```bash
+export OPENAI_API_BASE_URL=http://127.0.0.1:8080/v1
+export OPENAI_API_KEY=sk-ignored     # any non-empty string works
+```
+
+**Chat UIs (MIT / BSD / Apache only):**
+
+| | license | one-line stand-up |
+|---|---|---|
+| [OpenWebUI](https://github.com/open-webui/open-webui) | BSD-3 | `docker run -d -p 3000:8080 -e OPENAI_API_BASE_URL=http://host.docker.internal:8080/v1 ghcr.io/open-webui/open-webui:main` |
+| [LibreChat](https://github.com/danny-avila/LibreChat) | MIT | `docker compose up -d` with `OPENAI_REVERSE_PROXY=http://host.docker.internal:8080/v1` in `.env` |
+| [LobeChat](https://github.com/lobehub/lobe-chat) | MIT | `docker run -d -p 3210:3210 -e OPENAI_PROXY_URL=http://host.docker.internal:8080/v1 lobehub/lobe-chat` |
+| [AnythingLLM](https://github.com/Mintplex-Labs/anything-llm) | MIT | docs workspace + chat, Docker or native |
+| [GPT4All](https://github.com/nomic-ai/gpt4all) | MIT | native Qt desktop app, set "Server URL" in settings |
+
+**Coding / IDE integration:**
+
+| | license | notes |
+|---|---|---|
+| [Continue.dev](https://continue.dev) | Apache-2 | VS Code + JetBrains. `"provider": "openai"` + `"apiBase"` in `~/.continue/config.json` |
+| [Aider](https://github.com/Aider-AI/aider) | Apache-2 | `aider --openai-api-base http://127.0.0.1:8080/v1 --model bitnet-b1.58-2b-4t` |
+| [Cline](https://github.com/cline/cline) | Apache-2 | VS Code extension, pick "OpenAI Compatible" provider |
+| [llm](https://github.com/simonw/llm) | Apache-2 | `llm -m bitnet-b1.58-2b-4t 'your prompt'` after one-time config |
+
+**Terminal / TUI:**
+
+| | license | notes |
+|---|---|---|
+| **[bitnet_tui](tools/bitnet_tui.cpp)** | MIT | our own. FTXUI, ships with rocm-cpp. |
+| [oterm](https://github.com/ggozad/oterm) | MIT | textual-based TUI |
+| [tgpt](https://github.com/aandrew-me/tgpt) | MIT | single-binary CLI chat |
+| [gptme](https://github.com/gptme/gptme) | MIT | tool-use in terminal |
+
+**Agent / workflow builders:**
+
+| | license | notes |
+|---|---|---|
+| [n8n](https://github.com/n8n-io/n8n) | Apache-2 | low-code automation, has OpenAI node |
+| [Langflow](https://github.com/langflow-ai/langflow) | MIT | visual agent builder |
+| [Flowise](https://github.com/FlowiseAI/Flowise) | Apache-2 | drag-and-drop chains |
+| [BigAGI](https://github.com/enricoros/big-AGI) | MIT | multi-model playground |
+
+Our TUI and upcoming desktop GUI are the **signature surfaces** — the
+floating-tile landing page doesn't exist anywhere else. The list above
+is the **ecosystem on-ramp** for beta testers who already have a
+workflow they like. Your stack speaks the protocol; the whole universe
+plugs in.
+
+### Production deploy — Caddy reverse proxy
+
+`bitnet_decode --server` has no auth and no TLS. That's fine for
+`--bind 127.0.0.1` on your own box. For anything beyond localhost (mesh
+access, remote client, public endpoint) put Caddy in front.
+
+```caddyfile
+# /etc/caddy/Caddyfile  — snippet
+halo.<yourdomain>.com {
+    # Optional bearer-token gate.
+    @auth header Authorization "Bearer {$HALO_API_KEY}"
+    handle @auth {
+        reverse_proxy 127.0.0.1:8080
+    }
+    handle {
+        respond 401
+    }
+    # rate limit: 30 req/min per client
+    rate_limit {
+        zone halo {
+            key {client_ip}
+            window 1m
+            max_events 30
+        }
+    }
+}
+```
+
+Caddy gives you:
+- Let's Encrypt TLS out of the box
+- Bearer-token auth via simple request matchers
+- Rate limiting (via the `caddy-ratelimit` plugin)
+- Access logs routed wherever you already aggregate
+
+Mesh pattern (you already run this): Caddy on the boundary box, ed25519
+ssh keys between nodes, `bitnet_decode --server` pinned to `127.0.0.1`
+on the Strix Halo box, clients hit `https://halo.<mesh>.tld/v1/...`.
+No server-side code changes needed.
+
 ## Headline numbers (gfx1151, Phase 5 dot4)
 
 - **Prefill 2560×6912×2560 (BitNet FFN up):** 30.15 TFlops, **1.02× rocBLAS FP16** at ¼ B memory. Bit-perfect.
