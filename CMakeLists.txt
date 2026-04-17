@@ -82,5 +82,12 @@ target_compile_options(test_standalone PRIVATE
 target_link_libraries(test_standalone PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(test_standalone PROPERTIES HIP_ARCHITECTURES "gfx1151")
 
+add_executable(test_prim_and_attn tests/test_prim_and_attn.cpp)
+set_source_files_properties(tests/test_prim_and_attn.cpp PROPERTIES LANGUAGE HIP)
+target_compile_options(test_prim_and_attn PRIVATE
+    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_link_libraries(test_prim_and_attn PRIVATE rocm_cpp hip::host hip::device)
+set_target_properties(test_prim_and_attn PROPERTIES HIP_ARCHITECTURES "gfx1151")
+
 # -- ck-prefill : research binaries (kept building for tuning) ------------------
 add_subdirectory(ck-prefill)
