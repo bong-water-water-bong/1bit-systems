@@ -59,6 +59,19 @@ int main(int argc, char** argv) {
     int num_tokens = 16;
     const char* tok_path = "/home/bcloud/halo-1bit/models/halo-1bit-2b.htok";
 
+    // Tokenize a chunk of text with NO bos; returns IDs.
+    auto tokenize = [&](rcpp_tokenizer_t* tok, const char* text) -> std::vector<int> {
+        std::vector<int> buf(4096);
+        size_t count = 0;
+        rcpp_tokenizer_encode(tok, text, std::strlen(text), /*add_bos=*/0,
+                              buf.data(), buf.size(), &count);
+        if (count > buf.size()) { buf.resize(count);
+            rcpp_tokenizer_encode(tok, text, std::strlen(text), 0, buf.data(), buf.size(), &count);
+        }
+        buf.resize(count);
+        return buf;
+    };
+
     std::vector<int> prompt_ids;
     if (std::string(prompt_arg) == "--text") {
         // layout: bitnet_decode <model> --text "<prompt>" <num_new> [tokenizer.htok]
@@ -70,17 +83,48 @@ int main(int argc, char** argv) {
         if (rcpp_tokenizer_load(tok_path, &tok) != RCPP_OK) {
             fprintf(stderr, "cannot load tokenizer .htok: %s\n", tok_path); return 1;
         }
-        size_t count = 0;
-        std::vector<int> buf(4096);
-        rcpp_tokenizer_encode(tok, text, std::strlen(text), /*add_bos=*/1,
-                              buf.data(), buf.size(), &count);
-        if (count > buf.size()) { buf.resize(count);
-            rcpp_tokenizer_encode(tok, text, std::strlen(text), 1, buf.data(), buf.size(), &count);
-        }
-        buf.resize(count);
-        prompt_ids = buf;
+        // Add BOS then tokenize text.
+        prompt_ids.push_back(rcpp_tokenizer_bos_id(tok));
+        auto text_ids = tokenize(tok, text);
+        prompt_ids.insert(prompt_ids.end(), text_ids.begin(), text_ids.end());
         rcpp_tokenizer_free(tok);
-        fprintf(stderr, "[tokenizer] \"%s\" -> %zu tokens\n", text, count);
+        fprintf(stderr, "[tokenizer] \"%s\" -> %zu tokens\n", text, prompt_ids.size());
+    } else if (std::string(prompt_arg) == "--chat") {
+        // layout: bitnet_decode <model> --chat "<user msg>" <num_new> [system_msg]
+        // Applies BitNet's chat template: "User: msg<|eot_id|>Assistant: "
+        // (verified against tokenizer_config.json for BitNet-b1.58-2B-4T)
+        if (argc < 4) { fprintf(stderr, "usage: --chat \"<user msg>\" <num_new> [\"<system>\"]\n"); return 1; }
+        const char* user_msg = argv[3];
+        num_tokens = argc > 4 ? std::atoi(argv[4]) : 128;
+        const char* system_msg = argc > 5 ? argv[5] : nullptr;
+
+        rcpp_tokenizer_t* tok = nullptr;
+        if (rcpp_tokenizer_load(tok_path, &tok) != RCPP_OK) {
+            fprintf(stderr, "cannot load tokenizer .htok: %s\n", tok_path); return 1;
+        }
+        const int BOS = rcpp_tokenizer_bos_id(tok);
+        const int EOT = 128009;  // <|eot_id|>
+
+        prompt_ids.push_back(BOS);
+        if (system_msg) {
+            std::string s = std::string("System: ") + system_msg;
+            auto ids = tokenize(tok, s.c_str());
+            prompt_ids.insert(prompt_ids.end(), ids.begin(), ids.end());
+            prompt_ids.push_back(EOT);
+        }
+        {
+            std::string s = std::string("User: ") + user_msg;
+            auto ids = tokenize(tok, s.c_str());
+            prompt_ids.insert(prompt_ids.end(), ids.begin(), ids.end());
+            prompt_ids.push_back(EOT);
+        }
+        {
+            auto ids = tokenize(tok, "Assistant: ");
+            prompt_ids.insert(prompt_ids.end(), ids.begin(), ids.end());
+        }
+        rcpp_tokenizer_free(tok);
+        fprintf(stderr, "[chat] user=\"%s\"%s -> %zu prompt tokens\n",
+                user_msg, system_msg ? " (with system)" : "", prompt_ids.size());
     } else if (prompt_arg[0] == '@') {
         num_tokens = argc > 3 ? std::atoi(argv[3]) : 16;
         std::ifstream f(prompt_arg + 1);
