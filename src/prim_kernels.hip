@@ -196,6 +196,69 @@ __global__ void residual_add_fp16_kernel(
 }
 
 // ============================================================================
+// 10. Top-k filter — keep only the k largest logits, set the rest to -INF.
+//     Caller then runs softmax + multinomial to sample within the top-k.
+//     Simple approach: k iterations of block-wide argmax, save + mask.
+//     Supports k up to MAX_TOPK.
+// ============================================================================
+
+constexpr int MAX_TOPK = 512;
+
+__global__ void top_k_fp32_kernel(
+    float* __restrict__ logits,
+    int k, int V)
+{
+    __shared__ int picked_idx[MAX_TOPK];
+    __shared__ float picked_val[MAX_TOPK];
+    __shared__ float s_val[BLOCK / WARP];
+    __shared__ int   s_idx[BLOCK / WARP];
+
+    const int tid  = threadIdx.x;
+    const int lane = tid & (WARP - 1);
+    const int wid  = tid / WARP;
+
+    for (int iter = 0; iter < k; ++iter) {
+        float best_v = -INFINITY;
+        int   best_i = 0;
+        for (int v = tid; v < V; v += BLOCK) {
+            float x = logits[v];
+            if (x > best_v) { best_v = x; best_i = v; }
+        }
+        #pragma unroll
+        for (int o = WARP / 2; o > 0; o >>= 1) {
+            float ov = __shfl_xor(best_v, o);
+            int   oi = __shfl_xor(best_i, o);
+            if (ov > best_v) { best_v = ov; best_i = oi; }
+        }
+        if (lane == 0) { s_val[wid] = best_v; s_idx[wid] = best_i; }
+        __syncthreads();
+        if (wid == 0) {
+            float v = (lane < BLOCK / WARP) ? s_val[lane] : -INFINITY;
+            int   i = (lane < BLOCK / WARP) ? s_idx[lane] : 0;
+            #pragma unroll
+            for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) {
+                float ov = __shfl_xor(v, o);
+                int   oi = __shfl_xor(i, o);
+                if (ov > v) { v = ov; i = oi; }
+            }
+            if (lane == 0) {
+                picked_idx[iter] = i;
+                picked_val[iter] = v;
+                logits[i] = -INFINITY;   // mask so next argmax skips it
+            }
+        }
+        __syncthreads();
+    }
+
+    // Zero everything below top-k
+    for (int v = tid; v < V; v += BLOCK) logits[v] = -INFINITY;
+    __syncthreads();
+
+    // Restore top-k values
+    if (tid < k) logits[picked_idx[tid]] = picked_val[tid];
+}
+
+// ============================================================================
 // 8. Softmax (FP32) with optional temperature — in place on logits.
 //    y[v] = exp((x[v] - max) / T) / sum
 // ============================================================================
@@ -455,6 +518,20 @@ rcpp_softmax_fp32(void* logits_dev, int V, float temperature, void* stream)
                        grid, block, 0, (hipStream_t)stream,
                        static_cast<float*>(logits_dev),
                        V, 1.0f / temperature);
+    return RCPP_OK;
+}
+
+rcpp_status_t
+rcpp_top_k_fp32(void* logits_dev, int k, int V, void* stream)
+{
+    if (!logits_dev || k <= 0 || V <= 0) return RCPP_INVALID_ARG;
+    if (k > MAX_TOPK) return RCPP_UNSUPPORTED;
+    if (k >= V) return RCPP_OK;   // no-op: all values survive
+    dim3 grid(1, 1, 1), block(BLOCK, 1, 1);
+    hipLaunchKernelGGL(top_k_fp32_kernel,
+                       grid, block, 0, (hipStream_t)stream,
+                       static_cast<float*>(logits_dev),
+                       k, V);
     return RCPP_OK;
 }
 

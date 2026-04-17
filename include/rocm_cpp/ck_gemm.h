@@ -136,6 +136,13 @@ rcpp_residual_add_fp16(void* y_dev, const void* src_dev, int N, void* stream);
 rcpp_status_t
 rcpp_argmax_fp32(const void* logits_dev, void* out_idx_dev, int V, void* stream);
 
+// Top-k logit filter — in-place. Keeps only the k largest logit values; the
+// rest are set to -INFINITY so subsequent softmax zeroes them out. Caller
+// sequence for top-k sampling: top_k -> softmax -> multinomial.
+// Max k = 512.
+rcpp_status_t
+rcpp_top_k_fp32(void* logits_dev, int k, int V, void* stream);
+
 // Softmax with optional temperature — in-place. logits[] becomes probs[].
 //   probs[v] = exp(logits[v] / T - max) / sum
 // temperature must be > 0. Pass 1.0 for standard softmax.
