@@ -483,12 +483,16 @@ int main(int argc, char** argv) {
     std::vector<char> tail_buf(8192);
     std::vector<char> stream_buf(16 * 1024);
 
-    // When out_text != nullptr, generated text is appended there instead
-    // of streaming to stdout — used by the HTTP server path. The token-
-    // ID log still goes to stderr regardless.
+    // When out_text != nullptr, generated text is appended there
+    // instead of streaming to stdout — used by the HTTP non-streaming
+    // path. When on_stream is set, each incremental byte-range goes
+    // through the callback (used by the HTTP SSE path). Both can be
+    // set together; the callback still fires.
+    using StreamCb = std::function<void(const std::string&)>;
     auto run_turn = [&](const std::vector<int>& new_tokens, int max_new,
-                        std::string* out_text = nullptr) -> int {
-        const bool silent = (out_text != nullptr);
+                        std::string* out_text = nullptr,
+                        StreamCb on_stream = nullptr) -> int {
+        const bool silent = (out_text != nullptr) || (on_stream != nullptr);
         // Prefill the new tokens (positions cache_pos..cache_pos+N-1).
         double prefill_ms = 0.0;
         for (size_t i = 0; i < new_tokens.size(); ++i) {
@@ -530,12 +534,12 @@ int main(int argc, char** argv) {
                                       stream_buf.data(), stream_buf.size(), &tlen);
                 tlen = std::min(tlen, stream_buf.size());
                 if (tlen > printed_bytes) {
-                    if (silent) {
-                        out_text->append(stream_buf.data() + printed_bytes,
-                                         tlen - printed_bytes);
-                    } else {
-                        fwrite(stream_buf.data() + printed_bytes, 1,
-                               tlen - printed_bytes, stdout);
+                    std::string delta(stream_buf.data() + printed_bytes,
+                                      tlen - printed_bytes);
+                    if (out_text)   out_text->append(delta);
+                    if (on_stream)  on_stream(delta);
+                    if (!silent) {
+                        fwrite(delta.data(), 1, delta.size(), stdout);
                         fflush(stdout);
                     }
                     printed_bytes = tlen;
@@ -679,30 +683,96 @@ int main(int argc, char** argv) {
             req_prompt.insert(req_prompt.end(), pre.begin(), pre.end());
 
             int   req_max = j.value("max_tokens", 256);
+            bool  req_stream = j.value("stream", false);
+            std::string model_name = j.value("model", std::string("bitnet-b1.58-2b-4t"));
+
             // Per-request sampler overrides (reset to session defaults after).
             float save_temp = temperature, save_top_p = top_p_val, save_rep = rep_penalty;
             int   save_top_k = top_k_val;
             temperature = j.value("temperature", temperature);
             top_p_val   = j.value("top_p",       top_p_val);
-            rep_penalty = j.value("frequency_penalty", 0.0f) + 1.0f;  // rough map
+            rep_penalty = j.value("frequency_penalty", 0.0f) + 1.0f;
             if (rep_penalty < 1.0f) rep_penalty = 1.0f;
 
-            // Reset KV cache for a fresh conversation.
             cache_pos = 0;
             sampler_history.clear();
             sampler_history = req_prompt;
 
+            const std::string chat_id =
+                "chatcmpl-" + std::to_string((long)std::chrono::steady_clock::now().time_since_epoch().count());
+            const long created = (long)std::time(nullptr);
+
+            // ─── Streaming path (SSE chunked /v1/chat/completions) ───
+            if (req_stream) {
+                res.set_chunked_content_provider(
+                    "text/event-stream",
+                    [this_dump = chat_id, created, model_name,
+                     prompt_sz = (int)req_prompt.size(),
+                     &run_turn, &temperature, &top_p_val, &rep_penalty, &top_k_val,
+                     save_temp, save_top_p, save_rep, save_top_k,
+                     req_prompt, req_max](size_t, httplib::DataSink& sink) {
+                        auto fire = [&](const std::string& delta) {
+                            nlohmann::json chunk = {
+                                {"id",      this_dump},
+                                {"object",  "chat.completion.chunk"},
+                                {"created", created},
+                                {"model",   model_name},
+                                {"choices", nlohmann::json::array({
+                                    {{"index", 0},
+                                     {"delta", {{"content", delta}}},
+                                     {"finish_reason", nullptr}}
+                                })}
+                            };
+                            std::string line = "data: " + chunk.dump() + "\n\n";
+                            sink.write(line.data(), line.size());
+                        };
+                        // First event carries just the role (OpenAI convention).
+                        {
+                            nlohmann::json first = {
+                                {"id", this_dump}, {"object", "chat.completion.chunk"},
+                                {"created", created}, {"model", model_name},
+                                {"choices", nlohmann::json::array({
+                                    {{"index", 0},
+                                     {"delta", {{"role", "assistant"}}},
+                                     {"finish_reason", nullptr}}
+                                })}
+                            };
+                            std::string l = "data: " + first.dump() + "\n\n";
+                            sink.write(l.data(), l.size());
+                        }
+                        (void)run_turn(req_prompt, req_max, nullptr, fire);
+                        // Final chunk — finish_reason stop, then [DONE].
+                        nlohmann::json fin = {
+                            {"id", this_dump}, {"object", "chat.completion.chunk"},
+                            {"created", created}, {"model", model_name},
+                            {"choices", nlohmann::json::array({
+                                {{"index", 0},
+                                 {"delta", nlohmann::json::object()},
+                                 {"finish_reason", "stop"}}
+                            })}
+                        };
+                        std::string l = "data: " + fin.dump() + "\n\n";
+                        sink.write(l.data(), l.size());
+                        std::string done = "data: [DONE]\n\n";
+                        sink.write(done.data(), done.size());
+                        sink.done();
+                        // Restore session sampler after the stream ends.
+                        temperature = save_temp; top_p_val = save_top_p;
+                        rep_penalty = save_rep;  top_k_val = save_top_k;
+                        return true;
+                    });
+                return;
+            }
+
+            // ─── Non-streaming path (single JSON response) ───
             std::string text;
             auto t0 = std::chrono::steady_clock::now();
             (void)run_turn(req_prompt, req_max, &text);
             auto t1 = std::chrono::steady_clock::now();
             double dt_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
-
-            // Restore session sampler state.
             temperature = save_temp; top_p_val = save_top_p;
             rep_penalty = save_rep;  top_k_val = save_top_k;
 
-            // Strip trailing <|eot_id|> glyph if present.
             const std::string eot = "<|eot_id|>";
             if (text.size() >= eot.size() &&
                 text.compare(text.size() - eot.size(), eot.size(), eot) == 0) {
@@ -710,10 +780,10 @@ int main(int argc, char** argv) {
             }
 
             nlohmann::json resp = {
-                {"id",      "chatcmpl-" + std::to_string((long)t1.time_since_epoch().count())},
+                {"id",      chat_id},
                 {"object",  "chat.completion"},
-                {"created", (long)std::time(nullptr)},
-                {"model",   j.value("model", std::string("bitnet-b1.58-2b-4t"))},
+                {"created", created},
+                {"model",   model_name},
                 {"choices", nlohmann::json::array({
                     {{"index", 0},
                      {"message", {{"role", "assistant"}, {"content", text}}},
