@@ -50,7 +50,10 @@ FetchContent_MakeAvailable(cpp_httplib nlohmann_json ftxui)
 # phases 1-4 will replace that; once they land, this find_package goes away too.
 find_package(composable_kernel REQUIRED CONFIG PATHS "${ROCM_ROOT}")
 
-set(CMAKE_HIP_ARCHITECTURES "gfx1151")
+# GPU arch(es) to build for. Default is Strix Halo; overridable from the
+# command line with -DCMAKE_HIP_ARCHITECTURES="gfx1151;gfx1201" to produce
+# a multi-arch binary (HIP bundles code objects per-arch, runtime picks).
+set(CMAKE_HIP_ARCHITECTURES "gfx1151" CACHE STRING "GPU arch(es) to build")
 
 # -- librocm_cpp : shared library exposing the C API ----------------------------
 # Host packer is pure C++ (no CK). Device kernel uses CK headers only — no
@@ -83,7 +86,7 @@ target_compile_options(rocm_cpp PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -ffast-math -munsafe-fp-atomics
         -Wno-unused-result -Wno-unused-parameter -Wno-unused-variable>)
 target_link_libraries(rocm_cpp PRIVATE hip::host hip::device)
-set_target_properties(rocm_cpp PROPERTIES HIP_ARCHITECTURES "gfx1151")
+set_target_properties(rocm_cpp PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
 # -- tests/test_ck_gemm : end-to-end functional proof --------------------------
 add_executable(test_ck_gemm tests/test_ck_gemm.cpp)
@@ -91,7 +94,7 @@ set_source_files_properties(tests/test_ck_gemm.cpp PROPERTIES LANGUAGE HIP)
 target_compile_options(test_ck_gemm PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
 target_link_libraries(test_ck_gemm PRIVATE rocm_cpp hip::host hip::device)
-set_target_properties(test_ck_gemm PROPERTIES HIP_ARCHITECTURES "gfx1151")
+set_target_properties(test_ck_gemm PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
 # -- tests/test_standalone : correctness diff CK vs standalone kernel ----------
 add_executable(test_standalone tests/test_standalone.cpp)
@@ -99,14 +102,14 @@ set_source_files_properties(tests/test_standalone.cpp PROPERTIES LANGUAGE HIP)
 target_compile_options(test_standalone PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
 target_link_libraries(test_standalone PRIVATE rocm_cpp hip::host hip::device)
-set_target_properties(test_standalone PROPERTIES HIP_ARCHITECTURES "gfx1151")
+set_target_properties(test_standalone PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
 add_executable(test_prim_and_attn tests/test_prim_and_attn.cpp)
 set_source_files_properties(tests/test_prim_and_attn.cpp PROPERTIES LANGUAGE HIP)
 target_compile_options(test_prim_and_attn PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
 target_link_libraries(test_prim_and_attn PRIVATE rocm_cpp hip::host hip::device)
-set_target_properties(test_prim_and_attn PROPERTIES HIP_ARCHITECTURES "gfx1151")
+set_target_properties(test_prim_and_attn PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
 # -- tools/bitnet_decode : end-to-end MVP decode CLI ---------------------------
 add_executable(bitnet_decode tools/bitnet_decode.cpp)
@@ -115,7 +118,7 @@ target_compile_options(bitnet_decode PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
 target_link_libraries(bitnet_decode PRIVATE rocm_cpp hip::host hip::device
                                             httplib::httplib nlohmann_json::nlohmann_json)
-set_target_properties(bitnet_decode PROPERTIES HIP_ARCHITECTURES "gfx1151")
+set_target_properties(bitnet_decode PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
 # -- tools/bitnet_debate : two BitNet instances arguing a topic ----------------
 add_executable(bitnet_debate tools/bitnet_debate.cpp)
@@ -123,7 +126,7 @@ set_source_files_properties(tools/bitnet_debate.cpp PROPERTIES LANGUAGE HIP)
 target_compile_options(bitnet_debate PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
 target_link_libraries(bitnet_debate PRIVATE rocm_cpp hip::host hip::device)
-set_target_properties(bitnet_debate PROPERTIES HIP_ARCHITECTURES "gfx1151")
+set_target_properties(bitnet_debate PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
 # -- tools/bitnet_tui : FTXUI terminal UI (talks to bitnet_decode --server) ---
 add_executable(bitnet_tui tools/bitnet_tui.cpp)
