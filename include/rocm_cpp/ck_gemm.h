@@ -127,6 +127,26 @@ rcpp_embedding_lookup_fp16(const void* embedding_dev, int token_id,
                            void* y_dev, int hidden, void* stream);
 
 // -----------------------------------------------------------------------------
+// Phase 6 — KV cache attention for batch=1 decode (Flash-Decoding style).
+//
+// Computes: out[h] = softmax(scale * Q[h] · K[*, h//gqa_ratio]) · V[*, h//gqa_ratio]
+// where gqa_ratio = num_q_heads / num_kv_heads.
+//
+// Layouts (FP16):
+//   Q:       [num_q_heads, head_dim]
+//   K_cache: [seq_len, num_kv_heads, head_dim]
+//   V_cache: [seq_len, num_kv_heads, head_dim]
+//   out:     [num_q_heads, head_dim]
+//
+// Online softmax state held per-block in registers; no seq_len-size scratch.
+// Supports head_dim up to 256.
+rcpp_status_t
+rcpp_kv_cache_attn_decode(const void* Q_dev, const void* K_dev, const void* V_dev,
+                          void* out_dev,
+                          int num_q_heads, int num_kv_heads, int head_dim,
+                          int seq_len, float scale, void* stream);
+
+// -----------------------------------------------------------------------------
 // Standalone (CK-free) prefill launcher.
 //
 // Same inputs as rcpp_ck_gemm_run. Produces bit-identical output to the CK
