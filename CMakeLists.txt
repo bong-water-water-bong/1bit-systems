@@ -38,7 +38,13 @@ FetchContent_Declare(cpp_httplib
 FetchContent_Declare(nlohmann_json
     GIT_REPOSITORY https://github.com/nlohmann/json.git
     GIT_TAG        v3.11.3)
-FetchContent_MakeAvailable(cpp_httplib nlohmann_json)
+FetchContent_Declare(ftxui
+    GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI.git
+    GIT_TAG        v5.0.0)
+set(FTXUI_BUILD_DOCS     OFF CACHE INTERNAL "")
+set(FTXUI_BUILD_EXAMPLES OFF CACHE INTERNAL "")
+set(FTXUI_BUILD_TESTS    OFF CACHE INTERNAL "")
+FetchContent_MakeAvailable(cpp_httplib nlohmann_json ftxui)
 
 # CK is still needed for the device-side GEMM template (header-only). Option B
 # phases 1-4 will replace that; once they land, this find_package goes away too.
@@ -118,6 +124,13 @@ target_compile_options(bitnet_debate PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
 target_link_libraries(bitnet_debate PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(bitnet_debate PROPERTIES HIP_ARCHITECTURES "gfx1151")
+
+# -- tools/bitnet_tui : FTXUI terminal UI (talks to bitnet_decode --server) ---
+add_executable(bitnet_tui tools/bitnet_tui.cpp)
+target_link_libraries(bitnet_tui PRIVATE
+    httplib::httplib
+    nlohmann_json::nlohmann_json
+    ftxui::screen ftxui::dom ftxui::component)
 
 # -- ck-prefill : research binaries (kept building for tuning) ------------------
 add_subdirectory(ck-prefill)
