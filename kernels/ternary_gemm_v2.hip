@@ -62,8 +62,11 @@ __global__ void ternary_gemm_v2_kernel(
     const int bytes_per_row = K / 8;
 
     // LDS slabs — one per operand. Row-major for A, col-major for B.
+    // v2.3: also stage float activations in LDS before quantize, so
+    // max-abs scan + quantize read from LDS instead of re-reading GMEM.
     __shared__ int8_t a_lds[TILE_M * WMMA_K];     // 64 x 16
-    __shared__ int8_t b_lds[WMMA_K * TILE_N];     // 16 x 64 (stored col-major: b_lds[k + col*WMMA_K])
+    __shared__ int8_t b_lds[WMMA_K * TILE_N];     // 16 x 64, col-major
+    __shared__ float  x_stage[WMMA_K * TILE_N];   // 16 x 64 float activations
     __shared__ float  act_scale_sh;
 
     // Float accumulators per wave, one per col stripe (4 stripes × 8 cells/lane = 32 floats/lane).
@@ -94,9 +97,9 @@ __global__ void ternary_gemm_v2_kernel(
             a_lds[r * WMMA_K + k] = (int8_t)val;
         }
 
-        // --- Stage 2: block-cooperative max-abs for B slab activations ---
-        // Each thread scans 8 of the 1024 float activations in this tile.
-        float local_max = 0.0f;
+        // --- Stage 2a: load activations into LDS float stage (single GMEM read) ---
+        // x_stage[k + c*WMMA_K] = x[tile_b + c, k_tile + k]  (col-major layout)
+        // 1024 cells, 128 threads × 8 each.
         #pragma unroll
         for (int i = 0; i < WMMA_K * TILE_N / BLOCK_SIZE; i++) {
             int idx = tid + i * BLOCK_SIZE;
@@ -104,18 +107,27 @@ __global__ void ternary_gemm_v2_kernel(
             int c = idx / WMMA_K;
             int k_global = k_tile + k;
             int batch = tile_b + c;
+            float v = 0.0f;
             if (k_global < K && batch < B) {
-                float v = fabsf(x[(size_t)batch * K + k_global]);
-                if (v > local_max) local_max = v;
+                v = x[(size_t)batch * K + k_global];
             }
+            x_stage[k + c * WMMA_K] = v;
         }
-        // Warp reduce max
+        __syncthreads();
+
+        // --- Stage 2b: block-cooperative max-abs from LDS ---
+        float local_max = 0.0f;
+        #pragma unroll
+        for (int i = 0; i < WMMA_K * TILE_N / BLOCK_SIZE; i++) {
+            int idx = tid + i * BLOCK_SIZE;
+            float v = fabsf(x_stage[idx]);
+            if (v > local_max) local_max = v;
+        }
         #pragma unroll
         for (int off = WARP_SIZE / 2; off > 0; off >>= 1) {
             float other = __shfl_xor(local_max, off);
             if (other > local_max) local_max = other;
         }
-        // Cross-wave max via LDS
         __shared__ float wave_max[NUM_WARPS];
         if (lane == 0) wave_max[warp] = local_max;
         __syncthreads();
@@ -131,19 +143,12 @@ __global__ void ternary_gemm_v2_kernel(
         float act_scale = act_scale_sh;
         float inv_scale = 1.0f / act_scale;
 
-        // --- Stage 3: quantize activations into B slab (col-major) ---
+        // --- Stage 3: quantize from LDS float stage to b_lds (col-major int8) ---
         #pragma unroll
         for (int i = 0; i < WMMA_K * TILE_N / BLOCK_SIZE; i++) {
             int idx = tid + i * BLOCK_SIZE;
-            int k = idx % WMMA_K;
-            int c = idx / WMMA_K;
-            int k_global = k_tile + k;
-            int batch = tile_b + c;
-            int q = 0;
-            if (k_global < K && batch < B) {
-                q = quant_i8(x[(size_t)batch * K + k_global], inv_scale);
-            }
-            b_lds[k + c * WMMA_K] = (int8_t)q;
+            int q = quant_i8(x_stage[idx], inv_scale);
+            b_lds[idx] = (int8_t)q;
         }
         __syncthreads();
 
