@@ -30,6 +30,7 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <random>
 #include <vector>
 
 #define HIP_OK(e) do { auto _s=(e); if(_s!=hipSuccess){fprintf(stderr,"HIP %d %s:%d\n",_s,__FILE__,__LINE__); return 1;}} while(0)
@@ -59,18 +60,23 @@ int main(int argc, char** argv) {
     int num_tokens = 16;
     const char* tok_path = "/home/bcloud/halo-1bit/models/halo-1bit-2b.htok";
 
-    // Collect --stop "seq" flags (repeatable). Everything between the first
-    // --stop and the end of argv is consumed as stop-sequence args; positional
-    // args must come before any --stop. Stopping is suffix-match against the
-    // detokenized generation tail — so "User:" catches model-emitted user
-    // turns, "</s>" catches closing tags, etc.
+    // Collect --stop "seq" / --temp <f> / --top-k <int> / --seed <int> flags.
+    // Positional args must come BEFORE any named flag; argc_use caps the
+    // positional scan so trailing flag blocks don't leak into chat/system
+    // positional slots.
     std::vector<std::string> stop_seqs;
+    float temperature = 0.0f;          // 0 = greedy argmax (default, legacy)
+    int   top_k_val    = 0;            // 0 = disabled
+    uint64_t sampler_seed = (uint64_t)std::chrono::steady_clock::now().time_since_epoch().count();
     int argc_use = argc;
-    for (int i = 3; i < argc - 1; ++i) {
-        if (std::string(argv[i]) == "--stop") {
-            stop_seqs.emplace_back(argv[i + 1]);
-            if (argc_use > i) argc_use = i;  // hide --stop args from positional parse
-        }
+    for (int i = 3; i < argc; ++i) {
+        std::string a = argv[i];
+        if (a == "--stop"  && i + 1 < argc) { stop_seqs.emplace_back(argv[++i]); }
+        else if (a == "--temp" && i + 1 < argc) { temperature = (float)std::atof(argv[++i]); }
+        else if (a == "--top-k" && i + 1 < argc) { top_k_val = std::atoi(argv[++i]); }
+        else if (a == "--seed"  && i + 1 < argc) { sampler_seed = (uint64_t)std::atoll(argv[++i]); }
+        else continue;
+        if (argc_use > i - 1) argc_use = i - 1;  // first flag caps positionals
     }
 
     // Tokenize a chunk of text with NO bos; returns IDs.
@@ -224,6 +230,12 @@ int main(int argc, char** argv) {
         HIP_OK(hipMalloc(&V_caches[l], kv_size));
     }
 
+    std::mt19937_64 rng(sampler_seed);
+    if (temperature > 0.0f) {
+        fprintf(stderr, "[sampler] temp=%.3f  top_k=%d  seed=%llu\n",
+                temperature, top_k_val, (unsigned long long)sampler_seed);
+    }
+
     // ---- Forward pass for one token at position pos ----
     auto forward_token = [&](int token_id, int pos) -> int {
         // Seed the FP32 residual stream from the FP16 embedding.
@@ -302,9 +314,22 @@ int main(int argc, char** argv) {
                                             m.rms_norm_eps, hs, nullptr));
         RC_OK(rcpp_fp16_gemv(m.embedding_dev, normed, logits, V, hs, nullptr));
 
-        // Greedy sample
-        RC_OK(rcpp_argmax_fp32(logits, next_tok_dev, V, nullptr));
+        // Sample: greedy argmax when temperature == 0, otherwise
+        // optional top-k filter -> temperature softmax -> multinomial
+        // with a CPU-generated uniform random. Keeps the fast path
+        // branch-free (argmax is ~100x cheaper than the full chain).
         int next_tok;
+        if (temperature <= 0.0f) {
+            RC_OK(rcpp_argmax_fp32(logits, next_tok_dev, V, nullptr));
+        } else {
+            if (top_k_val > 0) {
+                RC_OK(rcpp_top_k_fp32(logits, top_k_val, V, nullptr));
+            }
+            RC_OK(rcpp_softmax_fp32(logits, V, temperature, nullptr));
+            std::uniform_real_distribution<float> u(0.0f, 1.0f);
+            float r = u(rng);
+            RC_OK(rcpp_sample_multinomial_fp32(logits, r, next_tok_dev, V, nullptr));
+        }
         HIP_OK(hipMemcpy(&next_tok, next_tok_dev, 4, hipMemcpyDeviceToHost));
         return next_tok;
     };
