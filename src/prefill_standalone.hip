@@ -315,6 +315,103 @@ void standalone_ternary_gemm_wmma(
     }
 }
 
+// Phase 4b: 1 wave per block, 16x64 output tile.
+// Each wave accumulates FOUR 16x16 WMMA output tiles along N, amortizing
+// the A fragment load across 4x the output. A stays read once per K step,
+// B is loaded 4 times (one per sub-tile N offset), 4 WMMAs per K step.
+// No LDS — direct global loads. Keeps launch overhead low (1 wave/block
+// = high block count = good scheduler saturation).
+__global__ __launch_bounds__(32)
+void standalone_ternary_gemm_wmma_4x(
+    const __half* __restrict__ A,
+    const uint8_t* __restrict__ B,
+    __half* __restrict__ C,
+    int M, int N, int K)
+{
+    constexpr int TILE_M = 16;
+    constexpr int TILE_N = 64;   // 4 x 16
+    constexpr int WMMA_K = 16;
+
+    const int lane     = threadIdx.x;
+    const int row_lane = lane & 15;
+    const int half     = lane >> 4;
+
+    const int m0 = blockIdx.y * TILE_M;
+    const int n0 = blockIdx.x * TILE_N;
+
+    float8_t acc[4] = {};  // four 16x16 accumulators along N
+
+    const int forward_perm[8] = {2, 0, 6, 4, 3, 1, 7, 5};
+    (void)forward_perm;
+    const int inv_perm[8] = {1, 5, 0, 4, 3, 7, 2, 6};
+
+    const int K0 = K / K1;
+
+    for(int j = 0; j < K0; ++j) {
+        #pragma unroll
+        for(int step = 0; step < K1 / WMMA_K; ++step) {
+            const int jj_lo = step * WMMA_K;
+
+            // ------- A fragment (shared across all 4 B fragments) -------
+            half16_t A_frag;
+            {
+                const int m_row = m0 + row_lane;
+                if(m_row < M) {
+                    #pragma unroll
+                    for(int c = 0; c < 16; ++c) {
+                        A_frag[c] = (__fp16)(float)A[m_row * K + j * K1 + jj_lo + c];
+                    }
+                } else {
+                    #pragma unroll
+                    for(int c = 0; c < 16; ++c) A_frag[c] = (__fp16)0;
+                }
+            }
+
+            // ------- 4 B fragments + 4 WMMAs -------
+            #pragma unroll
+            for(int sub = 0; sub < 4; ++sub) {
+                const int n_sub = n0 + sub * 16;
+                half16_t B_frag;
+                const int n_col = n_sub + row_lane;
+                if(n_col < N) {
+                    const int b_base = j * N * K1_BYTES + n_col * K1_BYTES;
+                    #pragma unroll
+                    for(int r = 0; r < 16; ++r) {
+                        const int jj_orig  = jj_lo + r;
+                        const int grp_base = (jj_orig / 8) * 8;
+                        const int slot_out = jj_orig & 7;
+                        const int perm_slot = inv_perm[slot_out];
+                        const int perm_jj   = grp_base + perm_slot;
+                        const uint8_t byte  = B[b_base + (perm_jj >> 1)];
+                        const uint8_t nib   = ((perm_jj & 1) == 0)
+                            ? ((byte >> 4) & 0xF)
+                            : (byte & 0xF);
+                        B_frag[r] = (__fp16)((float)((int)nib - 8));
+                    }
+                } else {
+                    #pragma unroll
+                    for(int r = 0; r < 16; ++r) B_frag[r] = (__fp16)0;
+                }
+                acc[sub] = __builtin_amdgcn_wmma_f32_16x16x16_f16_w32(A_frag, B_frag, acc[sub]);
+            }
+        }
+    }
+
+    // ------- Store: 4 sub-tiles along N -------
+    #pragma unroll
+    for(int sub = 0; sub < 4; ++sub) {
+        const int n_sub = n0 + sub * 16;
+        #pragma unroll
+        for(int r = 0; r < 8; ++r) {
+            const int m_out = m0 + 2 * r + half;
+            const int n_out = n_sub + row_lane;
+            if(m_out < M && n_out < N) {
+                C[m_out * N + n_out] = __float2half(acc[sub][r]);
+            }
+        }
+    }
+}
+
 // Phase 4: 2 waves per block (64 threads) computing a 32x16 output tile.
 // LDS staging for A and B — both waves share the K loads:
 //   A_lds : [32, 32] FP16 = 2 KiB  (two 16-row halves, one per wave)
@@ -508,6 +605,21 @@ void rcpp_standalone_launch_wmma_2wave(
     dim3 block(64, 1, 1);
     dim3 grid((N + 15) / 16, (M + 31) / 32, 1);
     hipLaunchKernelGGL(standalone_ternary_gemm_wmma_2wave,
+                       grid, block, 0, (hipStream_t)stream,
+                       static_cast<const __half*>(A_dev),
+                       static_cast<const uint8_t*>(B_dev),
+                       static_cast<__half*>(C_dev),
+                       M, N, K);
+}
+
+// Phase 4b: 1 wave, 16x64 output tile (4 B fragments per K step).
+void rcpp_standalone_launch_wmma_4x(
+    const void* A_dev, const void* B_dev, void* C_dev,
+    int M, int N, int K, void* stream)
+{
+    dim3 block(32, 1, 1);
+    dim3 grid((N + 63) / 64, (M + 15) / 16, 1);
+    hipLaunchKernelGGL(standalone_ternary_gemm_wmma_4x,
                        grid, block, 0, (hipStream_t)stream,
                        static_cast<const __half*>(A_dev),
                        static_cast<const uint8_t*>(B_dev),
