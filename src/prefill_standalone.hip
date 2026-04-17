@@ -193,7 +193,6 @@ void standalone_ternary_gemm_lds(
     }
 }
 
-#if 0   // Phase 3 WIP — layout bug (max abs 15 vs CK on 256x256x512). Next session.
 // Phase 3: WMMA-backed GEMM on gfx1151.
 //   One wave (32 threads) = one block = one 16x16 output tile.
 //   K tile = 16 per WMMA step.
@@ -205,7 +204,8 @@ void standalone_ternary_gemm_lds(
 //   B[16, 16] FP16: each lane holds half16_t. Lanes 0..15 hold col (lane_id)
 //     of B (all 16 rows). Lanes 16..31 duplicate.
 //   C[16, 16] FP32: each lane holds float8_t = 8 outputs.
-//     lane i, slot r in 0..7 -> C[r + 8*(i >= 16), i % 16]
+//     lane i, slot r in 0..7 -> C[2*r + (i >= 16), i % 16]
+//     (interleaved rows: lanes 0..15 own even rows, lanes 16..31 own odd rows.)
 //
 // Builtin:
 //   float8_t __builtin_amdgcn_wmma_f32_16x16x16_f16_w32(half16_t A, half16_t B, float8_t C);
@@ -307,14 +307,13 @@ void standalone_ternary_gemm_wmma(
     // lane i slot r in 0..7 -> C[r + 8*(i >= 16), i % 16]
     #pragma unroll
     for(int r = 0; r < 8; ++r) {
-        const int m_out = m0 + 8 * half + r;
+        const int m_out = m0 + 2 * r + half;
         const int n_out = n0 + row_lane;
         if(m_out < M && n_out < N) {
             C[m_out * N + n_out] = __float2half(acc[r]);
         }
     }
 }
-#endif  // Phase 3 WIP
 
 }  // namespace
 
@@ -353,13 +352,19 @@ void rcpp_standalone_launch_lds(
                        M, N, K);
 }
 
-// Phase 3 WMMA launcher — WIP (layout bug). Falls back to Phase 2 LDS
-// behaviour so test harness doesn't need recompiling when we re-enable.
+// Phase 3 WMMA launcher — one wave per 16x16 output tile.
 void rcpp_standalone_launch_wmma(
     const void* A_dev, const void* B_dev, void* C_dev,
     int M, int N, int K, void* stream)
 {
-    rcpp_standalone_launch_lds(A_dev, B_dev, C_dev, M, N, K, stream);
+    dim3 block(32, 1, 1);
+    dim3 grid((N + 15) / 16, (M + 15) / 16, 1);
+    hipLaunchKernelGGL(standalone_ternary_gemm_wmma,
+                       grid, block, 0, (hipStream_t)stream,
+                       static_cast<const __half*>(A_dev),
+                       static_cast<const uint8_t*>(B_dev),
+                       static_cast<__half*>(C_dev),
+                       M, N, K);
 }
 
 }  // extern "C"
