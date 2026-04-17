@@ -80,20 +80,20 @@ Shape                  Perf            Correctness vs CPU ref
 
 ## Results — April 16, 2026 (TheRock 7.13 native)
 
-### Prefill GEMM — `librocm_cpp` vs rocBLAS FP16
+### Prefill GEMM — `librocm_cpp` Phase 4h vs CK backend vs rocBLAS FP16
 
-Same A and B data. `librocm_cpp` path: FP16 A × pk_i4 ternary B → FP16 C (0.25× B memory). rocBLAS path: FP16 A × FP16 B (dequantized).
+Same A and B data. `librocm_cpp` path: FP16 A × pk_i4 ternary B → FP16 C (¼× B memory). rocBLAS path: FP16 A × FP16 B (dequantized). Measured live in this session, hipEvent + 20 timed runs after warmup.
 
 ```
-Shape (MxNxK)          librocm_cpp     rocBLAS FP16    Ratio     B memory
-──────────────────────────────────────────────────────────────────────────
-2560x6912x2560         30.20 TFlops    31.51 TFlops    0.96x     0.25x
-2560x2560x6912         29.43           —               —         0.25x
-2560x2560x2560         27.72           34.86           0.80x     0.25x
-4096x4096x4096         21.22           28.50           0.74x     0.25x
+Shape (MxNxK)          Phase 4h        CK backend      rocBLAS FP16    std/CK     std/rocBLAS
+────────────────────────────────────────────────────────────────────────────────────────────
+2560x6912x2560         29.97 TFlops    28.79 TFlops    28.32 TFlops    1.041x     1.058x   <- beats rocBLAS
+2560x2560x6912         29.51           29.25           —               1.009x     —
+2560x2560x2560         28.65           28.88           34.81           0.992x     0.823x
+4096x4096x4096         29.32           21.03           34.24           1.394x     0.856x
 ```
 
-BitNet FFN shape is where ternary prefill earns its place: near-parity throughput with rocBLAS FP16 while occupying 1/4 the memory bandwidth on the B operand.
+BitNet FFN up is where ternary prefill earns its place: **Phase 4h standalone beats both CK's tuned template AND rocBLAS FP16** at ¼ the B memory. On 4096³ square shape the standalone is **1.39× CK** — structurally better tile shape for high-occupancy gfx1151 blocks than CK's 128×128 default. Square-shape gap vs rocBLAS (0.856×) is the same ceiling rocBLAS's tuned FP16 path always wins against any ternary kernel that has to pay a pk_i4 decode on the WMMA input side.
 
 ### Decode GEMV — `librocm_cpp` v1 ternary vs rocBLAS FP16 GEMV
 
