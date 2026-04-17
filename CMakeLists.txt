@@ -46,6 +46,7 @@ add_library(rocm_cpp SHARED
     src/prim_kernels.hip
     src/kv_cache_attn.hip
     src/h1b_loader.cpp
+    src/tokenizer.cpp
     kernels/ternary_gemv_phase5_dot4.hip
     kernels/ternary_gemv_phase5_halo.hip)
 set_source_files_properties(

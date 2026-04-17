@@ -19,6 +19,7 @@
 
 #include "rocm_cpp/ck_gemm.h"
 #include "rocm_cpp/bitnet_model.h"
+#include "rocm_cpp/tokenizer.h"
 
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
@@ -27,16 +28,73 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <random>
+#include <fstream>
+#include <iostream>
 #include <vector>
 
 #define HIP_OK(e) do { auto _s=(e); if(_s!=hipSuccess){fprintf(stderr,"HIP %d %s:%d\n",_s,__FILE__,__LINE__); return 1;}} while(0)
 #define RC_OK(e)  do { auto _s=(e); if(_s!=RCPP_OK){fprintf(stderr,"rcpp err %d at %s:%d\n",(int)_s,__FILE__,__LINE__); return 1;}} while(0)
 
+// Load a whitespace-separated list of token IDs from a stream.
+// Used when --prompt arg starts with @ (file path) or "-" (stdin).
+static std::vector<int> read_token_ids(std::istream& in) {
+    std::vector<int> ids;
+    int t;
+    while (in >> t) ids.push_back(t);
+    return ids;
+}
+
 int main(int argc, char** argv) {
+    // CLI:
+    //   bitnet_decode <model.h1b> <prompt> <num_new_tokens> [tokenizer.htok]
+    //   bitnet_decode <model.h1b>                                 # defaults
+    //
+    // <prompt> forms:
+    //   --text "your prompt"      — encode via librocm_cpp tokenizer (.htok)
+    //   @file.toks                — whitespace-separated ints from file
+    //   -                         — whitespace-separated ints from stdin
+    //   <int>                     — single start_tok (legacy)
     const char* path = argc > 1 ? argv[1] : "/home/bcloud/halo-1bit/models/halo-1bit-2b.h1b";
-    const int   start_tok  = argc > 2 ? std::atoi(argv[2]) : 1;
-    const int   num_tokens = argc > 3 ? std::atoi(argv[3]) : 16;
+    const char* prompt_arg = argc > 2 ? argv[2] : "1";
+    int num_tokens = 16;
+    const char* tok_path = "/home/bcloud/halo-1bit/models/halo-1bit-2b.htok";
+
+    std::vector<int> prompt_ids;
+    if (std::string(prompt_arg) == "--text") {
+        // layout: bitnet_decode <model> --text "<prompt>" <num_new> [tokenizer.htok]
+        if (argc < 4) { fprintf(stderr, "usage: --text \"<prompt text>\" <num_new> [tokenizer.htok]\n"); return 1; }
+        const char* text = argv[3];
+        num_tokens = argc > 4 ? std::atoi(argv[4]) : 32;
+        if (argc > 5) tok_path = argv[5];
+        rcpp_tokenizer_t* tok = nullptr;
+        if (rcpp_tokenizer_load(tok_path, &tok) != RCPP_OK) {
+            fprintf(stderr, "cannot load tokenizer .htok: %s\n", tok_path); return 1;
+        }
+        size_t count = 0;
+        std::vector<int> buf(4096);
+        rcpp_tokenizer_encode(tok, text, std::strlen(text), /*add_bos=*/1,
+                              buf.data(), buf.size(), &count);
+        if (count > buf.size()) { buf.resize(count);
+            rcpp_tokenizer_encode(tok, text, std::strlen(text), 1, buf.data(), buf.size(), &count);
+        }
+        buf.resize(count);
+        prompt_ids = buf;
+        rcpp_tokenizer_free(tok);
+        fprintf(stderr, "[tokenizer] \"%s\" -> %zu tokens\n", text, count);
+    } else if (prompt_arg[0] == '@') {
+        num_tokens = argc > 3 ? std::atoi(argv[3]) : 16;
+        std::ifstream f(prompt_arg + 1);
+        if (!f) { fprintf(stderr, "cannot open prompt file: %s\n", prompt_arg + 1); return 1; }
+        prompt_ids = read_token_ids(f);
+    } else if (std::string(prompt_arg) == "-") {
+        num_tokens = argc > 3 ? std::atoi(argv[3]) : 16;
+        prompt_ids = read_token_ids(std::cin);
+    } else {
+        num_tokens = argc > 3 ? std::atoi(argv[3]) : 16;
+        prompt_ids = { std::atoi(prompt_arg) };
+    }
+    if (prompt_ids.empty()) { fprintf(stderr, "prompt is empty\n"); return 1; }
+    const int start_tok = prompt_ids.front();
 
     rcpp_bitnet_model_t m;
     if (rcpp_bitnet_load_h1b(path, &m) != RCPP_OK) {
@@ -51,11 +109,13 @@ int main(int argc, char** argv) {
     const int hd  = hs / nh;
     const int L   = m.num_layers;
     const int V   = m.vocab_size;
-    const int max_len = num_tokens + 1;   // small KV cache: prompt token + generated
+    const int prompt_len = (int)prompt_ids.size();
+    const int max_len = prompt_len + num_tokens;
     const float scale = 1.0f / std::sqrt((float)hd);
 
-    fprintf(stderr, "[bitnet_decode] start_tok=%d num_tokens=%d max_ctx=%d\n",
-            start_tok, num_tokens, max_len);
+    fprintf(stderr, "[bitnet_decode] prompt_len=%d new_tokens=%d max_ctx=%d\n",
+            prompt_len, num_tokens, max_len);
+    (void)start_tok;  // preserved above for logging continuity
 
     // ---- Scratch buffers on device ----
     // x_fp32 is the FP32 residual stream (the dominant numerical-stability
@@ -191,25 +251,71 @@ int main(int argc, char** argv) {
         return next_tok;
     };
 
-    // ---- Generation loop ----
-    int cur_tok = start_tok;
-    printf("[bitnet_decode] tokens:");
-
-    double total_ms = 0.0;
-    for (int step = 0; step < num_tokens; ++step) {
+    // ---- Prefill: feed prompt tokens[0..prompt_len-2] through the cache,
+    //      producing the logits for position prompt_len-1 at the last step.
+    //      Then generate num_tokens new tokens greedily.
+    double prefill_ms = 0.0;
+    int next_tok = 0;
+    for (int step = 0; step < prompt_len; ++step) {
         auto t0 = std::chrono::high_resolution_clock::now();
-        int next_tok = forward_token(cur_tok, step);
+        next_tok = forward_token(prompt_ids[step], step);
         HIP_OK(hipDeviceSynchronize());
         auto t1 = std::chrono::high_resolution_clock::now();
-        double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        total_ms += ms;
+        prefill_ms += std::chrono::duration<double, std::milli>(t1 - t0).count();
+    }
+    fprintf(stderr, "[bitnet_decode] prefill %d tok in %.2f ms (%.1f tok/s)\n",
+            prompt_len, prefill_ms,
+            prompt_len > 0 ? 1000.0 * prompt_len / prefill_ms : 0.0);
+
+    // Stop tokens for LLaMA-3-family models (what BitNet ships with):
+    //   128001 = <|end_of_text|>
+    //   128009 = <|eot_id|>  (chat turn boundary)
+    // Picking these up early means the CLI terminates naturally on
+    // model-generated sentence endings instead of burning through num_tokens.
+    const int stop_a = 128001, stop_b = 128009;
+    std::vector<int> generated;
+    generated.reserve(num_tokens);
+    printf("[bitnet_decode] tokens:");
+    double decode_ms = 0.0;
+    int cur_tok = next_tok;
+    bool hit_eos = false;
+    for (int step = 0; step < num_tokens; ++step) {
+        auto t0 = std::chrono::high_resolution_clock::now();
+        next_tok = forward_token(cur_tok, prompt_len + step);
+        HIP_OK(hipDeviceSynchronize());
+        auto t1 = std::chrono::high_resolution_clock::now();
+        decode_ms += std::chrono::duration<double, std::milli>(t1 - t0).count();
         printf(" %d", next_tok);
         fflush(stdout);
+        generated.push_back(next_tok);
+        if (next_tok == stop_a || next_tok == stop_b) { hit_eos = true; break; }
         cur_tok = next_tok;
     }
     printf("\n");
-    printf("[bitnet_decode] %d tokens in %.2f ms  (%.2f ms/tok, %.1f tok/s)\n",
-           num_tokens, total_ms, total_ms/num_tokens, 1000.0 * num_tokens / total_ms);
+    if (hit_eos) {
+        fprintf(stderr, "[bitnet_decode] EOS (%d) after %zu new tokens\n",
+                next_tok, generated.size());
+    }
+    if (num_tokens > 0) {
+        printf("[bitnet_decode] decode %d tok in %.2f ms  (%.2f ms/tok, %.1f tok/s)\n",
+               num_tokens, decode_ms, decode_ms/num_tokens, 1000.0 * num_tokens / decode_ms);
+    }
+
+    // Detokenize prompt + generated tokens back to text.
+    rcpp_tokenizer_t* dec_tok = nullptr;
+    if (rcpp_tokenizer_load(tok_path, &dec_tok) == RCPP_OK) {
+        std::vector<int> full;
+        full.reserve(prompt_len + generated.size());
+        full.insert(full.end(), prompt_ids.begin(), prompt_ids.end());
+        full.insert(full.end(), generated.begin(), generated.end());
+        std::vector<char> text(16 * 1024);
+        size_t tlen = 0;
+        rcpp_tokenizer_decode(dec_tok, full.data(), full.size(),
+                              text.data(), text.size(), &tlen);
+        if (tlen > text.size()) tlen = text.size();
+        printf("[bitnet_decode] text:\n%.*s\n", (int)tlen, text.data());
+        rcpp_tokenizer_free(dec_tok);
+    }
 
     // Cleanup
     for (int l = 0; l < L; ++l) { hipFree(K_caches[l]); hipFree(V_caches[l]); }

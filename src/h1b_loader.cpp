@@ -71,7 +71,7 @@ rcpp_bitnet_load_h1b(const char* path, rcpp_bitnet_model_t* out_model) {
 
     int32_t version;
     f.read(reinterpret_cast<char*>(&version), 4);
-    if (version != 1) {
+    if (version != 1 && version != 2) {
         fprintf(stderr, "Unsupported .h1b version: %d\n", version);
         return RCPP_UNSUPPORTED;
     }
@@ -87,10 +87,22 @@ rcpp_bitnet_load_h1b(const char* path, rcpp_bitnet_model_t* out_model) {
     out_model->max_seq_len       = cfg[6];
     out_model->tie_embeddings    = cfg[7];
     // cfg[8] reserved
-    // Rope theta / norm eps come from config.json in halo-1bit; we hard-code to
-    // BitNet-2B-4T defaults since the .h1b binary doesn't store them.
-    out_model->rope_theta   = 500000.0f;
-    out_model->rms_norm_eps = 1e-5f;
+
+    // v1 .h1b files don't carry rope_theta / rms_norm_eps — fall back to the
+    // BitNet-b1.58-2B-4T defaults. v2 adds them explicitly so variants with
+    // different values (1B / 4B / 8B checkpoints, other BitNet derivatives)
+    // Just Work without a code change.
+    if (version >= 2) {
+        float extras[2] = {0.0f, 0.0f};
+        f.read(reinterpret_cast<char*>(extras), sizeof(extras));
+        out_model->rope_theta   = extras[0] > 0 ? extras[0] : 500000.0f;
+        out_model->rms_norm_eps = extras[1] > 0 ? extras[1] : 1e-5f;
+    } else {
+        out_model->rope_theta   = 500000.0f;
+        out_model->rms_norm_eps = 1e-5f;
+    }
+    fprintf(stderr, "[rocm-cpp] .h1b v%d: rope_theta=%.1f rms_norm_eps=%.1e\n",
+            version, out_model->rope_theta, out_model->rms_norm_eps);
 
     const int hs  = out_model->hidden_size;
     const int is_ = out_model->intermediate_size;
