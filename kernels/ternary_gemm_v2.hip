@@ -1,67 +1,43 @@
-// Kernel v2 GEMM — Ternary prefill path using WMMA (RDNA 3.5 / gfx1151)
+// Kernel v2.1 GEMM — Ternary prefill via rocWMMA INT8 (gfx1151, Wave32)
 //
-// This is the DP4A/WMMA path for *prefill*, not decode. v2 GEMV was a dead
-// end because batch=1 can't amortize the int8 quantization round-trip. In
-// prefill we have B > 1 (whole prompt at once), so we quantize activations
-// once per (batch, tile) and feed them through many ternary rows.
+// Upgrades the v2 skeleton from a scalar-dot4 placeholder to the real
+// 16x16x16 INT8 WMMA tile op. rocWMMA wraps the lane-layout sensitive
+// intrinsic so we can focus on packing and staging rather than VGPR
+// register allocation.
 //
-// Data shapes:
-//   W [M, K]  ternary weights, packed 8 bits per byte (K/8 bytes per row)
-//   X [B, K]  activations, float
-//   Y [B, M]  output, float
+// Flow per output tile:
+//   1. LDS-stage A_tile (16 rows x 16 k) of int8 weights, unpacked from
+//      ternary bitstream.
+//   2. LDS-stage B_tile (16 k x 16 batches) of int8 activations,
+//      quantized from float with a per-tile act_scale.
+//   3. mma_sync: C_frag += A_frag * B_frag
+//   4. After K is consumed, rescale accumulator by act_scale * w_scale
+//      and store back as float.
 //
-// Compute tiles a 16x16 output block per Wave32 via
-//   __builtin_amdgcn_wmma_i32_16x16x16_iu8_w32(a_vec, b_vec, c_vec, clamp=false)
-// which consumes two 16x16 INT8 matrices and accumulates into 16x16 INT32.
+// Grid:  (M/16, B/16)
+// Block: (32, 1, 1)  — one wave per 16x16 output tile
 //
-// Skeleton status (2026-04-16): compiles, runs, correctness verified against
-// a scalar reference on small shapes; perf is not yet tuned. Target is to
-// beat rocBLAS FP16 GEMM on BitNet FFN shapes (2560x6912, 6912x2560, etc.)
-// for prompt processing.
-//
-// "One does not simply walk into Mordor." — Boromir
+// "There and back again." — Bilbo
 
 #include <hip/hip_runtime.h>
-#include <hip/hip_fp16.h>
+#include <rocwmma/rocwmma.hpp>
+
+using namespace rocwmma;
 
 #define WARP_SIZE 32
 #define WMMA_M 16
 #define WMMA_N 16
 #define WMMA_K 16
-
-// Starter tile: one wave per 16x16 output block. BLOCK_SIZE = WARP_SIZE.
-// TODO(v2.1): step up to 128x128 output per block with 4 waves and LDS
-// staging once correctness is proven.
 #define BLOCK_SIZE 32
 
-__device__ __forceinline__ int pack_i8x4(int b0, int b1, int b2, int b3) {
-    return (b0 & 0xFF) | ((b1 & 0xFF) << 8) | ((b2 & 0xFF) << 16) | ((b3 & 0xFF) << 24);
-}
-
-// Unpack 4 consecutive 1-bit ternary values (bit=1 → +1, bit=0 → -1)
-__device__ __forceinline__ int unpack_ternary_4(uint32_t bits4) {
-    int b0 = ((int)((bits4 >> 0) & 1) << 1) - 1;
-    int b1 = ((int)((bits4 >> 1) & 1) << 1) - 1;
-    int b2 = ((int)((bits4 >> 2) & 1) << 1) - 1;
-    int b3 = ((int)((bits4 >> 3) & 1) << 1) - 1;
-    return pack_i8x4(b0, b1, b2, b3);
-}
-
-// Clamped round-to-nearest float → int8
 __device__ __forceinline__ int quant_i8(float v, float inv_scale) {
     int q = __float2int_rn(v * inv_scale);
     return max(-127, min(127, q));
 }
 
 // One-wave ternary GEMM kernel producing a 16x16 output tile of Y.
-//
-// Grid:   (M/16, B/16, 1)
-// Block:  (32,   1,   1)  — single wave
-//
-// Each wave walks K in steps of WMMA_K=16 and issues one WMMA per step.
-// Weights are unpacked from ternary bitstream to INT8 per WMMA step.
-// Activations are quantized from float to INT8 per WMMA step with a tile-
-// local scale (max-abs over the 16 input values this wave sees).
+// Y is laid out [B, M] row-major; the block's output tile is
+//   Y[tile_b : tile_b+16, tile_m : tile_m+16].
 __global__ void ternary_gemm_v2_kernel(
     const uint8_t* __restrict__ packed_bits,  // [M, K/8]
     const float*   __restrict__ x,            // [B, K]
@@ -69,113 +45,155 @@ __global__ void ternary_gemm_v2_kernel(
     float*         __restrict__ y,            // [B, M]
     int M, int K, int B)
 {
-    const int tile_m = blockIdx.x * WMMA_M;   // row index of the output 16x16 tile
-    const int tile_b = blockIdx.y * WMMA_N;   // batch index of the output 16x16 tile
+    const int tile_m = blockIdx.x * WMMA_M;
+    const int tile_b = blockIdx.y * WMMA_N;
     if (tile_m >= M || tile_b >= B) return;
 
-    const int lane = threadIdx.x;  // 0..31
+    const int tid = threadIdx.x;  // 0..31
 
-    // WMMA accumulator: 16x16 INT32 distributed across the 32 lanes.
-    // On RDNA3 Wave32, the output of wmma_i32_16x16x16_iu8_w32 is an 8-wide
-    // int vector per lane (256 elements total = 16x16).
-    using int8x16 = __attribute__((__vector_size__(16))) int;   // 16 int32 elements
-    using int32x8 = __attribute__((__vector_size__(32))) int;   // 8  int32 elements
-
-    // Note: the exact type aliases for WMMA arguments differ between HIP
-    // versions. We use the vanilla __builtin form; the compiler will pick
-    // the right register class.
-    int c_acc[8] = {0};  // accumulator per lane (8 i32 lanes of the 16x16 C)
+    // LDS staging buffers.
+    //   a_lds is row-major [16 rows x 16 k]  (weight tile)
+    //   b_lds is col-major [16 k x 16 batches] (activation tile)
+    // rocWMMA expects matrix_a row-major, matrix_b col-major for a standard
+    // C = A * B where both are the "natural" orientation.
+    __shared__ int8_t a_lds[WMMA_M * WMMA_K];
+    __shared__ int8_t b_lds[WMMA_K * WMMA_N];
+    __shared__ float  act_scale_sh;
 
     const int bytes_per_row = K / 8;
 
-    // K tiling loop
+    fragment<matrix_a, WMMA_M, WMMA_N, WMMA_K, int8_t, row_major> a_frag;
+    fragment<matrix_b, WMMA_M, WMMA_N, WMMA_K, int8_t, col_major> b_frag;
+    fragment<accumulator, WMMA_M, WMMA_N, WMMA_K, int32_t> c_frag;
+    fill_fragment(c_frag, 0);
+
+    // Accumulate K in WMMA_K chunks. Each chunk is quantized independently
+    // using a per-chunk activation scale. We then rescale into a float
+    // accumulator at the end of the chunk.
+    float float_acc[8] = {0};  // per-lane output cells
+
     for (int k_tile = 0; k_tile < K; k_tile += WMMA_K) {
-        // --- Build A-tile (16x16 INT8, weights) ---
-        // Each lane owns 4 values of the A matrix per WMMA instruction.
-        // Lane layout (RDNA3 wmma_iu8): lanes 0..15 hold rows 0..15 of A,
-        // each lane holds 4 INT8 values packed into one int32.
-        int a_val = 0;
-        if (lane < WMMA_M) {
-            int row = tile_m + lane;
-            if (row < M) {
-                int bit_offset = k_tile;   // K position for the first of 4 values
-                int byte_idx = bit_offset / 8;
-                int bit_shift = bit_offset % 8;
-                // Load enough bits to cover 4 consecutive values (spans ≤2 bytes)
-                uint32_t w_bits;
-                if (bit_shift == 0) {
-                    // Aligned: 1 byte covers 8 bits, we need 4 bits = low nibble
-                    w_bits = packed_bits[(size_t)row * bytes_per_row + byte_idx] & 0xF;
-                } else {
-                    uint16_t w16 = *reinterpret_cast<const uint16_t*>(
-                        packed_bits + (size_t)row * bytes_per_row + byte_idx);
-                    w_bits = (w16 >> bit_shift) & 0xF;
+        // --- Stage A: unpack weights into LDS a_lds[16 rows x 16 k] ---
+        // 16 rows x 16 cols = 256 int8 values; 32 threads, 8 each.
+        #pragma unroll
+        for (int i = 0; i < 8; i++) {
+            int idx = tid + i * BLOCK_SIZE;
+            if (idx < WMMA_M * WMMA_K) {
+                int r = idx / WMMA_K;
+                int k = idx % WMMA_K;
+                int row = tile_m + r;
+                int k_global = k_tile + k;
+                int val = 0;
+                if (row < M && k_global < K) {
+                    int bit = (packed_bits[(size_t)row * bytes_per_row + k_global / 8]
+                               >> (k_global % 8)) & 1;
+                    val = bit ? 1 : -1;
                 }
-                a_val = unpack_ternary_4(w_bits);
-            }
-        }
-        // Broadcast a_val across the remaining K positions (each of 4 lanes per
-        // WMMA row fills a different slot of the 16x16 tile).
-        // The WMMA intrinsic expects 4 INT8 values per lane representing 4
-        // consecutive K positions — we already packed them above.
-
-        // --- Build B-tile (16x16 INT8, activations) ---
-        // For this skeleton we quantize per-WMMA-tile: compute max-abs over
-        // the 16-element K slice, scale to [-127,127], write to int8.
-        int b_val = 0;
-        float act_scale = 1.0f;
-        if (lane < WMMA_N) {
-            int batch = tile_b + lane;
-            if (batch < B) {
-                // Max-abs for this lane's K slice (4 consecutive values)
-                float m = 0.0f;
-                for (int i = 0; i < 4; i++) {
-                    int k_idx = k_tile + i;
-                    if (k_idx < K) {
-                        float v = fabsf(x[(size_t)batch * K + k_idx]);
-                        if (v > m) m = v;
-                    }
-                }
-                act_scale = (m > 1e-8f) ? (m / 127.0f) : 1.0f;
-                float inv_s = 1.0f / act_scale;
-                int a0 = quant_i8(x[(size_t)batch * K + k_tile + 0], inv_s);
-                int a1 = (k_tile + 1 < K) ? quant_i8(x[(size_t)batch * K + k_tile + 1], inv_s) : 0;
-                int a2 = (k_tile + 2 < K) ? quant_i8(x[(size_t)batch * K + k_tile + 2], inv_s) : 0;
-                int a3 = (k_tile + 3 < K) ? quant_i8(x[(size_t)batch * K + k_tile + 3], inv_s) : 0;
-                b_val = pack_i8x4(a0, a1, a2, a3);
+                a_lds[r * WMMA_K + k] = (int8_t)val;
             }
         }
 
-        // --- WMMA: C += A * B ---
-        // The RDNA3/3.5 Wave32 intrinsic takes A as int32x1 (4 int8 per lane),
-        // B as int32x1, and accumulator as an 8-wide int32 vector per lane.
-        // Because this skeleton uses one wave per output tile, each lane reads
-        // its (a_val, b_val) and contributes to the accumulator it owns.
-        //
-        // For simplicity in the skeleton we fall back to a scalar dot4 sum
-        // rather than the WMMA intrinsic — this keeps correctness obvious and
-        // compile-clean across toolchains. The v2.1 pass will swap this for
-        // the true wmma_i32_16x16x16_iu8 builtin once the LDS staging is in.
-        if (lane < WMMA_M) {
-            int dot = __builtin_amdgcn_sudot4(true, a_val, true, b_val, 0, false);
-            // Each lane contributes to one row of C. In the full WMMA version,
-            // the accumulator would be distributed by (row, col) across lanes.
-            // Here we just accumulate the per-row sum into c_acc[0]; the
-            // writeback below consumes that scalar per lane.
-            c_acc[0] += dot;
+        // --- Stage B: compute tile-local max-abs and quantize activations ---
+        // First pass: find max abs over this tile's B_tile slice.
+        // Each lane scans 8 positions of the 256-cell tile.
+        float local_max = 0.0f;
+        #pragma unroll
+        for (int i = 0; i < 8; i++) {
+            int idx = tid + i * BLOCK_SIZE;
+            if (idx < WMMA_K * WMMA_N) {
+                int k = idx % WMMA_K;
+                int b = idx / WMMA_K;
+                int k_global = k_tile + k;
+                int batch = tile_b + b;
+                if (k_global < K && batch < B) {
+                    float v = fabsf(x[(size_t)batch * K + k_global]);
+                    if (v > local_max) local_max = v;
+                }
+            }
         }
-        __syncwarp();
+        // Wave reduce max
+        #pragma unroll
+        for (int off = WARP_SIZE / 2; off > 0; off >>= 1) {
+            float other = __shfl_xor(local_max, off);
+            if (other > local_max) local_max = other;
+        }
+        if (tid == 0) {
+            act_scale_sh = (local_max > 1e-8f) ? (local_max / 127.0f) : 1.0f;
+        }
+        __syncthreads();
+        float act_scale = act_scale_sh;
+        float inv_scale = 1.0f / act_scale;
+
+        // Second pass: quantize into b_lds[16 k x 16 batches] col-major.
+        // Col-major means b_lds[k + batch * WMMA_K] stores B[k][batch].
+        #pragma unroll
+        for (int i = 0; i < 8; i++) {
+            int idx = tid + i * BLOCK_SIZE;
+            if (idx < WMMA_K * WMMA_N) {
+                int k = idx % WMMA_K;
+                int b = idx / WMMA_K;
+                int k_global = k_tile + k;
+                int batch = tile_b + b;
+                int q = 0;
+                if (k_global < K && batch < B) {
+                    q = quant_i8(x[(size_t)batch * K + k_global], inv_scale);
+                }
+                b_lds[k + b * WMMA_K] = (int8_t)q;
+            }
+        }
+        __syncthreads();
+
+        // --- WMMA: local_c = A * B (int32 accumulator) ---
+        fragment<accumulator, WMMA_M, WMMA_N, WMMA_K, int32_t> local_c;
+        fill_fragment(local_c, 0);
+        load_matrix_sync(a_frag, a_lds, WMMA_K);       // row-major, lda = 16
+        load_matrix_sync(b_frag, b_lds, WMMA_K);       // col-major, ldb = 16
+        mma_sync(local_c, a_frag, b_frag, local_c);
+
+        // --- Fold into float accumulator with this chunk's act_scale ---
+        #pragma unroll
+        for (int i = 0; i < local_c.num_elements; i++) {
+            float_acc[i] += (float)local_c.x[i] * act_scale;
+        }
+        __syncthreads();
     }
 
-    // --- Writeback ---
-    // Scalar per-lane result into Y[tile_b, tile_m + lane]. The full WMMA
-    // version writes a 16x16 block; the skeleton writes a 16x1 column.
-    if (lane < WMMA_M) {
-        int row = tile_m + lane;
-        int batch = tile_b;  // skeleton: col 0 of the 16x16 tile only
-        if (row < M && batch < B) {
-            float result = (float)c_acc[0] * scales[row];
-            y[(size_t)batch * M + row] = result;
+    // --- Store float_acc to Y with per-row weight scale ---
+    // rocWMMA accumulator layout for Wave32 16x16: each lane owns 8 cells.
+    // We can't directly store floats through rocwmma (it's int32 accumulator),
+    // so stage c_frag through LDS back to memory using a reinterpret-friendly
+    // path: cast float_acc into an int32 fragment for store_matrix_sync, then
+    // have the block cooperatively write out with row scales.
+    //
+    // Simpler path: pack float_acc back into c_frag (as int32 reinterpret of
+    // float bits is UB, so we do it through LDS with a float view).
+    __shared__ float c_lds[WMMA_M * WMMA_N];
+
+    // Move float_acc → c_lds using rocWMMA's lane layout. We piggyback on
+    // store_matrix_sync for the int32 layout and index-match.
+    fragment<accumulator, WMMA_M, WMMA_N, WMMA_K, int32_t> c_store;
+    #pragma unroll
+    for (int i = 0; i < c_store.num_elements; i++) {
+        // Encode float as int32 bit-pattern so store layout matches.
+        int32_t bits;
+        __builtin_memcpy(&bits, &float_acc[i], sizeof(float));
+        c_store.x[i] = bits;
+    }
+    store_matrix_sync(reinterpret_cast<int32_t*>(c_lds), c_store, WMMA_N, mem_row_major);
+    __syncthreads();
+
+    // Apply per-row weight scale and write to global Y.
+    #pragma unroll
+    for (int i = 0; i < 8; i++) {
+        int idx = tid + i * BLOCK_SIZE;
+        if (idx < WMMA_M * WMMA_N) {
+            int r = idx / WMMA_N;
+            int c = idx % WMMA_N;
+            int row = tile_m + r;
+            int batch = tile_b + c;
+            if (row < M && batch < B) {
+                y[(size_t)batch * M + row] = c_lds[r * WMMA_N + c] * scales[row];
+            }
         }
     }
 }
