@@ -99,5 +99,13 @@ target_compile_options(bitnet_decode PRIVATE
 target_link_libraries(bitnet_decode PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(bitnet_decode PROPERTIES HIP_ARCHITECTURES "gfx1151")
 
+# -- tools/bitnet_debate : two BitNet instances arguing a topic ----------------
+add_executable(bitnet_debate tools/bitnet_debate.cpp)
+set_source_files_properties(tools/bitnet_debate.cpp PROPERTIES LANGUAGE HIP)
+target_compile_options(bitnet_debate PRIVATE
+    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_link_libraries(bitnet_debate PRIVATE rocm_cpp hip::host hip::device)
+set_target_properties(bitnet_debate PROPERTIES HIP_ARCHITECTURES "gfx1151")
+
 # -- ck-prefill : research binaries (kept building for tuning) ------------------
 add_subdirectory(ck-prefill)
