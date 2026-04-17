@@ -59,6 +59,20 @@ int main(int argc, char** argv) {
     int num_tokens = 16;
     const char* tok_path = "/home/bcloud/halo-1bit/models/halo-1bit-2b.htok";
 
+    // Collect --stop "seq" flags (repeatable). Everything between the first
+    // --stop and the end of argv is consumed as stop-sequence args; positional
+    // args must come before any --stop. Stopping is suffix-match against the
+    // detokenized generation tail — so "User:" catches model-emitted user
+    // turns, "</s>" catches closing tags, etc.
+    std::vector<std::string> stop_seqs;
+    int argc_use = argc;
+    for (int i = 3; i < argc - 1; ++i) {
+        if (std::string(argv[i]) == "--stop") {
+            stop_seqs.emplace_back(argv[i + 1]);
+            if (argc_use > i) argc_use = i;  // hide --stop args from positional parse
+        }
+    }
+
     // Tokenize a chunk of text with NO bos; returns IDs.
     auto tokenize = [&](rcpp_tokenizer_t* tok, const char* text) -> std::vector<int> {
         std::vector<int> buf(4096);
@@ -75,10 +89,10 @@ int main(int argc, char** argv) {
     std::vector<int> prompt_ids;
     if (std::string(prompt_arg) == "--text") {
         // layout: bitnet_decode <model> --text "<prompt>" <num_new> [tokenizer.htok]
-        if (argc < 4) { fprintf(stderr, "usage: --text \"<prompt text>\" <num_new> [tokenizer.htok]\n"); return 1; }
+        if (argc_use < 4) { fprintf(stderr, "usage: --text \"<prompt text>\" <num_new> [tokenizer.htok]\n"); return 1; }
         const char* text = argv[3];
-        num_tokens = argc > 4 ? std::atoi(argv[4]) : 32;
-        if (argc > 5) tok_path = argv[5];
+        num_tokens = argc_use > 4 ? std::atoi(argv[4]) : 32;
+        if (argc_use > 5) tok_path = argv[5];
         rcpp_tokenizer_t* tok = nullptr;
         if (rcpp_tokenizer_load(tok_path, &tok) != RCPP_OK) {
             fprintf(stderr, "cannot load tokenizer .htok: %s\n", tok_path); return 1;
@@ -93,10 +107,10 @@ int main(int argc, char** argv) {
         // layout: bitnet_decode <model> --chat "<user msg>" <num_new> [system_msg]
         // Applies BitNet's chat template: "User: msg<|eot_id|>Assistant: "
         // (verified against tokenizer_config.json for BitNet-b1.58-2B-4T)
-        if (argc < 4) { fprintf(stderr, "usage: --chat \"<user msg>\" <num_new> [\"<system>\"]\n"); return 1; }
+        if (argc_use < 4) { fprintf(stderr, "usage: --chat \"<user msg>\" <num_new> [\"<system>\"] [--stop \"seq\" ...]\n"); return 1; }
         const char* user_msg = argv[3];
-        num_tokens = argc > 4 ? std::atoi(argv[4]) : 128;
-        const char* system_msg = argc > 5 ? argv[5] : nullptr;
+        num_tokens = argc_use > 4 ? std::atoi(argv[4]) : 128;
+        const char* system_msg = argc_use > 5 ? argv[5] : nullptr;
 
         rcpp_tokenizer_t* tok = nullptr;
         if (rcpp_tokenizer_load(tok_path, &tok) != RCPP_OK) {
@@ -311,18 +325,25 @@ int main(int argc, char** argv) {
             prompt_len, prefill_ms,
             prompt_len > 0 ? 1000.0 * prompt_len / prefill_ms : 0.0);
 
-    // Stop tokens for LLaMA-3-family models (what BitNet ships with):
-    //   128001 = <|end_of_text|>
-    //   128009 = <|eot_id|>  (chat turn boundary)
-    // Picking these up early means the CLI terminates naturally on
-    // model-generated sentence endings instead of burning through num_tokens.
+    // Stop conditions:
+    //   * Special IDs 128001 <|end_of_text|> / 128009 <|eot_id|>
+    //   * User-supplied --stop "seq" string(s), matched against the
+    //     detokenized tail of the generated window
     const int stop_a = 128001, stop_b = 128009;
+
+    // Load a tokenizer once if we have either --stop sequences or the
+    // text print path to drive; decode gets it for free.
+    rcpp_tokenizer_t* dec_tok = nullptr;
+    rcpp_tokenizer_load(tok_path, &dec_tok);
+
     std::vector<int> generated;
     generated.reserve(num_tokens);
     printf("[bitnet_decode] tokens:");
     double decode_ms = 0.0;
     int cur_tok = next_tok;
     bool hit_eos = false;
+    std::string stop_hit;
+    std::vector<char> tail_buf(4096);
     for (int step = 0; step < num_tokens; ++step) {
         auto t0 = std::chrono::high_resolution_clock::now();
         next_tok = forward_token(cur_tok, prompt_len + step);
@@ -334,11 +355,33 @@ int main(int argc, char** argv) {
         generated.push_back(next_tok);
         if (next_tok == stop_a || next_tok == stop_b) { hit_eos = true; break; }
         cur_tok = next_tok;
+
+        // --stop suffix match against detokenized window of the last ~64 tokens.
+        if (!stop_seqs.empty() && dec_tok) {
+            size_t win = std::min((size_t)64, generated.size());
+            size_t tlen = 0;
+            rcpp_tokenizer_decode(dec_tok,
+                                  generated.data() + (generated.size() - win),
+                                  win, tail_buf.data(), tail_buf.size(), &tlen);
+            tlen = std::min(tlen, tail_buf.size());
+            std::string tail(tail_buf.data(), tlen);
+            for (const auto& s : stop_seqs) {
+                if (tail.size() >= s.size() &&
+                    tail.compare(tail.size() - s.size(), s.size(), s) == 0) {
+                    stop_hit = s;
+                    break;
+                }
+            }
+            if (!stop_hit.empty()) break;
+        }
     }
     printf("\n");
     if (hit_eos) {
         fprintf(stderr, "[bitnet_decode] EOS (%d) after %zu new tokens\n",
                 next_tok, generated.size());
+    } else if (!stop_hit.empty()) {
+        fprintf(stderr, "[bitnet_decode] --stop matched \"%s\" after %zu new tokens\n",
+                stop_hit.c_str(), generated.size());
     }
     if (num_tokens > 0) {
         printf("[bitnet_decode] decode %d tok in %.2f ms  (%.2f ms/tok, %.1f tok/s)\n",
@@ -346,8 +389,7 @@ int main(int argc, char** argv) {
     }
 
     // Detokenize prompt + generated tokens back to text.
-    rcpp_tokenizer_t* dec_tok = nullptr;
-    if (rcpp_tokenizer_load(tok_path, &dec_tok) == RCPP_OK) {
+    if (dec_tok) {
         std::vector<int> full;
         full.reserve(prompt_len + generated.size());
         full.insert(full.end(), prompt_ids.begin(), prompt_ids.end());
