@@ -197,6 +197,59 @@ __global__ void relu2_glu_fp16_kernel(
     y[tid] = __float2half(r * r * u);
 }
 
+// Fused BitNet FFN activation: (relu²(gate) * up) normalized by ffn_sub_norm.
+// The un-normalized intermediate on BitNet-b1.58 reaches 1e9, overflowing
+// FP16 (max 6.5e4). Keep it in FP32 inside the kernel, divide by the RMS
+// scale immediately, then emit the FP16 normalized tensor ready for quant.
+__global__ __launch_bounds__(BLOCK)
+void relu2_glu_rmsnorm_fp16_kernel(
+    const __half* __restrict__ gate,
+    const __half* __restrict__ up,
+    const __half* __restrict__ ffn_sub_norm_w,
+    __half*       __restrict__ y_out,
+    float eps, int N)
+{
+    __shared__ float warp_sum[BLOCK / WARP];
+    __shared__ float rms_inv_s;
+    const int tid  = threadIdx.x;
+    const int lane = tid & (WARP - 1);
+    const int wid  = tid / WARP;
+
+    // First pass: compute sum of squares of activation (FP32 throughout).
+    float local = 0.0f;
+    for (int k = tid; k < N; k += BLOCK) {
+        const float g = (float)gate[k];
+        const float u = (float)up[k];
+        const float r = g > 0.0f ? g : 0.0f;
+        const float v = r * r * u;
+        local += v * v;
+    }
+    #pragma unroll
+    for (int o = WARP / 2; o > 0; o >>= 1) local += __shfl_xor(local, o);
+    if (lane == 0) warp_sum[wid] = local;
+    __syncthreads();
+    if (wid == 0) {
+        float s = (lane < BLOCK / WARP) ? warp_sum[lane] : 0.0f;
+        #pragma unroll
+        for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) s += __shfl_xor(s, o);
+        if (lane == 0) {
+            float mean = s / (float)N;
+            rms_inv_s = 1.0f / std::sqrtf(mean + eps);
+        }
+    }
+    __syncthreads();
+
+    // Second pass: recompute activation and emit (v * inv_rms * weight) as FP16.
+    const float inv = rms_inv_s;
+    for (int k = tid; k < N; k += BLOCK) {
+        const float g = (float)gate[k];
+        const float u = (float)up[k];
+        const float r = g > 0.0f ? g : 0.0f;
+        const float v = r * r * u;
+        y_out[k] = __float2half(v * inv * (float)ffn_sub_norm_w[k]);
+    }
+}
+
 // ============================================================================
 // 6. Residual add — y[i] += src[i]  (in-place)
 // ============================================================================
@@ -209,6 +262,60 @@ __global__ void residual_add_fp16_kernel(
     const int tid = blockIdx.x * blockDim.x + threadIdx.x;
     if (tid >= N) return;
     y[tid] = __float2half((float)y[tid] + (float)src[tid]);
+}
+
+// FP32 residual accumulator: x_fp32[i] += (float)src_fp16[i]
+// Used for the residual stream in deep networks where FP16 precision at
+// the accumulated magnitude (±tens of thousands after 30 layers) loses
+// too many bits on each tiny delta add.
+__global__ void residual_add_fp32_from_fp16_kernel(
+    float* __restrict__ x,
+    const __half* __restrict__ src,
+    int N)
+{
+    const int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid >= N) return;
+    x[tid] += (float)src[tid];
+}
+
+// RMSNorm with FP32 input, FP16 weight, FP16 output. For use on the
+// FP32 residual stream going into a sublayer.
+__global__ void rmsnorm_fp32_in_fp16_out_kernel(
+    const float* __restrict__ x,
+    const __half* __restrict__ weight,
+    __half* __restrict__ y,
+    float eps, int K)
+{
+    __shared__ float warp_sum[BLOCK / WARP];
+    __shared__ float rms_inv_s;
+    const int tid = threadIdx.x;
+    const int lane = tid & (WARP - 1);
+    const int wid = tid / WARP;
+
+    float local = 0.0f;
+    for (int k = tid; k < K; k += BLOCK) {
+        float v = x[k];
+        local += v * v;
+    }
+    #pragma unroll
+    for (int o = WARP / 2; o > 0; o >>= 1) local += __shfl_xor(local, o);
+    if (lane == 0) warp_sum[wid] = local;
+    __syncthreads();
+    if (wid == 0) {
+        float s = (lane < BLOCK / WARP) ? warp_sum[lane] : 0.0f;
+        #pragma unroll
+        for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) s += __shfl_xor(s, o);
+        if (lane == 0) {
+            float mean = s / (float)K;
+            rms_inv_s = 1.0f / std::sqrtf(mean + eps);
+        }
+    }
+    __syncthreads();
+    const float inv = rms_inv_s;
+    for (int k = tid; k < K; k += BLOCK) {
+        float v = x[k] * inv * (float)weight[k];
+        y[k] = __float2half(v);
+    }
 }
 
 // ============================================================================
@@ -558,6 +665,24 @@ rcpp_relu2_glu_fp16(const void* gate_dev, const void* up_dev, void* y_dev,
     return RCPP_OK;
 }
 
+extern "C" rcpp_status_t
+rcpp_relu2_glu_rmsnorm_fp16(const void* gate_dev, const void* up_dev,
+                            const void* ffn_sub_norm_dev,
+                            void* y_dev, float eps, int N, void* stream)
+{
+    if (!gate_dev || !up_dev || !ffn_sub_norm_dev || !y_dev || N <= 0)
+        return RCPP_INVALID_ARG;
+    dim3 grid(1, 1, 1), block(BLOCK, 1, 1);
+    hipLaunchKernelGGL(relu2_glu_rmsnorm_fp16_kernel,
+                       grid, block, 0, (hipStream_t)stream,
+                       static_cast<const __half*>(gate_dev),
+                       static_cast<const __half*>(up_dev),
+                       static_cast<const __half*>(ffn_sub_norm_dev),
+                       static_cast<__half*>(y_dev),
+                       eps, N);
+    return RCPP_OK;
+}
+
 rcpp_status_t
 rcpp_embedding_lookup_fp16(const void* embedding_dev, int token_id,
                            void* y_dev, int hidden, void* stream)
@@ -583,6 +708,35 @@ rcpp_residual_add_fp16(void* y_dev, const void* src_dev, int N, void* stream)
                        static_cast<__half*>(y_dev),
                        static_cast<const __half*>(src_dev),
                        N);
+    return RCPP_OK;
+}
+
+extern "C" rcpp_status_t
+rcpp_residual_add_fp32_from_fp16(void* x_fp32_dev, const void* src_fp16_dev,
+                                 int N, void* stream)
+{
+    if (!x_fp32_dev || !src_fp16_dev || N <= 0) return RCPP_INVALID_ARG;
+    dim3 grid((N + BLOCK - 1) / BLOCK, 1, 1), block(BLOCK, 1, 1);
+    hipLaunchKernelGGL(residual_add_fp32_from_fp16_kernel,
+                       grid, block, 0, (hipStream_t)stream,
+                       static_cast<float*>(x_fp32_dev),
+                       static_cast<const __half*>(src_fp16_dev),
+                       N);
+    return RCPP_OK;
+}
+
+extern "C" rcpp_status_t
+rcpp_rmsnorm_fp32_in_fp16_out(const void* x_fp32_dev, const void* weight_dev,
+                              void* y_fp16_dev, float eps, int K, void* stream)
+{
+    if (!x_fp32_dev || !weight_dev || !y_fp16_dev || K <= 0) return RCPP_INVALID_ARG;
+    dim3 grid(1, 1, 1), block(BLOCK, 1, 1);
+    hipLaunchKernelGGL(rmsnorm_fp32_in_fp16_out_kernel,
+                       grid, block, 0, (hipStream_t)stream,
+                       static_cast<const float*>(x_fp32_dev),
+                       static_cast<const __half*>(weight_dev),
+                       static_cast<__half*>(y_fp16_dev),
+                       eps, K);
     return RCPP_OK;
 }
 

@@ -126,6 +126,15 @@ rcpp_status_t
 rcpp_relu2_glu_fp16(const void* gate_dev, const void* up_dev, void* y_dev,
                     int N, void* stream);
 
+// Fused ReLU² GLU + ffn_sub_norm RMSNorm in FP32, emit FP16.
+// The raw relu²(gate)*up intermediate on BitNet-b1.58 overflows FP16 — this
+// kernel keeps it in FP32 long enough to normalize, emitting only the
+// post-norm FP16 tensor (bounded by the sub_norm weight magnitude).
+rcpp_status_t
+rcpp_relu2_glu_rmsnorm_fp16(const void* gate_dev, const void* up_dev,
+                            const void* ffn_sub_norm_dev,
+                            void* y_dev, float eps, int N, void* stream);
+
 // Embedding lookup: y[k] = embedding[token_id, k] for k in 0..hidden-1
 rcpp_status_t
 rcpp_embedding_lookup_fp16(const void* embedding_dev, int token_id,
@@ -135,6 +144,21 @@ rcpp_embedding_lookup_fp16(const void* embedding_dev, int token_id,
 // Residual add: y[i] += src[i]
 rcpp_status_t
 rcpp_residual_add_fp16(void* y_dev, const void* src_dev, int N, void* stream);
+
+// FP32 residual accumulator: x_fp32[i] += (float)src_fp16[i].
+// Deep transformer residual streams can accumulate to magnitudes where FP16
+// precision loses relevant bits on each small sublayer delta — use this when
+// you need the numerical stability of FP32 across many residual adds.
+rcpp_status_t
+rcpp_residual_add_fp32_from_fp16(void* x_fp32_dev, const void* src_fp16_dev,
+                                 int N, void* stream);
+
+// RMSNorm reading FP32 input, writing FP16 output with FP16 weight.
+// Pair with rcpp_residual_add_fp32_from_fp16 to run the block-entry norm
+// directly off the FP32 residual stream.
+rcpp_status_t
+rcpp_rmsnorm_fp32_in_fp16_out(const void* x_fp32_dev, const void* weight_dev,
+                              void* y_fp16_dev, float eps, int K, void* stream);
 
 // Argmax over FP32 logits — writes the max-index to *out_idx_dev.
 // Caller allocates one int on the device for out_idx_dev.

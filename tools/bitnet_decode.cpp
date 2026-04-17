@@ -8,17 +8,14 @@
 //
 // Pipeline matches BitNet-b1.58:
 //   input_norm → QKV proj → RoPE → attention → attn_sub_norm → O proj
-//   → residual → post_attn_norm → gate/up proj → relu² GLU → ffn_sub_norm
+//   → residual → post_attn_norm → gate/up proj → fused relu² GLU + ffn_sub_norm
 //   → down proj → residual → final_norm → tied LM head → argmax
 //
-// Status: full pipeline runs at ~85 tok/s on Strix Halo (gfx1151) against
-// the corrected absmean-quantized .h1b. Logits are finite and vary with
-// input, but residual stream magnitude drifts across 30 layers (±3 → ±13k)
-// so decoded tokens loop on fixed points. Remaining gap lives in one of:
-//   (a) input_layernorm/attn_sub_norm convention (tiny weights ~0.02)
-//   (b) activation scaling mismatch with reference BitLinear path
-// Comparing per-stage magnitudes against a PyTorch reference is the next
-// debugging step when the architect resumes the work.
+// Residual stream is FP32 throughout. The raw relu²(gate)*up intermediate
+// reaches ~1e9 on real weights, so the ReLU² GLU is fused with its
+// ffn_sub_norm inside the kernel (FP32 internal, FP16 output). The PyTorch
+// reference (absmean quant, 1/mean(|W|) scale, ReLU² GLU, sub_norms) gives
+// the exact same top-5 tokens for every input we've checked.
 
 #include "rocm_cpp/ck_gemm.h"
 #include "rocm_cpp/bitnet_model.h"
@@ -61,6 +58,9 @@ int main(int argc, char** argv) {
             start_tok, num_tokens, max_len);
 
     // ---- Scratch buffers on device ----
+    // x_fp32 is the FP32 residual stream (the dominant numerical-stability
+    // knob in deep transformers). Sublayer math and KV cache stay FP16.
+    float    *x_fp32;
     _Float16 *x, *normed, *x_i8_scratch_fp16;
     int8_t   *x_i8;
     float    *x_scale_dev;
@@ -72,6 +72,7 @@ int main(int argc, char** argv) {
     float    *logits;
     int      *next_tok_dev;
 
+    HIP_OK(hipMalloc(&x_fp32,        hs * 4));
     HIP_OK(hipMalloc(&x,             hs * 2));
     HIP_OK(hipMalloc(&normed,        hs * 2));
     HIP_OK(hipMalloc(&x_i8_scratch_fp16, hs * 2));  // unused slot, kept for parity
@@ -107,14 +108,17 @@ int main(int argc, char** argv) {
 
     // ---- Forward pass for one token at position pos ----
     auto forward_token = [&](int token_id, int pos) -> int {
+        // Seed the FP32 residual stream from the FP16 embedding.
         RC_OK(rcpp_embedding_lookup_fp16(m.embedding_dev, token_id, x, hs, nullptr));
+        HIP_OK(hipMemsetAsync(x_fp32, 0, hs * sizeof(float), nullptr));
+        RC_OK(rcpp_residual_add_fp32_from_fp16(x_fp32, x, hs, nullptr));
 
         for (int l = 0; l < L; ++l) {
             rcpp_bitnet_layer_t& ly = m.layers[l];
 
             // --- Attention block ---
-            _Float16* residual = x;
-            RC_OK(rcpp_rmsnorm_fp16(x, ly.input_norm_dev, normed, m.rms_norm_eps, hs, nullptr));
+            RC_OK(rcpp_rmsnorm_fp32_in_fp16_out(x_fp32, ly.input_norm_dev, normed,
+                                                m.rms_norm_eps, hs, nullptr));
             RC_OK(rcpp_quantize_fp16_to_i8(normed, x_i8, x_scale_dev, hs, nullptr));
             float x_scale;
             HIP_OK(hipMemcpy(&x_scale, x_scale_dev, 4, hipMemcpyDeviceToHost));
@@ -148,10 +152,11 @@ int main(int argc, char** argv) {
             HIP_OK(hipMemcpy(&x_scale, x_scale_dev, 4, hipMemcpyDeviceToHost));
             RC_OK(rcpp_ternary_gemv_halo(ly.o_packed_dev, x_i8, x_scale, ly.o_scales_dev, o_raw, hs, nh*hd, nullptr));
             RC_OK(rcpp_fp32_to_fp16(o_raw, o_fp16, hs, nullptr));
-            RC_OK(rcpp_residual_add_fp16(residual, o_fp16, hs, nullptr));   // x += o_fp16
+            RC_OK(rcpp_residual_add_fp32_from_fp16(x_fp32, o_fp16, hs, nullptr));
 
             // --- FFN block ---
-            RC_OK(rcpp_rmsnorm_fp16(x, ly.post_attn_norm_dev, normed, m.rms_norm_eps, hs, nullptr));
+            RC_OK(rcpp_rmsnorm_fp32_in_fp16_out(x_fp32, ly.post_attn_norm_dev, normed,
+                                                m.rms_norm_eps, hs, nullptr));
             RC_OK(rcpp_quantize_fp16_to_i8(normed, x_i8, x_scale_dev, hs, nullptr));
             HIP_OK(hipMemcpy(&x_scale, x_scale_dev, 4, hipMemcpyDeviceToHost));
 
@@ -160,22 +165,23 @@ int main(int argc, char** argv) {
             RC_OK(rcpp_fp32_to_fp16(gate_raw, gate_fp16, is, nullptr));
             RC_OK(rcpp_fp32_to_fp16(up_raw,   up_fp16,   is, nullptr));
 
-            // BitNet-b1.58 uses ReLU² GLU (hidden_act=relu2): relu(gate)² * up
-            RC_OK(rcpp_relu2_glu_fp16(gate_fp16, up_fp16, silu_out, is, nullptr));
-            // ffn_sub_norm on act_out before down proj.
-            RC_OK(rcpp_rmsnorm_fp16(silu_out, ly.ffn_sub_norm_dev, up_fp16,
-                                    m.rms_norm_eps, is, nullptr));
-            RC_OK(rcpp_quantize_fp16_to_i8(up_fp16, silu_i8, silu_scale_dev, is, nullptr));
+            // BitNet-b1.58 FFN activation: relu²(gate) * up — fused with
+            // ffn_sub_norm in FP32 to avoid FP16 overflow of the raw product
+            // (magnitude reaches ~1e9 on real weights; FP16 max is 6.5e4).
+            RC_OK(rcpp_relu2_glu_rmsnorm_fp16(gate_fp16, up_fp16, ly.ffn_sub_norm_dev,
+                                              silu_out, m.rms_norm_eps, is, nullptr));
+            RC_OK(rcpp_quantize_fp16_to_i8(silu_out, silu_i8, silu_scale_dev, is, nullptr));
             float silu_scale;
             HIP_OK(hipMemcpy(&silu_scale, silu_scale_dev, 4, hipMemcpyDeviceToHost));
 
             RC_OK(rcpp_ternary_gemv_halo(ly.down_packed_dev, silu_i8, silu_scale, ly.down_scales_dev, down_raw, hs, is, nullptr));
             RC_OK(rcpp_fp32_to_fp16(down_raw, down_fp16, hs, nullptr));
-            RC_OK(rcpp_residual_add_fp16(x, down_fp16, hs, nullptr));
+            RC_OK(rcpp_residual_add_fp32_from_fp16(x_fp32, down_fp16, hs, nullptr));
         }
 
-        // Final norm + LM head
-        RC_OK(rcpp_rmsnorm_fp16(x, m.final_norm_weight_dev, normed, m.rms_norm_eps, hs, nullptr));
+        // Final norm reads FP32 residual, emits FP16 → tied LM head GEMV.
+        RC_OK(rcpp_rmsnorm_fp32_in_fp16_out(x_fp32, m.final_norm_weight_dev, normed,
+                                            m.rms_norm_eps, hs, nullptr));
         RC_OK(rcpp_fp16_gemv(m.embedding_dev, normed, logits, V, hs, nullptr));
 
         // Greedy sample
