@@ -95,6 +95,38 @@ rcpp_ternary_gemv_halo(const void* packed_weights_dev,
                        void*       stream);
 
 // -----------------------------------------------------------------------------
+// Primitive kernels — support math so consumers don't have to write their own.
+// All are batch=1 (decode). Batched variants come with Phase 6 KV cache work.
+
+// Quantize FP16 activations to INT8 with per-vector scale.
+//   scale = max(|x|) / 127, clamped to >= 1e-8
+//   scale_dev is a single FP32 location the kernel writes.
+rcpp_status_t
+rcpp_quantize_fp16_to_i8(const void* x_fp16_dev, void* x_i8_dev,
+                         float* scale_dev, int K, void* stream);
+
+// RMSNorm: y = (x / sqrt(mean(x^2) + eps)) * weight
+rcpp_status_t
+rcpp_rmsnorm_fp16(const void* x_dev, const void* weight_dev, void* y_dev,
+                  float eps, int K, void* stream);
+
+// Rotary position embedding on [num_heads, head_dim] at the given position.
+// head_dim must be even.
+rcpp_status_t
+rcpp_rope_fp16(void* x_dev, int pos, float theta,
+               int num_heads, int head_dim, void* stream);
+
+// SiLU-gated elementwise: y[i] = silu(up[i]) * gate[i]
+rcpp_status_t
+rcpp_silu_glu_fp16(const void* up_dev, const void* gate_dev, void* y_dev,
+                   int N, void* stream);
+
+// Embedding lookup: y[k] = embedding[token_id, k] for k in 0..hidden-1
+rcpp_status_t
+rcpp_embedding_lookup_fp16(const void* embedding_dev, int token_id,
+                           void* y_dev, int hidden, void* stream);
+
+// -----------------------------------------------------------------------------
 // Standalone (CK-free) prefill launcher.
 //
 // Same inputs as rcpp_ck_gemm_run. Produces bit-identical output to the CK

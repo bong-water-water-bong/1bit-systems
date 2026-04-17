@@ -43,12 +43,14 @@ add_library(rocm_cpp SHARED
     src/ck_gemm.cpp
     src/prefill_standalone.hip
     src/wmma_peak_probe.hip
+    src/prim_kernels.hip
     kernels/ternary_gemv_phase5_dot4.hip
     kernels/ternary_gemv_phase5_halo.hip)
 set_source_files_properties(
     src/ck_gemm.cpp
     src/prefill_standalone.hip
     src/wmma_peak_probe.hip
+    src/prim_kernels.hip
     kernels/ternary_gemv_phase5_dot4.hip
     kernels/ternary_gemv_phase5_halo.hip
     PROPERTIES LANGUAGE HIP)
