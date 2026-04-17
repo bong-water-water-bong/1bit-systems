@@ -130,9 +130,9 @@ rcpp_ck_gemm_instance_string(const rcpp_ck_gemm_handle_t* h) {
     return h ? h->instance_str.c_str() : "";
 }
 
-// Forward-declared launcher from src/prefill_standalone.hip
-extern void rcpp_standalone_launch_wmma_4x4(const void*, const void*, void*,
-                                            int, int, int, void*);
+// Forward-declared launchers from src/prefill_standalone.hip
+extern void rcpp_standalone_launch_wmma_4x4_cached(const void*, const void*, void*,
+                                                   int, int, int, void*);
 
 rcpp_status_t
 rcpp_standalone_gemm(const void* A_dev, const void* B_dev_packed, void* C_dev,
@@ -141,7 +141,8 @@ rcpp_standalone_gemm(const void* A_dev, const void* B_dev_packed, void* C_dev,
     if(M <= 0 || N <= 0 || K <= 0)        return RCPP_INVALID_ARG;
     if(M % 64 != 0 || N % 64 != 0)        return RCPP_INVALID_ARG;
     if(K % 32 != 0)                        return RCPP_INVALID_ARG;
-    rcpp_standalone_launch_wmma_4x4(A_dev, B_dev_packed, C_dev, M, N, K, stream);
+    // Phase 4h kernel: ~101.7% of CK on BitNet FFN, zero CK includes.
+    rcpp_standalone_launch_wmma_4x4_cached(A_dev, B_dev_packed, C_dev, M, N, K, stream);
     return RCPP_OK;
 }
 
