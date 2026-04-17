@@ -151,6 +151,22 @@ int main(int argc, char** argv) {
         rcpp_tokenizer_free(tok);
         fprintf(stderr, "[chat] user=\"%s\"%s -> %zu prompt tokens\n",
                 user_msg, system_msg ? " (with system)" : "", prompt_ids.size());
+    } else if (std::string(prompt_arg) == "--repl") {
+        // REPL mode — interactive multi-turn chat with persistent KV cache.
+        //   bitnet_decode <model> --repl [max_new_per_turn] [tokenizer.htok]
+        // The decode loop is re-entered with new user turns appended to
+        // the existing KV cache. Model stays loaded across turns; only
+        // the forward-pass positions advance.
+        num_tokens = argc_use > 3 ? std::atoi(argv[3]) : 256;
+        if (argc_use > 4) tok_path = argv[4];
+        rcpp_tokenizer_t* tok = nullptr;
+        if (rcpp_tokenizer_load(tok_path, &tok) != RCPP_OK) {
+            fprintf(stderr, "cannot load tokenizer .htok: %s\n", tok_path); return 1;
+        }
+        // Seed with just BOS — the first user message is read from stdin below.
+        prompt_ids.push_back(rcpp_tokenizer_bos_id(tok));
+        rcpp_tokenizer_free(tok);
+        fprintf(stderr, "[repl] %d max tokens/turn. Ctrl-D or 'quit' to exit.\n", num_tokens);
     } else if (prompt_arg[0] == '@') {
         num_tokens = argc > 3 ? std::atoi(argv[3]) : 16;
         std::ifstream f(prompt_arg + 1);
@@ -179,8 +195,13 @@ int main(int argc, char** argv) {
     const int hd  = hs / nh;
     const int L   = m.num_layers;
     const int V   = m.vocab_size;
+    const bool repl_mode = (std::string(prompt_arg) == "--repl");
     const int prompt_len = (int)prompt_ids.size();
-    const int max_len = prompt_len + num_tokens;
+    // REPL needs a big KV slab since multi-turn conversations grow fast.
+    // 4096 matches BitNet-2B-4T's max_position_embeddings; RoPE theta 500k
+    // means positions up to that bound are trained.
+    const int max_len = repl_mode ? 4096
+                                  : prompt_len + num_tokens;
     const float scale = 1.0f / std::sqrt((float)hd);
 
     fprintf(stderr, "[bitnet_decode] prompt_len=%d new_tokens=%d max_ctx=%d\n",
@@ -413,25 +434,12 @@ int main(int argc, char** argv) {
         return next_tok;
     };
 
-    // ---- Prefill: feed prompt tokens[0..prompt_len-2] through the cache,
-    //      producing the logits for position prompt_len-1 at the last step.
-    //      Then generate num_tokens new tokens greedily.
-    // Seed sampler history with prompt tokens so repetition penalty
-    // can also discourage echoing the input back verbatim.
-    sampler_history = prompt_ids;
+    // Load the tokenizer up front — used for streaming detokenization,
+    // --stop suffix match, and the REPL's per-turn encode of user input.
+    rcpp_tokenizer_t* dec_tok = nullptr;
+    rcpp_tokenizer_load(tok_path, &dec_tok);
 
-    double prefill_ms = 0.0;
-    int next_tok = 0;
-    for (int step = 0; step < prompt_len; ++step) {
-        auto t0 = std::chrono::high_resolution_clock::now();
-        next_tok = forward_token(prompt_ids[step], step);
-        HIP_OK(hipDeviceSynchronize());
-        auto t1 = std::chrono::high_resolution_clock::now();
-        prefill_ms += std::chrono::duration<double, std::milli>(t1 - t0).count();
-    }
-    fprintf(stderr, "[bitnet_decode] prefill %d tok in %.2f ms (%.1f tok/s)\n",
-            prompt_len, prefill_ms,
-            prompt_len > 0 ? 1000.0 * prompt_len / prefill_ms : 0.0);
+    sampler_history = prompt_ids;
 
     // Stop conditions:
     //   * Special IDs 128001 <|end_of_text|> / 128009 <|eot_id|>
@@ -439,92 +447,140 @@ int main(int argc, char** argv) {
     //     detokenized tail of the generated window
     const int stop_a = 128001, stop_b = 128009;
 
-    // Load a tokenizer once if we have either --stop sequences or the
-    // text print path to drive; decode gets it for free.
-    rcpp_tokenizer_t* dec_tok = nullptr;
-    rcpp_tokenizer_load(tok_path, &dec_tok);
-
-    // Decode loop with streaming output:
-    //   * stdout gets the generated text live, flushed per token
-    //   * stderr gets the token IDs and stats (`2>/dev/null` = clean text)
-    //
-    // Streaming works by detokenizing the full `generated` vector each
-    // step into a stable buffer and printing whatever bytes are NEW since
-    // last step. UTF-8 continuation bytes are handled naturally: if a
-    // token ends mid-codepoint the terminal just won't draw that glyph
-    // until the next token lands, without re-printing what's already there.
-    std::vector<int> generated;
-    generated.reserve(num_tokens);
-    fprintf(stderr, "[bitnet_decode] tokens:");
-    double decode_ms = 0.0;
-    int cur_tok = next_tok;
-    bool hit_eos = false;
-    std::string stop_hit;
+    // Turn state — advances across REPL turns.
+    int cache_pos  = 0;          // next free slot in the KV cache
+    int last_tok   = 0;          // last token processed (prefill tail)
     std::vector<char> tail_buf(8192);
     std::vector<char> stream_buf(16 * 1024);
-    size_t printed_bytes = 0;
-    for (int step = 0; step < num_tokens; ++step) {
-        auto t0 = std::chrono::high_resolution_clock::now();
-        next_tok = forward_token(cur_tok, prompt_len + step);
-        HIP_OK(hipDeviceSynchronize());
-        auto t1 = std::chrono::high_resolution_clock::now();
-        decode_ms += std::chrono::duration<double, std::milli>(t1 - t0).count();
-        generated.push_back(next_tok);
-        sampler_history.push_back(next_tok);
-        fprintf(stderr, " %d", next_tok);
-        fflush(stderr);
 
-        // Stream the new suffix of the decoded text to stdout.
-        if (dec_tok) {
-            size_t tlen = 0;
-            rcpp_tokenizer_decode(dec_tok, generated.data(), generated.size(),
-                                  stream_buf.data(), stream_buf.size(), &tlen);
-            tlen = std::min(tlen, stream_buf.size());
-            if (tlen > printed_bytes) {
-                fwrite(stream_buf.data() + printed_bytes, 1, tlen - printed_bytes, stdout);
-                fflush(stdout);
-                printed_bytes = tlen;
-            }
+    auto run_turn = [&](const std::vector<int>& new_tokens, int max_new) -> int {
+        // Prefill the new tokens (positions cache_pos..cache_pos+N-1).
+        double prefill_ms = 0.0;
+        for (size_t i = 0; i < new_tokens.size(); ++i) {
+            auto t0 = std::chrono::high_resolution_clock::now();
+            last_tok = forward_token(new_tokens[i], cache_pos + (int)i);
+            HIP_OK(hipDeviceSynchronize());
+            auto t1 = std::chrono::high_resolution_clock::now();
+            prefill_ms += std::chrono::duration<double, std::milli>(t1 - t0).count();
         }
+        cache_pos += (int)new_tokens.size();
+        fprintf(stderr, "[bitnet_decode] prefill %zu tok in %.2f ms (%.1f tok/s) [pos=%d]\n",
+                new_tokens.size(), prefill_ms,
+                prefill_ms > 0 ? 1000.0 * new_tokens.size() / prefill_ms : 0.0, cache_pos);
 
-        if (next_tok == stop_a || next_tok == stop_b) { hit_eos = true; break; }
-        cur_tok = next_tok;
+        if (max_new <= 0) return 0;
 
-        // --stop suffix match against detokenized window of the last ~64 tokens.
-        if (!stop_seqs.empty() && dec_tok) {
-            size_t win = std::min((size_t)64, generated.size());
-            size_t tlen = 0;
-            rcpp_tokenizer_decode(dec_tok,
-                                  generated.data() + (generated.size() - win),
-                                  win, tail_buf.data(), tail_buf.size(), &tlen);
-            tlen = std::min(tlen, tail_buf.size());
-            std::string tail(tail_buf.data(), tlen);
-            for (const auto& s : stop_seqs) {
-                if (tail.size() >= s.size() &&
-                    tail.compare(tail.size() - s.size(), s.size(), s) == 0) {
-                    stop_hit = s;
-                    break;
+        // Decode loop: streaming text to stdout, IDs+stats to stderr.
+        std::vector<int> generated;
+        generated.reserve(max_new);
+        fprintf(stderr, "[bitnet_decode] tokens:");
+        double decode_ms = 0.0;
+        int cur_tok = last_tok;
+        bool hit_eos = false;
+        std::string stop_hit;
+        size_t printed_bytes = 0;
+        for (int step = 0; step < max_new; ++step) {
+            auto t0 = std::chrono::high_resolution_clock::now();
+            int next_tok = forward_token(cur_tok, cache_pos + step);
+            HIP_OK(hipDeviceSynchronize());
+            auto t1 = std::chrono::high_resolution_clock::now();
+            decode_ms += std::chrono::duration<double, std::milli>(t1 - t0).count();
+            generated.push_back(next_tok);
+            sampler_history.push_back(next_tok);
+            fprintf(stderr, " %d", next_tok);
+            fflush(stderr);
+            if (dec_tok) {
+                size_t tlen = 0;
+                rcpp_tokenizer_decode(dec_tok, generated.data(), generated.size(),
+                                      stream_buf.data(), stream_buf.size(), &tlen);
+                tlen = std::min(tlen, stream_buf.size());
+                if (tlen > printed_bytes) {
+                    fwrite(stream_buf.data() + printed_bytes, 1,
+                           tlen - printed_bytes, stdout);
+                    fflush(stdout);
+                    printed_bytes = tlen;
                 }
             }
-            if (!stop_hit.empty()) break;
+            if (next_tok == stop_a || next_tok == stop_b) { hit_eos = true; break; }
+            cur_tok = next_tok;
+
+            if (!stop_seqs.empty() && dec_tok) {
+                size_t win = std::min((size_t)64, generated.size());
+                size_t tlen = 0;
+                rcpp_tokenizer_decode(dec_tok,
+                                      generated.data() + (generated.size() - win),
+                                      win, tail_buf.data(), tail_buf.size(), &tlen);
+                tlen = std::min(tlen, tail_buf.size());
+                std::string tail(tail_buf.data(), tlen);
+                for (const auto& s : stop_seqs) {
+                    if (tail.size() >= s.size() &&
+                        tail.compare(tail.size() - s.size(), s.size(), s) == 0) {
+                        stop_hit = s; break;
+                    }
+                }
+                if (!stop_hit.empty()) break;
+            }
         }
-    }
-    fprintf(stderr, "\n");
-    printf("\n");
-    fflush(stdout);
-    if (hit_eos) {
-        fprintf(stderr, "[bitnet_decode] EOS (%d) after %zu new tokens\n",
-                next_tok, generated.size());
-    } else if (!stop_hit.empty()) {
-        fprintf(stderr, "[bitnet_decode] --stop matched \"%s\" after %zu new tokens\n",
-                stop_hit.c_str(), generated.size());
-    }
-    if (num_tokens > 0) {
-        fprintf(stderr, "[bitnet_decode] decode %d tok in %.2f ms  (%.2f ms/tok, %.1f tok/s)\n",
-               num_tokens, decode_ms, decode_ms/num_tokens, 1000.0 * num_tokens / decode_ms);
+        fprintf(stderr, "\n");
+        printf("\n");
+        fflush(stdout);
+        cache_pos += (int)generated.size();
+        last_tok = generated.empty() ? last_tok : generated.back();
+        if (hit_eos)
+            fprintf(stderr, "[bitnet_decode] EOS (%d) after %zu new tokens\n",
+                    last_tok, generated.size());
+        else if (!stop_hit.empty())
+            fprintf(stderr, "[bitnet_decode] --stop \"%s\" after %zu new tokens\n",
+                    stop_hit.c_str(), generated.size());
+        if (!generated.empty())
+            fprintf(stderr, "[bitnet_decode] decode %zu tok in %.2f ms (%.2f ms/tok, %.1f tok/s)\n",
+                    generated.size(), decode_ms, decode_ms/generated.size(),
+                    1000.0 * generated.size() / decode_ms);
+        return 0;
+    };
+
+    // Run the first (or only) turn. In REPL mode the "initial prompt"
+    // is just BOS — do a prefill-only pass (max_new=0) and let the REPL
+    // loop below drive real generation once a user types something.
+    (void)run_turn(prompt_ids, repl_mode ? 0 : num_tokens);
+
+    // REPL loop: read stdin, wrap in chat template, feed + decode. Keep
+    // going until EOF or "quit".
+    if (repl_mode) {
+        rcpp_tokenizer_t* rtok = nullptr;
+        if (rcpp_tokenizer_load(tok_path, &rtok) != RCPP_OK) { fprintf(stderr, "repl: tokenizer fail\n"); return 1; }
+        auto encode_chunk = [&](const char* s) {
+            std::vector<int> buf(2048);
+            size_t n = 0;
+            rcpp_tokenizer_encode(rtok, s, std::strlen(s), 0, buf.data(), buf.size(), &n);
+            buf.resize(std::min(n, buf.size()));
+            return buf;
+        };
+        const int EOT = 128009;
+        std::string line;
+        while (true) {
+            fprintf(stderr, "\n> ");
+            fflush(stderr);
+            if (!std::getline(std::cin, line)) break;
+            if (line == "quit" || line == "exit") break;
+            if (line.empty()) continue;
+            auto user_ids = encode_chunk((std::string("User: ") + line).c_str());
+            user_ids.push_back(EOT);
+            auto assist_pre = encode_chunk("Assistant: ");
+            std::vector<int> turn;
+            turn.reserve(user_ids.size() + assist_pre.size());
+            turn.insert(turn.end(), user_ids.begin(), user_ids.end());
+            turn.insert(turn.end(), assist_pre.begin(), assist_pre.end());
+            if (cache_pos + (int)turn.size() + num_tokens >= max_len) {
+                fprintf(stderr, "\n[repl] context full (%d/%d), resetting\n",
+                        cache_pos, max_len);
+                break;
+            }
+            (void)run_turn(turn, num_tokens);
+        }
+        rcpp_tokenizer_free(rtok);
     }
 
-    // dec_tok was created up front for the stream; free it here.
     if (dec_tok) rcpp_tokenizer_free(dec_tok);
 
     // Cleanup
