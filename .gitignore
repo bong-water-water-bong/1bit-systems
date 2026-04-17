@@ -1,6 +1,6 @@
 build/
+install/
 *.o
-*.so
 *.a
-# Keep compiled bench tools for reproducibility but ignore build artifacts
-# tools/bench_gemm and tools/bench_ternary are committed as proof
+compile_commands.json
+.cache/
