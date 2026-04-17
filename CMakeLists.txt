@@ -29,6 +29,17 @@ list(PREPEND CMAKE_PREFIX_PATH "${ROCM_ROOT}" "${ROCM_ROOT}/lib/cmake")
 
 find_package(hip REQUIRED CONFIG PATHS "${ROCM_ROOT}")
 
+# Header-only HTTP + JSON for bitnet_server's OpenAI-compatible API.
+# Pulled at configure time; no runtime deps added beyond libc + pthreads.
+include(FetchContent)
+FetchContent_Declare(cpp_httplib
+    GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
+    GIT_TAG        v0.18.1)
+FetchContent_Declare(nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG        v3.11.3)
+FetchContent_MakeAvailable(cpp_httplib nlohmann_json)
+
 # CK is still needed for the device-side GEMM template (header-only). Option B
 # phases 1-4 will replace that; once they land, this find_package goes away too.
 find_package(composable_kernel REQUIRED CONFIG PATHS "${ROCM_ROOT}")
@@ -96,7 +107,8 @@ add_executable(bitnet_decode tools/bitnet_decode.cpp)
 set_source_files_properties(tools/bitnet_decode.cpp PROPERTIES LANGUAGE HIP)
 target_compile_options(bitnet_decode PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
-target_link_libraries(bitnet_decode PRIVATE rocm_cpp hip::host hip::device)
+target_link_libraries(bitnet_decode PRIVATE rocm_cpp hip::host hip::device
+                                            httplib::httplib nlohmann_json::nlohmann_json)
 set_target_properties(bitnet_decode PROPERTIES HIP_ARCHITECTURES "gfx1151")
 
 # -- tools/bitnet_debate : two BitNet instances arguing a topic ----------------

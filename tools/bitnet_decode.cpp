@@ -25,13 +25,19 @@
 #include <hip/hip_fp16.h>
 
 #include <chrono>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <ctime>
 #include <iostream>
+#include <mutex>
 #include <random>
 #include <vector>
+
+#include <httplib.h>
+#include <nlohmann/json.hpp>
 
 #define HIP_OK(e) do { auto _s=(e); if(_s!=hipSuccess){fprintf(stderr,"HIP %d %s:%d\n",_s,__FILE__,__LINE__); return 1;}} while(0)
 #define RC_OK(e)  do { auto _s=(e); if(_s!=RCPP_OK){fprintf(stderr,"rcpp err %d at %s:%d\n",(int)_s,__FILE__,__LINE__); return 1;}} while(0)
@@ -71,6 +77,8 @@ int main(int argc, char** argv) {
     float rep_penalty  = 1.0f;         // 1.0 = disabled (no penalty)
     int   rep_last_n   = 64;           // window for repetition penalty
     uint64_t sampler_seed = (uint64_t)std::chrono::steady_clock::now().time_since_epoch().count();
+    int         server_port = 0;       // >0 enables HTTP server mode
+    std::string server_bind = "127.0.0.1";
     int argc_use = argc;
     for (int i = 3; i < argc; ++i) {
         std::string a = argv[i];
@@ -81,6 +89,8 @@ int main(int argc, char** argv) {
         else if (a == "--rep-penalty"  && i + 1 < argc) { rep_penalty  = (float)std::atof(argv[++i]); }
         else if (a == "--rep-last-n"   && i + 1 < argc) { rep_last_n   = std::atoi(argv[++i]); }
         else if (a == "--seed"         && i + 1 < argc) { sampler_seed = (uint64_t)std::atoll(argv[++i]); }
+        else if (a == "--server"       && i + 1 < argc) { server_port  = std::atoi(argv[++i]); }
+        else if (a == "--bind"         && i + 1 < argc) { server_bind  = argv[++i]; }
         else continue;
         if (argc_use > i - 1) argc_use = i - 1;
     }
@@ -151,6 +161,26 @@ int main(int argc, char** argv) {
         rcpp_tokenizer_free(tok);
         fprintf(stderr, "[chat] user=\"%s\"%s -> %zu prompt tokens\n",
                 user_msg, system_msg ? " (with system)" : "", prompt_ids.size());
+    } else if (std::string(prompt_arg) == "--server") {
+        // Server mode: don't build a single prompt — each HTTP request
+        // carries its own conversation in OpenAI format. Prime the cache
+        // with just BOS; per-request handler resets cache_pos back to 1.
+        //
+        //   bitnet_decode <model> --server [port=8080] [default_max_tokens=256]
+        server_port = argc_use > 3 ? std::atoi(argv[3]) : 8080;
+        num_tokens  = argc_use > 4 ? std::atoi(argv[4]) : 256;
+        rcpp_tokenizer_t* tok = nullptr;
+        if (rcpp_tokenizer_load(tok_path, &tok) != RCPP_OK) {
+            fprintf(stderr, "cannot load tokenizer .htok: %s\n", tok_path); return 1;
+        }
+        prompt_ids.push_back(rcpp_tokenizer_bos_id(tok));
+        rcpp_tokenizer_free(tok);
+        fprintf(stderr, "[server] OpenAI-compat API on %s:%d (default max_tokens=%d)\n",
+                server_bind.c_str(), server_port, num_tokens);
+        if (server_bind == "0.0.0.0") {
+            fprintf(stderr, "[server] WARNING: bound to 0.0.0.0 — publicly reachable.\n");
+            fprintf(stderr, "[server] WARNING: no auth, no TLS, no rate limit. Use a reverse proxy.\n");
+        }
     } else if (std::string(prompt_arg) == "--repl") {
         // REPL mode — interactive multi-turn chat with persistent KV cache.
         //   bitnet_decode <model> --repl [max_new_per_turn] [tokenizer.htok]
@@ -453,7 +483,12 @@ int main(int argc, char** argv) {
     std::vector<char> tail_buf(8192);
     std::vector<char> stream_buf(16 * 1024);
 
-    auto run_turn = [&](const std::vector<int>& new_tokens, int max_new) -> int {
+    // When out_text != nullptr, generated text is appended there instead
+    // of streaming to stdout — used by the HTTP server path. The token-
+    // ID log still goes to stderr regardless.
+    auto run_turn = [&](const std::vector<int>& new_tokens, int max_new,
+                        std::string* out_text = nullptr) -> int {
+        const bool silent = (out_text != nullptr);
         // Prefill the new tokens (positions cache_pos..cache_pos+N-1).
         double prefill_ms = 0.0;
         for (size_t i = 0; i < new_tokens.size(); ++i) {
@@ -495,9 +530,14 @@ int main(int argc, char** argv) {
                                       stream_buf.data(), stream_buf.size(), &tlen);
                 tlen = std::min(tlen, stream_buf.size());
                 if (tlen > printed_bytes) {
-                    fwrite(stream_buf.data() + printed_bytes, 1,
-                           tlen - printed_bytes, stdout);
-                    fflush(stdout);
+                    if (silent) {
+                        out_text->append(stream_buf.data() + printed_bytes,
+                                         tlen - printed_bytes);
+                    } else {
+                        fwrite(stream_buf.data() + printed_bytes, 1,
+                               tlen - printed_bytes, stdout);
+                        fflush(stdout);
+                    }
                     printed_bytes = tlen;
                 }
             }
@@ -522,8 +562,7 @@ int main(int argc, char** argv) {
             }
         }
         fprintf(stderr, "\n");
-        printf("\n");
-        fflush(stdout);
+        if (!silent) { printf("\n"); fflush(stdout); }
         cache_pos += (int)generated.size();
         last_tok = generated.empty() ? last_tok : generated.back();
         if (hit_eos)
@@ -539,10 +578,13 @@ int main(int argc, char** argv) {
         return 0;
     };
 
-    // Run the first (or only) turn. In REPL mode the "initial prompt"
-    // is just BOS — do a prefill-only pass (max_new=0) and let the REPL
-    // loop below drive real generation once a user types something.
-    (void)run_turn(prompt_ids, repl_mode ? 0 : num_tokens);
+    const bool server_mode = (std::string(prompt_arg) == "--server");
+
+    // Run the first (or only) turn. In REPL / server modes the "initial
+    // prompt" is just BOS — do a prefill-only pass (max_new=0) and let
+    // the loop below drive real generation once the user / HTTP
+    // request arrives.
+    (void)run_turn(prompt_ids, (repl_mode || server_mode) ? 0 : num_tokens);
 
     // REPL loop: read stdin, wrap in chat template, feed + decode. Keep
     // going until EOF or "quit".
@@ -579,6 +621,119 @@ int main(int argc, char** argv) {
             (void)run_turn(turn, num_tokens);
         }
         rcpp_tokenizer_free(rtok);
+    }
+
+    if (server_mode) {
+        // OpenAI-compatible HTTP server. Single-threaded inference —
+        // requests serialize through the one model instance. Each
+        // request resets the KV cache and runs from scratch.
+        rcpp_tokenizer_t* stok = nullptr;
+        if (rcpp_tokenizer_load(tok_path, &stok) != RCPP_OK) { return 1; }
+        auto srv_encode = [&](const std::string& s) {
+            std::vector<int> buf(4096); size_t n = 0;
+            rcpp_tokenizer_encode(stok, s.c_str(), s.size(), 0,
+                                  buf.data(), buf.size(), &n);
+            buf.resize(std::min(n, buf.size())); return buf;
+        };
+        const int BOS = rcpp_tokenizer_bos_id(stok);
+        const int EOT = 128009;
+
+        std::mutex gen_mu;  // serialize generation across concurrent requests
+
+        httplib::Server svr;
+
+        svr.Get("/health", [](const httplib::Request&, httplib::Response& res) {
+            res.set_content("OK\n", "text/plain");
+        });
+
+        svr.Get("/v1/models", [](const httplib::Request&, httplib::Response& res) {
+            nlohmann::json j = {{"object", "list"}, {"data", nlohmann::json::array({
+                {{"id", "bitnet-b1.58-2b-4t"}, {"object", "model"}, {"owned_by", "halo-ai"}}
+            })}};
+            res.set_content(j.dump(), "application/json");
+        });
+
+        svr.Post("/v1/chat/completions", [&](const httplib::Request& req, httplib::Response& res) {
+            std::lock_guard<std::mutex> lk(gen_mu);
+            nlohmann::json j;
+            try { j = nlohmann::json::parse(req.body); }
+            catch (const std::exception& e) {
+                res.status = 400;
+                res.set_content(std::string("{\"error\":\"bad json: ") + e.what() + "\"}",
+                                "application/json");
+                return;
+            }
+
+            // Build prompt token stream from OpenAI-format messages using
+            // BitNet's chat template.
+            std::vector<int> req_prompt = { BOS };
+            for (auto& m : j["messages"]) {
+                std::string role = m.value("role", std::string("user"));
+                std::string content = m.value("content", std::string(""));
+                if (!role.empty()) role[0] = (char)std::toupper((unsigned char)role[0]);
+                auto ids = srv_encode(role + ": " + content);
+                req_prompt.insert(req_prompt.end(), ids.begin(), ids.end());
+                req_prompt.push_back(EOT);
+            }
+            auto pre = srv_encode("Assistant: ");
+            req_prompt.insert(req_prompt.end(), pre.begin(), pre.end());
+
+            int   req_max = j.value("max_tokens", 256);
+            // Per-request sampler overrides (reset to session defaults after).
+            float save_temp = temperature, save_top_p = top_p_val, save_rep = rep_penalty;
+            int   save_top_k = top_k_val;
+            temperature = j.value("temperature", temperature);
+            top_p_val   = j.value("top_p",       top_p_val);
+            rep_penalty = j.value("frequency_penalty", 0.0f) + 1.0f;  // rough map
+            if (rep_penalty < 1.0f) rep_penalty = 1.0f;
+
+            // Reset KV cache for a fresh conversation.
+            cache_pos = 0;
+            sampler_history.clear();
+            sampler_history = req_prompt;
+
+            std::string text;
+            auto t0 = std::chrono::steady_clock::now();
+            (void)run_turn(req_prompt, req_max, &text);
+            auto t1 = std::chrono::steady_clock::now();
+            double dt_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+
+            // Restore session sampler state.
+            temperature = save_temp; top_p_val = save_top_p;
+            rep_penalty = save_rep;  top_k_val = save_top_k;
+
+            // Strip trailing <|eot_id|> glyph if present.
+            const std::string eot = "<|eot_id|>";
+            if (text.size() >= eot.size() &&
+                text.compare(text.size() - eot.size(), eot.size(), eot) == 0) {
+                text.erase(text.size() - eot.size());
+            }
+
+            nlohmann::json resp = {
+                {"id",      "chatcmpl-" + std::to_string((long)t1.time_since_epoch().count())},
+                {"object",  "chat.completion"},
+                {"created", (long)std::time(nullptr)},
+                {"model",   j.value("model", std::string("bitnet-b1.58-2b-4t"))},
+                {"choices", nlohmann::json::array({
+                    {{"index", 0},
+                     {"message", {{"role", "assistant"}, {"content", text}}},
+                     {"finish_reason", "stop"}}
+                })},
+                {"usage", {
+                    {"prompt_tokens",     (int)req_prompt.size()},
+                    {"completion_tokens", (int)cache_pos - (int)req_prompt.size()},
+                    {"total_tokens",      (int)cache_pos},
+                    {"latency_ms",        dt_ms}
+                }}
+            };
+            res.set_content(resp.dump(), "application/json");
+        });
+
+        fprintf(stderr, "[server] listening on %s:%d\n",
+                server_bind.c_str(), server_port);
+        svr.listen(server_bind.c_str(), server_port);
+
+        rcpp_tokenizer_free(stok);
     }
 
     if (dec_tok) rcpp_tokenizer_free(dec_tok);
