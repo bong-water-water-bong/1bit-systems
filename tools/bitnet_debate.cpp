@@ -35,7 +35,16 @@ int main(int argc, char** argv) {
     const char* topic      = argv[2];
     const int   rounds     = argc > 3 ? std::atoi(argv[3]) : 3;
     const int   max_tok    = argc > 4 ? std::atoi(argv[4]) : 120;
-    const char* tok_path   = "/home/bcloud/halo-1bit/models/halo-1bit-2b.htok";
+    // Derive tokenizer path from model path (.h1b -> .htok, same dir).
+    // Keeps the binary relocatable instead of baking in a build-time $HOME.
+    std::string derived_tok_path = model_path;
+    if (derived_tok_path.size() > 4 &&
+        derived_tok_path.compare(derived_tok_path.size() - 4, 4, ".h1b") == 0) {
+        derived_tok_path.replace(derived_tok_path.size() - 4, 4, ".htok");
+    } else {
+        derived_tok_path += ".htok";
+    }
+    const char* tok_path   = derived_tok_path.c_str();
 
     rcpp_bitnet_model_t m;
     if (rcpp_bitnet_load_h1b(model_path, &m) != RCPP_OK) {

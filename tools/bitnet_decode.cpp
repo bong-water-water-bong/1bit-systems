@@ -64,7 +64,17 @@ int main(int argc, char** argv) {
     const char* path = argc > 1 ? argv[1] : "/home/bcloud/halo-1bit/models/halo-1bit-2b.h1b";
     const char* prompt_arg = argc > 2 ? argv[2] : "1";
     int num_tokens = 16;
-    const char* tok_path = "/home/bcloud/halo-1bit/models/halo-1bit-2b.htok";
+    // Default tokenizer: same dir as model, .h1b -> .htok. Makes the binary
+    // relocatable — no more build-time $HOME leak. Overridable via --tokenizer
+    // flag or (in --text mode) the trailing positional arg.
+    std::string derived_tok_path = path;
+    if (derived_tok_path.size() > 4 &&
+        derived_tok_path.compare(derived_tok_path.size() - 4, 4, ".h1b") == 0) {
+        derived_tok_path.replace(derived_tok_path.size() - 4, 4, ".htok");
+    } else {
+        derived_tok_path += ".htok";
+    }
+    const char* tok_path = derived_tok_path.c_str();
 
     // Collect --stop "seq" / --temp <f> / --top-k <int> / --seed <int> flags.
     // Positional args must come BEFORE any named flag; argc_use caps the
@@ -91,6 +101,7 @@ int main(int argc, char** argv) {
         else if (a == "--seed"         && i + 1 < argc) { sampler_seed = (uint64_t)std::atoll(argv[++i]); }
         else if (a == "--server"       && i + 1 < argc) { server_port  = std::atoi(argv[++i]); }
         else if (a == "--bind"         && i + 1 < argc) { server_bind  = argv[++i]; }
+        else if (a == "--tokenizer"    && i + 1 < argc) { tok_path     = argv[++i]; }
         else continue;
         if (argc_use > i - 1) argc_use = i - 1;
     }
