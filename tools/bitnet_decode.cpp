@@ -238,11 +238,13 @@ int main(int argc, char** argv) {
     const int V   = m.vocab_size;
     const bool repl_mode = (std::string(prompt_arg) == "--repl");
     const int prompt_len = (int)prompt_ids.size();
-    // REPL needs a big KV slab since multi-turn conversations grow fast.
+    // REPL and server both need a big KV slab — REPL for multi-turn growth,
+    // server because per-request max_tokens isn't known until HTTP time.
     // 4096 matches BitNet-2B-4T's max_position_embeddings; RoPE theta 500k
     // means positions up to that bound are trained.
-    const int max_len = repl_mode ? 4096
-                                  : prompt_len + num_tokens;
+    const bool server_mode = (server_port > 0);
+    const int max_len = (repl_mode || server_mode) ? 4096
+                                                   : prompt_len + num_tokens;
     const float scale = 1.0f / std::sqrt((float)hd);
 
     fprintf(stderr, "[bitnet_decode] prompt_len=%d new_tokens=%d max_ctx=%d\n",
@@ -593,8 +595,6 @@ int main(int argc, char** argv) {
         return 0;
     };
 
-    const bool server_mode = (std::string(prompt_arg) == "--server");
-
     // Run the first (or only) turn. In REPL / server modes the "initial
     // prompt" is just BOS — do a prefill-only pass (max_new=0) and let
     // the loop below drive real generation once the user / HTTP
@@ -696,6 +696,24 @@ int main(int argc, char** argv) {
             int   req_max = j.value("max_tokens", 256);
             bool  req_stream = j.value("stream", false);
             std::string model_name = j.value("model", std::string("bitnet-b1.58-2b-4t"));
+
+            // Clamp to the KV cache bound. max_len is the fixed allocation;
+            // prompt + generated must fit. Reject cleanly if prompt alone
+            // overflows so the caller gets a 400 rather than a SEGV.
+            const int ctx_room = max_len - (int)req_prompt.size();
+            if (ctx_room <= 0) {
+                res.status = 400;
+                nlohmann::json err = {{"error", {
+                    {"message", "prompt exceeds context window (" +
+                                std::to_string(req_prompt.size()) + " >= " +
+                                std::to_string(max_len) + ")"},
+                    {"type", "invalid_request_error"},
+                    {"code", "context_length_exceeded"}
+                }}};
+                res.set_content(err.dump(), "application/json");
+                return;
+            }
+            if (req_max > ctx_room) req_max = ctx_room;
 
             // Per-request sampler overrides (reset to session defaults after).
             float save_temp = temperature, save_top_p = top_p_val, save_rep = rep_penalty;
