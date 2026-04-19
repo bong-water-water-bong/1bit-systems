@@ -667,20 +667,26 @@ mod tests {
         norms.push(vec![2u8; 8 * 4]); // attn_sub_norm
         norms.push(vec![3u8; 16 * 4]); // ffn_sub_norm (len is)
 
-        // Tensor shapes (rows, cols):
-        // q:[4, 8] k:[4, 8] v:[4, 8] o:[8, 8] gate:[16, 8] up:[16, 8] down:[8, 16]
+        // Tensor shapes (rows, cols); hd = hs/nh = 4.
+        //   q   : [nh*hd, hs]    = [8, 8]
+        //   k   : [nkv*hd, hs]   = [4, 8]
+        //   v   : [nkv*hd, hs]   = [4, 8]
+        //   o   : [hs, nh*hd]    = [8, 8]
+        //   gate: [is, hs]       = [16, 8]
+        //   up  : [is, hs]       = [16, 8]
+        //   down: [hs, is]       = [8, 16]
         let rbytes = |cols: usize| (cols + 3) / 4;
         let packed_for = |rows: usize, cols: usize| vec![0xAAu8; rows * rbytes(cols)];
         let scales_for = |rows: usize| vec![0xBBu8; rows * 4];
 
         let tensors = vec![
-            packed_for(4, 8),  // q
-            scales_for(4),     // q_scales
-            packed_for(4, 8),  // k
+            packed_for(8, 8),  // q        (rows=nh*hd=8)
+            scales_for(8),     // q_scales
+            packed_for(4, 8),  // k        (rows=nkv*hd=4)
             scales_for(4),
-            packed_for(4, 8),
+            packed_for(4, 8),  // v
             scales_for(4),
-            packed_for(8, 8), // o
+            packed_for(8, 8),  // o        (rows=hs=8)
             scales_for(8),
             packed_for(16, 8), // gate
             scales_for(16),

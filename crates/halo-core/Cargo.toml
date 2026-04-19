@@ -18,5 +18,3 @@ byteorder  = { workspace = true }
 fastrand   = { workspace = true }
 half       = { workspace = true }
 
-[dev-dependencies]
-tempfile   = "3"
