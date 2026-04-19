@@ -9,6 +9,7 @@ use clap::{Parser, Subcommand};
 
 mod status;
 mod doctor;
+mod install;
 mod logs;
 mod restart;
 mod update;
@@ -50,6 +51,14 @@ enum Cmd {
     },
     /// halo stack version + component SHAs
     Version,
+    /// Install a component from packages.toml (core, agents, voice, sd, ...)
+    Install {
+        /// Component name; omit with --list to see the full catalogue
+        component: Option<String>,
+        /// List available components
+        #[arg(long)]
+        list: bool,
+    },
 }
 
 #[tokio::main]
@@ -68,5 +77,9 @@ async fn main() -> Result<()> {
         Cmd::Doctor                         => doctor::run().await,
         Cmd::Update { no_build, no_restart } => update::run(no_build, no_restart).await,
         Cmd::Version                        => version::run().await,
+        Cmd::Install { component, list }    => {
+            if list || component.is_none() { install::list().await }
+            else                             { install::run_install(&component.unwrap()).await }
+        }
     }
 }

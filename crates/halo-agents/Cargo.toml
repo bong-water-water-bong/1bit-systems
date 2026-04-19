@@ -6,9 +6,15 @@ rust-version.workspace = true
 license.workspace      = true
 repository.workspace   = true
 authors.workspace      = true
-description  = "halo-agents — strix-ai-rs (scaffolded, see crates/halo-cli for first finished crate)"
+description  = "halo-agents — 17 specialist routers (Rust port of agent-cpp). Optional addon."
 
 [lib]
 path = "src/lib.rs"
 
 [dependencies]
+anyhow      = { workspace = true }
+tokio       = { workspace = true }
+tracing     = { workspace = true }
+async-trait = "0.1"
+serde       = { workspace = true }
+serde_json  = { workspace = true }

@@ -660,6 +660,433 @@ pub fn embedding_lookup_fp16(
 }
 
 // -----------------------------------------------------------------------------
+// Additional elementwise + FFN kernels
+// -----------------------------------------------------------------------------
+
+/// SiLU-GLU: `y[i] = silu(up[i]) * gate[i]`.
+pub fn silu_glu_fp16(
+    up: DevicePtr<u16>,
+    gate: DevicePtr<u16>,
+    y: DeviceMutPtr<u16>,
+    n: i32,
+    stream: HipStream,
+) -> RcppStatus {
+    // SAFETY: pointer forwarding only.
+    let raw = unsafe {
+        ffi::rcpp_silu_glu_fp16(
+            up.as_void(),
+            gate.as_void(),
+            y.as_void(),
+            n as c_int,
+            stream.as_raw(),
+        )
+    };
+    RcppStatus::from_raw(raw)
+}
+
+/// ReLU²-GLU (BitNet-b1.58 `hidden_act="relu2"`): `y[i] = relu(gate[i])² * up[i]`.
+pub fn relu2_glu_fp16(
+    gate: DevicePtr<u16>,
+    up: DevicePtr<u16>,
+    y: DeviceMutPtr<u16>,
+    n: i32,
+    stream: HipStream,
+) -> RcppStatus {
+    // SAFETY: pointer forwarding only.
+    let raw = unsafe {
+        ffi::rcpp_relu2_glu_fp16(
+            gate.as_void(),
+            up.as_void(),
+            y.as_void(),
+            n as c_int,
+            stream.as_raw(),
+        )
+    };
+    RcppStatus::from_raw(raw)
+}
+
+/// Fused ReLU²-GLU + FFN sub-norm. Keeps the raw `relu²(gate) * up`
+/// product in FP32 long enough to avoid FP16 overflow on real BitNet
+/// weights before applying the ffn sub-norm and casting to FP16.
+pub fn relu2_glu_rmsnorm_fp16(
+    gate: DevicePtr<u16>,
+    up: DevicePtr<u16>,
+    ffn_sub_norm: DevicePtr<u16>,
+    y: DeviceMutPtr<u16>,
+    eps: f32,
+    n: i32,
+    stream: HipStream,
+) -> RcppStatus {
+    // SAFETY: pointer forwarding only.
+    let raw = unsafe {
+        ffi::rcpp_relu2_glu_rmsnorm_fp16(
+            gate.as_void(),
+            up.as_void(),
+            ffn_sub_norm.as_void(),
+            y.as_void(),
+            eps,
+            n as c_int,
+            stream.as_raw(),
+        )
+    };
+    RcppStatus::from_raw(raw)
+}
+
+/// FP16 residual add: `y[i] += src[i]`.
+pub fn residual_add_fp16(
+    y: DeviceMutPtr<u16>,
+    src: DevicePtr<u16>,
+    n: i32,
+    stream: HipStream,
+) -> RcppStatus {
+    // SAFETY: pointer forwarding only.
+    let raw = unsafe {
+        ffi::rcpp_residual_add_fp16(
+            y.as_void(),
+            src.as_void(),
+            n as c_int,
+            stream.as_raw(),
+        )
+    };
+    RcppStatus::from_raw(raw)
+}
+
+/// In-place FP32 → FP16 cast.
+pub fn fp32_to_fp16(
+    x_fp32: DevicePtr<f32>,
+    y_fp16: DeviceMutPtr<u16>,
+    n: i32,
+    stream: HipStream,
+) -> RcppStatus {
+    // SAFETY: pointer forwarding only.
+    let raw = unsafe {
+        ffi::rcpp_fp32_to_fp16(
+            x_fp32.as_void(),
+            y_fp16.as_void(),
+            n as c_int,
+            stream.as_raw(),
+        )
+    };
+    RcppStatus::from_raw(raw)
+}
+
+/// Per-row FP16 → INT8 quantizer with per-row FP16 scale. Used to write
+/// INT8 KV cache entries with their scale in one launch.
+pub fn quantize_fp16_to_i8_rowscale(
+    x_fp16: DevicePtr<u16>,
+    out_i8: DeviceMutPtr<i8>,
+    scale_fp16_out: DeviceMutPtr<u16>,
+    num_rows: i32,
+    row_len: i32,
+    stream: HipStream,
+) -> RcppStatus {
+    // SAFETY: pointer forwarding only.
+    let raw = unsafe {
+        ffi::rcpp_quantize_fp16_to_i8_rowscale(
+            x_fp16.as_void(),
+            out_i8.as_void(),
+            scale_fp16_out.as_void(),
+            num_rows as c_int,
+            row_len as c_int,
+            stream.as_raw(),
+        )
+    };
+    RcppStatus::from_raw(raw)
+}
+
+// -----------------------------------------------------------------------------
+// HIP device memory — safe wrappers over libamdhip64's raw C entry points.
+//
+// Every allocation is returned as a `DeviceBuffer<T>` smart pointer that
+// owns the device allocation and frees it on drop. Copy / synchronize / set
+// operations are plain functions that take already-owned device pointers.
+//
+// The HIP runtime is thread-safe so these wrappers do NOT require external
+// synchronization; concurrent `alloc`s are fine. `Send` + `Sync` bounds on
+// `DeviceBuffer<T>` make it legal to move a buffer between threads or share
+// it behind an `Arc` as long as the holder respects the kernel's own
+// read/write semantics.
+// -----------------------------------------------------------------------------
+
+/// Owned device allocation. Drops via `hipFree`.
+///
+/// The element type `T` is informational — HIP allocations are untyped at
+/// the API level, but we carry `T` through the `DevicePtr<T>` /
+/// `DeviceMutPtr<T>` accessors so the borrow checker can help downstream
+/// crates avoid mismatched-element bugs.
+pub struct DeviceBuffer<T> {
+    ptr: *mut T,
+    // Element count, NOT byte count. `byte_len()` folds sizeof in.
+    len: usize,
+    _marker: core::marker::PhantomData<T>,
+}
+
+// SAFETY: `DeviceBuffer<T>` owns a device allocation whose backing store
+// lives on the GPU. Transferring ownership between threads or sharing
+// behind a `&` (Sync) is legal — HIP's runtime is thread-safe for
+// `hipMalloc` / `hipFree` / `hipMemcpy`, and we never dereference the
+// pointer from Rust (only pass it through FFI to kernels).
+unsafe impl<T: Send> Send for DeviceBuffer<T> {}
+unsafe impl<T: Sync> Sync for DeviceBuffer<T> {}
+
+impl<T> DeviceBuffer<T> {
+    /// Allocate `count` elements of `T` on the current HIP device.
+    pub fn alloc(count: usize) -> Result<Self, RcppError> {
+        if count == 0 {
+            // HIP accepts zero-byte allocations but they're a footgun
+            // (null pointer vs valid-but-empty); just return a well-formed
+            // empty buffer.
+            return Ok(Self {
+                ptr: core::ptr::null_mut(),
+                len: 0,
+                _marker: core::marker::PhantomData,
+            });
+        }
+        let bytes = count
+            .checked_mul(core::mem::size_of::<T>())
+            .ok_or(RcppError::Precondition("alloc size overflow"))?;
+        let mut raw: *mut c_void = core::ptr::null_mut();
+        // SAFETY: `raw` is a valid out-pointer; `bytes` is positive.
+        let status = unsafe { ffi::hipMalloc(&mut raw as *mut *mut c_void, bytes) };
+        if status != ffi::HIP_SUCCESS || raw.is_null() {
+            return Err(RcppError::HipError);
+        }
+        Ok(Self {
+            ptr: raw as *mut T,
+            len: count,
+            _marker: core::marker::PhantomData,
+        })
+    }
+
+    /// Allocate and zero-fill.
+    pub fn alloc_zeroed(count: usize) -> Result<Self, RcppError> {
+        let buf = Self::alloc(count)?;
+        if count > 0 {
+            // SAFETY: buf.ptr is a valid device allocation of `byte_len`.
+            let status = unsafe {
+                ffi::hipMemset(buf.ptr as *mut c_void, 0, buf.byte_len())
+            };
+            if status != ffi::HIP_SUCCESS {
+                return Err(RcppError::HipError);
+            }
+        }
+        Ok(buf)
+    }
+
+    /// Element count.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// `true` if this buffer owns no elements.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Allocation size in bytes.
+    #[inline]
+    pub fn byte_len(&self) -> usize {
+        self.len * core::mem::size_of::<T>()
+    }
+
+    /// Read-only device pointer. The invariant is upheld by construction:
+    /// we got `ptr` back from `hipMalloc`, so it refers to a valid device
+    /// allocation that stays alive until `self` drops.
+    #[inline]
+    pub fn as_device_ptr(&self) -> DevicePtr<T> {
+        // SAFETY: self.ptr came from hipMalloc and is valid for self.len
+        // elements for the lifetime of `self`.
+        unsafe { DevicePtr::new(self.ptr as *const T) }
+    }
+
+    /// Writable device pointer — same invariants as `as_device_ptr`.
+    #[inline]
+    pub fn as_device_mut_ptr(&mut self) -> DeviceMutPtr<T> {
+        // SAFETY: self.ptr came from hipMalloc; `&mut self` proves exclusive access.
+        unsafe { DeviceMutPtr::new(self.ptr) }
+    }
+
+    /// Copy `src` (host) into this buffer. Lengths must match.
+    pub fn copy_from_slice(&mut self, src: &[T]) -> Result<(), RcppError>
+    where
+        T: Copy,
+    {
+        if src.len() != self.len {
+            return Err(RcppError::Precondition("copy_from_slice length mismatch"));
+        }
+        if self.len == 0 {
+            return Ok(());
+        }
+        // SAFETY: src has `self.len` elements; self.ptr owns self.len slots.
+        let status = unsafe {
+            ffi::hipMemcpy(
+                self.ptr as *mut c_void,
+                src.as_ptr() as *const c_void,
+                self.byte_len(),
+                ffi::HIP_MEMCPY_HOST_TO_DEVICE,
+            )
+        };
+        if status != ffi::HIP_SUCCESS {
+            return Err(RcppError::HipError);
+        }
+        Ok(())
+    }
+
+    /// Copy this buffer's contents into `dst` (host). Lengths must match.
+    pub fn copy_to_slice(&self, dst: &mut [T]) -> Result<(), RcppError>
+    where
+        T: Copy,
+    {
+        if dst.len() != self.len {
+            return Err(RcppError::Precondition("copy_to_slice length mismatch"));
+        }
+        if self.len == 0 {
+            return Ok(());
+        }
+        // SAFETY: dst has `self.len` slots; self.ptr owns self.len elements.
+        let status = unsafe {
+            ffi::hipMemcpy(
+                dst.as_mut_ptr() as *mut c_void,
+                self.ptr as *const c_void,
+                self.byte_len(),
+                ffi::HIP_MEMCPY_DEVICE_TO_HOST,
+            )
+        };
+        if status != ffi::HIP_SUCCESS {
+            return Err(RcppError::HipError);
+        }
+        Ok(())
+    }
+
+    /// Copy `src` (device) into this buffer. Lengths must match.
+    pub fn copy_from_device(&mut self, src: &Self) -> Result<(), RcppError> {
+        if src.len != self.len {
+            return Err(RcppError::Precondition("copy_from_device length mismatch"));
+        }
+        if self.len == 0 {
+            return Ok(());
+        }
+        // SAFETY: both pointers are valid device allocations of matching length.
+        let status = unsafe {
+            ffi::hipMemcpy(
+                self.ptr as *mut c_void,
+                src.ptr as *const c_void,
+                self.byte_len(),
+                ffi::HIP_MEMCPY_DEVICE_TO_DEVICE,
+            )
+        };
+        if status != ffi::HIP_SUCCESS {
+            return Err(RcppError::HipError);
+        }
+        Ok(())
+    }
+
+    /// Read a single element back to the host (small-value fast path —
+    /// avoids a full slice allocation for scalars like `x_scale_dev`).
+    pub fn copy_to_host_scalar(&self) -> Result<T, RcppError>
+    where
+        T: Copy + Default,
+    {
+        if self.len == 0 {
+            return Err(RcppError::Precondition("copy_to_host_scalar on empty buffer"));
+        }
+        let mut out: T = T::default();
+        // SAFETY: self.ptr owns at least one element of type T.
+        let status = unsafe {
+            ffi::hipMemcpy(
+                &mut out as *mut T as *mut c_void,
+                self.ptr as *const c_void,
+                core::mem::size_of::<T>(),
+                ffi::HIP_MEMCPY_DEVICE_TO_HOST,
+            )
+        };
+        if status != ffi::HIP_SUCCESS {
+            return Err(RcppError::HipError);
+        }
+        Ok(out)
+    }
+
+    /// Pointer arithmetic helper — produces a `DeviceMutPtr<T>` offset
+    /// by `elem_offset` elements from the base. No bounds check (kernel
+    /// is assumed to respect caller-supplied bounds).
+    ///
+    /// # Safety
+    /// Caller must ensure `elem_offset <= self.len`.
+    #[inline]
+    pub unsafe fn offset_mut(&mut self, elem_offset: usize) -> DeviceMutPtr<T> {
+        // SAFETY: forwarded to the caller via `unsafe fn` contract.
+        unsafe { DeviceMutPtr::new(self.ptr.add(elem_offset)) }
+    }
+
+    /// Read-only variant of [`Self::offset_mut`].
+    ///
+    /// # Safety
+    /// Caller must ensure `elem_offset <= self.len`.
+    #[inline]
+    pub unsafe fn offset(&self, elem_offset: usize) -> DevicePtr<T> {
+        // SAFETY: forwarded to the caller via `unsafe fn` contract.
+        unsafe { DevicePtr::new(self.ptr.add(elem_offset) as *const T) }
+    }
+}
+
+impl<T> Drop for DeviceBuffer<T> {
+    fn drop(&mut self) {
+        if !self.ptr.is_null() {
+            // SAFETY: self.ptr came from hipMalloc and is freed exactly once
+            // here. After this, self is consumed.
+            let _ = unsafe { ffi::hipFree(self.ptr as *mut c_void) };
+            self.ptr = core::ptr::null_mut();
+        }
+    }
+}
+
+impl<T> core::fmt::Debug for DeviceBuffer<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("DeviceBuffer")
+            .field("len", &self.len)
+            .field("bytes", &self.byte_len())
+            .field("elem_size", &core::mem::size_of::<T>())
+            .finish()
+    }
+}
+
+/// Block the calling thread until every submitted HIP task on the current
+/// device has completed. Equivalent to `hipDeviceSynchronize`.
+pub fn device_synchronize() -> Result<(), RcppError> {
+    // SAFETY: no arguments; HIP runtime is thread-safe.
+    let status = unsafe { ffi::hipDeviceSynchronize() };
+    if status != ffi::HIP_SUCCESS {
+        return Err(RcppError::HipError);
+    }
+    Ok(())
+}
+
+/// Number of HIP-visible devices on this host. Returns `0` (no error) when
+/// the runtime reports no devices — callers use this to distinguish
+/// "no GPU" from "HIP runtime broken".
+pub fn device_count() -> Result<i32, RcppError> {
+    let mut count: c_int = 0;
+    // SAFETY: `count` is a valid out-pointer.
+    let status = unsafe { ffi::hipGetDeviceCount(&mut count as *mut c_int) };
+    if status != ffi::HIP_SUCCESS {
+        return Err(RcppError::HipError);
+    }
+    Ok(count as i32)
+}
+
+/// Make `device_id` the current device for subsequent allocs / kernels.
+pub fn set_device(device_id: i32) -> Result<(), RcppError> {
+    // SAFETY: no pointer arguments.
+    let status = unsafe { ffi::hipSetDevice(device_id as c_int) };
+    if status != ffi::HIP_SUCCESS {
+        return Err(RcppError::HipError);
+    }
+    Ok(())
+}
+
+// -----------------------------------------------------------------------------
 // Host-side weight packer (no device touch)
 // -----------------------------------------------------------------------------
 

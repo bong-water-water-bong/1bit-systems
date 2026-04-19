@@ -7,6 +7,11 @@ license.workspace      = true
 repository.workspace   = true
 authors.workspace      = true
 description  = "FFI bridge from Rust to rocm-cpp's HIP ternary BitNet kernels (gfx1151)."
+# `links = "rocm_cpp"` tells cargo this crate owns the `rocm_cpp` native
+# library linkage — enables propagation of `cargo:KEY=VALUE` metadata
+# (e.g. `rocm_cpp_lib_dir`) as `DEP_ROCM_CPP_KEY` env vars to direct
+# downstream build.rs scripts (halo-server, halo-router).
+links = "rocm_cpp"
 
 [lib]
 path = "src/lib.rs"

@@ -39,6 +39,8 @@ pub mod routes;
 pub mod shutdown;
 
 pub use backend::{EchoBackend, InferenceBackend, TokenStream};
+#[cfg(feature = "real-backend")]
+pub use backend::RealBackend;
 pub use error::ServerError;
 pub use routes::build_router;
 pub use shutdown::shutdown_signal;

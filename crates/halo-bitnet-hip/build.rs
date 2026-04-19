@@ -72,8 +72,17 @@ fn main() {
     //    running `cargo test` from the workspace doesn't have to set
     //    LD_LIBRARY_PATH by hand. Packaged builds should strip rpaths and
     //    rely on system loader config.
+    //
+    // NOTE: `rustc-link-arg` from a library build script applies only to
+    // this rlib's own link step (effectively a no-op since rlibs are
+    // archives). Downstream consumers need their OWN build.rs to emit
+    // `rustc-link-arg-bins` / `-tests`, because those variants are only
+    // honoured from crates that have bin / test targets. halo-server and
+    // halo-router carry matching build.rs files to re-export the rpaths.
     if let Some(p) = &rocm_cpp_dir {
         println!("cargo:rustc-link-arg=-Wl,-rpath,{}", p.display());
+        // Expose the resolved path to downstream build.rs via metadata.
+        println!("cargo:rocm_cpp_lib_dir={}", p.display());
     }
     // /opt/rocm/lib is canonical for libamdhip64 on this host.
     println!("cargo:rustc-link-arg=-Wl,-rpath,/opt/rocm/lib");

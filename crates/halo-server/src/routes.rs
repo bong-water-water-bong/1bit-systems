@@ -14,7 +14,6 @@
 //! and the stream is terminated with `data: [DONE]\n\n`.
 
 use std::convert::Infallible;
-use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::Json;
@@ -35,10 +34,7 @@ use crate::api::{
     ChatCompletionResponse, ChatDelta, ChatMessage, CompletionChoice, CompletionChunk,
     CompletionChunkChoice, CompletionRequest, CompletionResponse, ModelList,
 };
-use crate::backend::{GenerationParams, InferenceBackend, SharedBackend};
-// `InferenceBackend` is referenced by the generic bound on `build_router`
-// below; the import is load-bearing even though handlers only see the
-// `dyn`-erased `SharedBackend`.
+use crate::backend::{GenerationParams, SharedBackend};
 use crate::error::ServerError;
 
 // ─── Router assembly ─────────────────────────────────────────────────────
@@ -48,9 +44,7 @@ use crate::error::ServerError;
 /// The returned router is stateful (the backend lives in `State<_>`) but
 /// fully `Send + 'static`, so callers can hand it straight to
 /// `axum::serve`.
-pub fn build_router<B: InferenceBackend>(backend: Arc<B>) -> Router {
-    // Up-cast to the object-safe form so downstream handlers don't carry
-    // the generic `B` parameter.
+pub fn build_router(backend: SharedBackend) -> Router {
     let shared: SharedBackend = backend;
 
     // Permissive CORS for now; tighten to the tailnet + localhost once the
@@ -359,6 +353,7 @@ mod tests {
     use crate::backend::EchoBackend;
     use axum::body::{Body, to_bytes};
     use axum::http::{Request, StatusCode};
+    use std::sync::Arc;
     use tower::ServiceExt; // for `oneshot`
 
     fn app() -> Router {

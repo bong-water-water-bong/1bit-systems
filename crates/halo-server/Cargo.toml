@@ -15,6 +15,13 @@ path = "src/lib.rs"
 name = "halo-server"
 path = "src/main.rs"
 
+[features]
+# Default build ships only EchoBackend — keeps CI / unit tests independent
+# of ROCm. Turn on `real-backend` to link halo-router + halo-bitnet-hip
+# against librocm_cpp.so.
+default       = []
+real-backend  = ["dep:halo-router", "dep:halo-core", "dep:halo-bitnet-hip"]
+
 [dependencies]
 tokio              = { workspace = true }
 tracing            = { workspace = true }
@@ -31,6 +38,11 @@ clap               = { workspace = true }
 anyhow             = { workspace = true }
 thiserror          = { workspace = true }
 uuid               = { workspace = true }
+
+# Real backend wiring — optional, enabled by `--features real-backend`.
+halo-router        = { path = "../halo-router", features = ["hip"], optional = true }
+halo-core          = { path = "../halo-core", optional = true }
+halo-bitnet-hip    = { path = "../halo-bitnet-hip", optional = true }
 
 [dev-dependencies]
 reqwest            = { workspace = true }

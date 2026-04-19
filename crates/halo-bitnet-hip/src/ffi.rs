@@ -26,6 +26,113 @@
 #![allow(missing_docs)]
 
 use core::ffi::{c_char, c_float, c_int, c_void};
+use core::ffi::c_uint;
+
+// -----------------------------------------------------------------------------
+// HIP runtime bindings — a narrow subset of `hip/hip_runtime_api.h` sufficient
+// for halo-router's device-memory lifecycle (alloc / copy / synchronize) and
+// device enumeration. Symbols live in `libamdhip64.so`, which is already
+// linked alongside `librocm_cpp.so` (see build.rs).
+//
+// `hipError_t` is an int-valued enum; 0 == hipSuccess. We fold any non-zero
+// return into `RcppError::HipError` at the safe-wrapper boundary.
+// `hipMemcpyKind` is likewise an int-valued enum with the familiar constants.
+// -----------------------------------------------------------------------------
+pub type hip_error_t = c_int;
+
+/// Matches `hipMemcpyKind` from hip/hip_runtime_api.h.
+pub const HIP_MEMCPY_HOST_TO_HOST: c_uint = 0;
+pub const HIP_MEMCPY_HOST_TO_DEVICE: c_uint = 1;
+pub const HIP_MEMCPY_DEVICE_TO_HOST: c_uint = 2;
+pub const HIP_MEMCPY_DEVICE_TO_DEVICE: c_uint = 3;
+pub const HIP_MEMCPY_DEFAULT: c_uint = 4;
+
+/// `hipSuccess = 0`.
+pub const HIP_SUCCESS: hip_error_t = 0;
+
+#[cfg(feature = "link-rocm")]
+unsafe extern "C" {
+    pub fn hipMalloc(ptr: *mut *mut c_void, size: usize) -> hip_error_t;
+    pub fn hipFree(ptr: *mut c_void) -> hip_error_t;
+    pub fn hipMemcpy(
+        dst: *mut c_void,
+        src: *const c_void,
+        count: usize,
+        kind: c_uint,
+    ) -> hip_error_t;
+    pub fn hipMemcpyAsync(
+        dst: *mut c_void,
+        src: *const c_void,
+        count: usize,
+        kind: c_uint,
+        stream: *mut c_void,
+    ) -> hip_error_t;
+    pub fn hipMemset(dst: *mut c_void, value: c_int, count: usize) -> hip_error_t;
+    pub fn hipMemsetAsync(
+        dst: *mut c_void,
+        value: c_int,
+        count: usize,
+        stream: *mut c_void,
+    ) -> hip_error_t;
+    pub fn hipDeviceSynchronize() -> hip_error_t;
+    pub fn hipGetDeviceCount(count: *mut c_int) -> hip_error_t;
+    pub fn hipSetDevice(device_id: c_int) -> hip_error_t;
+    pub fn hipGetLastError() -> hip_error_t;
+    pub fn hipGetErrorString(err: hip_error_t) -> *const c_char;
+}
+
+#[cfg(not(feature = "link-rocm"))]
+mod hip_stub {
+    use super::*;
+    #[inline]
+    #[allow(unused_variables)]
+    pub unsafe extern "C" fn hipMalloc(_ptr: *mut *mut c_void, _size: usize) -> hip_error_t { 1 }
+    #[inline]
+    #[allow(unused_variables)]
+    pub unsafe extern "C" fn hipFree(_ptr: *mut c_void) -> hip_error_t { 1 }
+    #[inline]
+    #[allow(unused_variables)]
+    pub unsafe extern "C" fn hipMemcpy(
+        _dst: *mut c_void, _src: *const c_void, _count: usize, _kind: c_uint,
+    ) -> hip_error_t { 1 }
+    #[inline]
+    #[allow(unused_variables)]
+    pub unsafe extern "C" fn hipMemcpyAsync(
+        _dst: *mut c_void, _src: *const c_void, _count: usize, _kind: c_uint,
+        _stream: *mut c_void,
+    ) -> hip_error_t { 1 }
+    #[inline]
+    #[allow(unused_variables)]
+    pub unsafe extern "C" fn hipMemset(_dst: *mut c_void, _value: c_int, _count: usize) -> hip_error_t { 1 }
+    #[inline]
+    #[allow(unused_variables)]
+    pub unsafe extern "C" fn hipMemsetAsync(
+        _dst: *mut c_void, _value: c_int, _count: usize, _stream: *mut c_void,
+    ) -> hip_error_t { 1 }
+    #[inline]
+    pub unsafe extern "C" fn hipDeviceSynchronize() -> hip_error_t { 1 }
+    #[inline]
+    #[allow(unused_variables)]
+    pub unsafe extern "C" fn hipGetDeviceCount(count: *mut c_int) -> hip_error_t {
+        // Safe to write zero into a valid pointer without a feature flag, but
+        // we prefer to just report failure on CI hosts.
+        1
+    }
+    #[inline]
+    #[allow(unused_variables)]
+    pub unsafe extern "C" fn hipSetDevice(_device_id: c_int) -> hip_error_t { 1 }
+    #[inline]
+    pub unsafe extern "C" fn hipGetLastError() -> hip_error_t { 0 }
+    #[inline]
+    #[allow(unused_variables)]
+    pub unsafe extern "C" fn hipGetErrorString(_err: hip_error_t) -> *const c_char {
+        core::ptr::null()
+    }
+}
+
+#[cfg(not(feature = "link-rocm"))]
+pub use hip_stub::*;
+
 
 /// Mirrors `rcpp_status_t` from `ck_gemm.h`. Kept as a `#[repr(C)] i32` so
 /// the compiler uses the same integer width the C side emits for an enum.

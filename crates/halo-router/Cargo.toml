@@ -6,9 +6,26 @@ rust-version.workspace = true
 license.workspace      = true
 repository.workspace   = true
 authors.workspace      = true
-description  = "halo-router — strix-ai-rs (scaffolded, see crates/halo-cli for first finished crate)"
+description  = "halo-router — backend dispatcher (picks halo-bitnet-hip vs halo-bitnet-mlx)"
 
 [lib]
 path = "src/lib.rs"
 
+[features]
+# Default: the router compiles without linking any GPU kernels (CI / check
+# friendly). Turn on `hip` to link halo-bitnet-hip's rocm-cpp kernels.
+default   = []
+hip       = ["halo-bitnet-hip/link-rocm"]
+
 [dependencies]
+anyhow  = { workspace = true }
+tokio   = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+futures   = { workspace = true }
+async-stream = { workspace = true }
+tokio-stream = { workspace = true }
+half      = { workspace = true }
+
+halo-core        = { workspace = true }
+halo-bitnet-hip  = { path = "../halo-bitnet-hip", default-features = false }

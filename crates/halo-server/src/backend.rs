@@ -194,3 +194,130 @@ impl InferenceBackend for EchoBackend {
 /// concrete — generics over the whole `Router` percolate into every
 /// handler signature and make tests painful.
 pub type SharedBackend = Arc<dyn InferenceBackend>;
+
+// ─── RealBackend ─────────────────────────────────────────────────────────
+//
+// Adapter that turns a `halo_router::Router` into an `InferenceBackend`.
+// Only compiled under the `real-backend` feature so the default build
+// stays free of ROCm link-time requirements.
+#[cfg(feature = "real-backend")]
+pub mod real {
+    //! Adapter from [`halo_router::Router`] to the server's
+    //! [`super::InferenceBackend`] trait.
+
+    use super::*;
+    use futures::StreamExt;
+    use halo_core::sampler::SamplerConfig;
+    use halo_router::{Router, RouterRequest};
+
+    /// Thin wrapper — the router does all the work; we just translate
+    /// OpenAI-shaped types into `RouterRequest` and back.
+    pub struct RealBackend {
+        router: Arc<Router>,
+    }
+
+    impl RealBackend {
+        /// Load the model + tokenizer and spin up the router. Blocks
+        /// the current thread while weights upload to the GPU
+        /// (~3 s for halo-1bit-2b.h1b on gfx1151). Call this once at
+        /// server startup, not per request.
+        pub fn new(
+            h1b_path: &std::path::Path,
+        ) -> Result<Self, crate::ServerError> {
+            let router = Router::new(h1b_path)
+                .map_err(|e| crate::ServerError::Backend(format!("router init: {e}")))?;
+            Ok(Self {
+                router: Arc::new(router),
+            })
+        }
+
+        /// Access the underlying router (mostly useful for tests + warm-up).
+        pub fn router(&self) -> &Router {
+            &self.router
+        }
+
+        fn build_request(messages: &[ChatMessage], params: &GenerationParams) -> RouterRequest {
+            // Match gen-1 bitnet_decode's chat template exactly so /v1 and
+            // /v2 tokenize identically. Each turn becomes
+            //   "Role: content<|eot_id|>"
+            // and the prompt closes with "Assistant: ". BOS is prepended by
+            // the tokenizer inside the router.
+            let mut prompt = String::new();
+            for m in messages {
+                let mut role = m.role.clone();
+                if let Some(c) = role.get_mut(0..1) {
+                    c.make_ascii_uppercase();
+                }
+                prompt.push_str(&role);
+                prompt.push_str(": ");
+                prompt.push_str(&m.content);
+                prompt.push_str("<|eot_id|>");
+            }
+            prompt.push_str("Assistant: ");
+
+            let mut cfg = SamplerConfig::default();
+            if let Some(t) = params.temperature {
+                cfg.temperature = t;
+            }
+            if let Some(p) = params.top_p {
+                cfg.top_p = p;
+            }
+
+            RouterRequest {
+                prompt,
+                max_new_tokens: params.max_tokens.max(1),
+                sampler: cfg,
+                stop: Vec::new(),
+            }
+        }
+    }
+
+    impl super::InferenceBackend for RealBackend {
+        fn generate<'a>(
+            &'a self,
+            messages: &'a [ChatMessage],
+            params: &'a GenerationParams,
+        ) -> BoxFut<'a, Result<(String, GenerationUsage), ServerError>> {
+            let router = self.router.clone();
+            let req = Self::build_request(messages, params);
+            Box::pin(async move {
+                let resp = router
+                    .generate(req)
+                    .await
+                    .map_err(|e| ServerError::Backend(format!("{e}")))?;
+                Ok((
+                    resp.text,
+                    GenerationUsage {
+                        prompt_tokens: resp.prompt_tokens,
+                        completion_tokens: resp.completion_tokens,
+                    },
+                ))
+            })
+        }
+
+        fn generate_stream<'a>(
+            &'a self,
+            messages: &'a [ChatMessage],
+            params: &'a GenerationParams,
+        ) -> BoxFut<'a, Result<TokenStream, ServerError>> {
+            let router = self.router.clone();
+            let req = Self::build_request(messages, params);
+            Box::pin(async move {
+                let inner = router
+                    .generate_stream(req)
+                    .await
+                    .map_err(|e| ServerError::Backend(format!("{e}")))?;
+                let mapped = inner.map(|res| res.map_err(|e| ServerError::Backend(format!("{e}"))));
+                let stream: TokenStream = Box::pin(mapped);
+                Ok(stream)
+            })
+        }
+
+        fn list_models(&self) -> Vec<ModelCard> {
+            vec![ModelCard::halo(self.router.model_id().to_string())]
+        }
+    }
+}
+
+#[cfg(feature = "real-backend")]
+pub use real::RealBackend;

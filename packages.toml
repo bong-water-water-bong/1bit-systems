@@ -1,0 +1,56 @@
+# strix-ai-rs package manifest. Consumed by `halo install <component>`.
+#
+# Each [component.X] declares:
+#   description — one line shown in `halo install --list`
+#   deps        — other components required first (resolved recursively)
+#   build       — argv array; executed in workspace root; fail-fast
+#   units       — systemd --user units enabled + started after build
+#   check       — optional HTTP healthcheck; 2xx = installed OK
+
+[component.core]
+description = "Rust inference core (halo CLI + halo-server + HIP kernels)"
+deps        = []
+build = [
+    ["cargo", "install", "--path", "crates/halo-cli",    "--force", "--quiet"],
+    ["cargo", "install", "--path", "crates/halo-server", "--force", "--quiet",
+     "--features", "real-backend"],
+]
+units = ["strix-server.service"]
+check = "http://127.0.0.1:8180/v1/models"
+
+[component.agents]
+description = "17 specialist dispatcher (tokio bus, JSON-RPC over MCP)"
+deps        = ["core"]
+build = [
+    ["cargo", "install", "--path", "crates/halo-mcp", "--force", "--quiet"],
+]
+units = []
+check = ""
+
+[component.voice]
+description = "Whisper STT + Kokoro TTS (external repos, systemd only)"
+deps        = []
+build       = []
+units       = ["halo-whisper.service", "halo-kokoro.service"]
+check       = "http://127.0.0.1:8083/health"
+
+[component.sd]
+description = "Stable Diffusion image gen (native HIP, stable-diffusion.cpp)"
+deps        = []
+build       = []
+units       = ["halo-sd.service"]
+check       = "http://127.0.0.1:8081/health"
+
+[component.lemonade]
+description = "lemonade-server — OpenAI-compat frontend for assorted models"
+deps        = []
+build       = []
+units       = ["halo-lemonade.service"]
+check       = "http://127.0.0.1:8000/api/v0/models"
+
+[component.bitnet-gen1]
+description = "Gen-1 C++ bitnet_decode server (legacy /v1/*)"
+deps        = []
+build       = []
+units       = ["halo-bitnet.service"]
+check       = "http://127.0.0.1:8080/v1/models"

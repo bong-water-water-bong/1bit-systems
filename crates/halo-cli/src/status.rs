@@ -4,7 +4,8 @@ use anyhow::Result;
 use std::process::Command;
 
 pub const SERVICES: &[(&str, &str, u16)] = &[
-    ("bitnet",   "halo-bitnet.service",   8080),
+    ("bitnet",   "halo-bitnet.service",   8080),  // gen-1 C++ bitnet_decode
+    ("strix",    "strix-server.service",  8180),  // gen-2 Rust halo-server
     ("sd",       "halo-sd.service",       8081),
     ("whisper",  "halo-whisper.service",  8082),
     ("kokoro",   "halo-kokoro.service",   8083),
