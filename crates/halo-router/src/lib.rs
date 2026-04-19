@@ -393,6 +393,13 @@ fn generate_blocking(
     let prompt_tokens = prompt_ids.len() as u32;
     let max_new = req.max_new_tokens.max(1) as usize;
 
+    // Reset the KV cache position per request. Matches gen-1 bitnet_decode's
+    // `cache_pos = 0` at the start of every /v1/chat/completions handler.
+    // Without this, `pos` accumulates across requests and eventually hits
+    // the max_context ceiling (4096) with "context overflow: 4096 + 1 >
+    // 4096" errors. Stateful multi-turn carryover is a separate feature.
+    inner.pos = 0;
+
     // Seed the sampler history with the prompt so rep penalty behaves.
     let mut history: Vec<TokenId> = prompt_ids.clone();
     let mut sampler = Sampler::new(req.sampler);
