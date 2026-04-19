@@ -1,0 +1,12 @@
+[Unit]
+Description=halo-anvil — rebuild rocm-cpp on new commit, bench, post to Discord
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/bcloud/bin/halo-anvil.sh
+Nice=10
+IOSchedulingClass=idle
+StandardOutput=journal
+StandardError=journal

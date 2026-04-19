@@ -1,0 +1,11 @@
+[Unit]
+Description=Run halo-memory-sync every 15 minutes
+Requires=halo-memory-sync.service
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

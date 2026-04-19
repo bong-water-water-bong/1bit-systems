@@ -1,0 +1,11 @@
+[Unit]
+Description=halo-anvil poller (rocm-cpp build/bench on new commits)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+Persistent=true
+Unit=halo-anvil.service
+
+[Install]
+WantedBy=timers.target

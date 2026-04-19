@@ -1,0 +1,18 @@
+[Unit]
+Description=halo-ai kokoro-server (TTS) — echo_mouth backend
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/bcloud/repos/halo-kokoro
+ExecStart=/usr/bin/bun run /home/bcloud/repos/halo-kokoro/server.ts
+Restart=on-failure
+RestartSec=5
+Environment=HALO_KOKORO_BIN=/home/bcloud/repos/halo-kokoro/kokoro_tts
+Environment=HALO_KOKORO_RESOURCES=/home/bcloud/repos/halo-kokoro/resources
+Environment=HALO_KOKORO_PORT=8083
+Environment=HALO_KOKORO_HOST=127.0.0.1
+
+[Install]
+WantedBy=default.target

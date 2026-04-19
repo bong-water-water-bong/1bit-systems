@@ -1,0 +1,12 @@
+[Unit]
+Description=halo-ai GitHub automation runner — walks issues, PRs, commits
+
+[Service]
+Type=oneshot
+ExecStart=/home/bcloud/bin/halo-quartermaster.sh
+ExecStart=/home/bcloud/bin/halo-magistrate.sh
+ExecStart=/home/bcloud/bin/halo-librarian.sh
+Nice=10
+IOSchedulingClass=idle
+StandardOutput=journal
+StandardError=journal

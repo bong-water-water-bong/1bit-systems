@@ -1,0 +1,13 @@
+[Unit]
+Description=Nightly halo-archive run (strixhalo → Pi additive sync)
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+# If strixhalo was powered down at 3am, run on next boot once we're online.
+Persistent=true
+# Randomize by up to 20 min to avoid racing other cron-shaped work.
+RandomizedDelaySec=20min
+Unit=halo-archive.service
+
+[Install]
+WantedBy=timers.target

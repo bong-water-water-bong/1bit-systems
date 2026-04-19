@@ -1,0 +1,13 @@
+[Unit]
+Description=halo-ai agent runtime
+After=halo-bitnet.service
+Wants=halo-bitnet.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/agent_cpp
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

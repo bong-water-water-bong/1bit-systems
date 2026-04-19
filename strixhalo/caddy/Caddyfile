@@ -1,0 +1,119 @@
+# halo-ai reverse proxy — 127.0.0.1:8080 (bitnet_decode) -> HTTPS
+# Hostnames: the machine's .local (mDNS/Bonjour) and explicit LAN IP fallback.
+{
+    # Internal CA — Caddy issues self-signed certs trusted via its root.
+    # Trust /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt
+    # on client machines once.
+    admin off
+}
+
+strixhalo.local, 10.0.0.10 {
+    tls internal
+
+    # OpenAI-compatible clients send "Authorization: Bearer sk-...".
+    # Token lives in /etc/caddy/token.secret (root-owned, 0600).
+    @authorized header_regexp Authorization ^Bearer\s+sk-halo-REPLACE_ME$
+
+    # / + landing assets + live status → halo-landing (127.0.0.1:8190).
+    # No bearer — marketing page, LAN-only via hostname.
+    @landing path / /style.css /_health /_live/*
+    handle @landing {
+        reverse_proxy 127.0.0.1:8190 {
+            flush_interval -1
+        }
+    }
+
+    # /mancave/* → static launcher page (no auth — LAN only via hostname).
+    handle_path /mancave/* {
+        root * /srv/www/mancave
+        file_server
+    }
+
+    # /v2/* → strix-server (gen-2 Rust, 127.0.0.1:8180). Same bearer gate as /v1/*.
+    # Runs side-by-side with gen-1 /v1/* (bitnet_decode :8080) during burn-in.
+    handle_path /v2/* {
+        @v2_authorized header_regexp Authorization ^Bearer\s+sk-halo-REPLACE_ME$
+        handle @v2_authorized {
+            reverse_proxy 127.0.0.1:8180 {
+                flush_interval -1
+                transport http {
+                    read_timeout 10m
+                    write_timeout 10m
+                }
+            }
+        }
+        handle {
+            respond "Unauthorized — bearer token required" 401
+        }
+    }
+
+    # /lemon/* → lemonade-server (lemond daemon, 127.0.0.1:8000). Bearer-gated.
+    handle_path /lemon/* {
+        @lemon_authorized header_regexp Authorization ^Bearer\s+sk-halo-REPLACE_ME$
+        handle @lemon_authorized {
+            reverse_proxy 127.0.0.1:8000 {
+                flush_interval -1
+                transport http {
+                    read_timeout 10m
+                    write_timeout 10m
+                }
+            }
+        }
+        handle {
+            respond "Unauthorized — bearer token required" 401
+        }
+    }
+
+    # /sd/* → sd-server (stable-diffusion.cpp, 127.0.0.1:8081). Strip prefix.
+    handle_path /sd/* {
+        @sd_authorized header_regexp Authorization ^Bearer\s+sk-halo-REPLACE_ME$
+        handle @sd_authorized {
+            reverse_proxy 127.0.0.1:8081 {
+                flush_interval -1
+                transport http {
+                    # SDXL 1024×1024 20-step = ~207s; give headroom.
+                    read_timeout 15m
+                    write_timeout 15m
+                }
+            }
+        }
+        handle {
+            respond "Unauthorized — bearer token required" 401
+        }
+    }
+
+    handle @authorized {
+        # Pass-through with SSE streaming support — bitnet_decode sends
+        # text/event-stream on /v1/chat/completions when stream=true.
+        reverse_proxy 127.0.0.1:8080 {
+            flush_interval -1
+            transport http {
+                read_timeout 10m
+                write_timeout 10m
+            }
+        }
+    }
+
+    handle {
+        respond "Unauthorized — bearer token required" 401
+    }
+
+    log {
+        output file /var/log/caddy/halo-access.log {
+            roll_size 10MiB
+            roll_keep 5
+        }
+    }
+}
+
+# Headscale coordination server — no bearer gate (tailscale has its own auth).
+headscale.strixhalo.local, 10.0.0.10:8443 {
+    tls internal
+    reverse_proxy 127.0.0.1:8380
+}
+
+# LAN-only bootstrap server — unauthenticated, serves helper scripts + CA.
+http://10.0.0.10:8099 {
+    root * /var/www/halo-bootstrap
+    file_server browse
+}

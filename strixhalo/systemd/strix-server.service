@@ -1,0 +1,16 @@
+[Unit]
+Description=strix-ai-rs halo-server (gen-2 Rust, real HIP backend on gfx1151)
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+ExecStart=/home/bcloud/.local/bin/halo-server-real --bind 127.0.0.1:8180 --model /home/bcloud/halo-ai/models/halo-1bit-2b.h1b
+Restart=on-failure
+RestartSec=5
+Environment=RUST_LOG=halo_server=info,halo_router=info
+Environment=LD_LIBRARY_PATH=/home/bcloud/repos/rocm-cpp/build:/opt/rocm/lib
+Nice=10
+
+[Install]
+WantedBy=default.target
