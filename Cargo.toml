@@ -9,6 +9,8 @@ members = [
     "crates/halo-mcp",
     "crates/halo-bitnet-hip",
     "crates/halo-bitnet-mlx",
+    "crates/halo-lemonade",
+    "crates/halo-gaia",
 ]
 
 [workspace.package]

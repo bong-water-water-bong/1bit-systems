@@ -1,0 +1,19 @@
+[package]
+name         = "halo-gaia"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+authors.workspace      = true
+description  = "halo-gaia — native Rust desktop client stub (future replacement for lemonade-sdk's Gaia)."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+anyhow      = { workspace = true }
+reqwest     = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+tokio       = { workspace = true }
