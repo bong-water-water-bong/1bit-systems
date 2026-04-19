@@ -11,6 +11,7 @@ members = [
     "crates/halo-bitnet-mlx",
     "crates/halo-lemonade",
     "crates/halo-gaia",
+    "crates/halo-landing",
 ]
 
 [workspace.package]

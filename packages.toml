@@ -54,3 +54,13 @@ deps        = []
 build       = []
 units       = ["halo-bitnet.service"]
 check       = "http://127.0.0.1:8080/v1/models"
+
+[component.landing]
+description = "halo-ai marketing landing page on :8190"
+deps        = []
+build = [
+    ["cargo", "install", "--path", "crates/halo-landing", "--force", "--quiet"],
+]
+# TODO(user): author strix-landing.service (systemd --user) before launch.
+units = ["strix-landing.service"]
+check = "http://127.0.0.1:8190/_health"
