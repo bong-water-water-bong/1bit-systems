@@ -120,7 +120,7 @@ void kv_cache_attn_decode_i8_kernel(
         m = m_new;
     }
 
-    const float inv_l = 1.0f / l;
+    const float inv_l = (l > 0.0f) ? (1.0f / l) : 0.0f;
     for (int ei = 0; ei < elems_per_thread; ++ei) {
         int d = tid + ei * BLOCK;
         if (d < head_dim) {
@@ -204,7 +204,7 @@ void kv_cache_attn_prefill_i8_kernel(
         m = m_new;
     }
 
-    const float inv_l = 1.0f / l;
+    const float inv_l = (l > 0.0f) ? (1.0f / l) : 0.0f;
     for (int ei = 0; ei < elems_per_thread; ++ei) {
         int d = tid + ei * BLOCK;
         if (d < head_dim) {

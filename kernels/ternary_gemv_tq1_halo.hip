@@ -204,7 +204,14 @@ __global__ void ternary_gemv_tq1_halo_kernel(
         }
         const int my_row = warp_row_base + r;
         if (lane == 0 && my_row < M) {
-            y_f16[my_row] = __float2half((float)v * x_scale * scales[my_row]);
+            // FP16 clamp — per-row absmean scales on post-hoc requantized
+            // models can drive the product past 65504 (fp16 max); __float2half
+            // would clamp to +Inf, and downstream RMSNorm squares that into
+            // NaN across the residual stream. Matches the guard Sherry added.
+            constexpr float FP16_MAX = 65504.0f;
+            float out = (float)v * x_scale * scales[my_row];
+            out = fminf(fmaxf(out, -FP16_MAX), FP16_MAX);
+            y_f16[my_row] = __float2half(out);
         }
     }
 }
