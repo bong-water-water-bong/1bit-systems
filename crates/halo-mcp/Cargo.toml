@@ -1,0 +1,14 @@
+[package]
+name         = "halo-mcp"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+authors.workspace      = true
+description  = "halo-mcp — strix-ai-rs (scaffolded, see crates/halo-cli for first finished crate)"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
