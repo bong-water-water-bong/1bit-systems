@@ -52,6 +52,41 @@ int read_ternary(std::ifstream& f, int rows, int cols, void** packed_out, void**
     return 0;
 }
 
+// Sherry v3: uint8[rows * cols * 5 / 32] + float[rows] scales. 1.25 bpw.
+// cols must be a multiple of 32.
+int read_ternary_sherry(std::ifstream& f, int rows, int cols, void** packed_out, void** scales_out) {
+    if (cols % 32 != 0) {
+        fprintf(stderr, "[rocm-cpp] v3 load: cols=%d not divisible by 32\n", cols);
+        return -1;
+    }
+    const size_t row_bytes = (size_t)cols * 5 / 32;
+    std::vector<uint8_t> packed((size_t)rows * row_bytes);
+    f.read(reinterpret_cast<char*>(packed.data()), packed.size());
+    std::vector<float> scales(rows);
+    f.read(reinterpret_cast<char*>(scales.data()), rows * sizeof(float));
+    HIP_CHECK(hipMalloc(reinterpret_cast<void**>(packed_out), packed.size()));
+    HIP_CHECK(hipMemcpy(*packed_out, packed.data(), packed.size(), hipMemcpyHostToDevice));
+    HIP_CHECK(hipMalloc(reinterpret_cast<void**>(scales_out), rows * sizeof(float)));
+    HIP_CHECK(hipMemcpy(*scales_out, scales.data(), rows * sizeof(float), hipMemcpyHostToDevice));
+    return 0;
+}
+
+// TQ1 v4: uint8[rows * cols_padded / 5] + float[rows] scales. 1.6 bpw.
+// cols is padded up to multiple of 20 (requantizer handles the padding).
+int read_ternary_tq1(std::ifstream& f, int rows, int cols, void** packed_out, void** scales_out) {
+    const int cols_padded = ((cols + 19) / 20) * 20;
+    const size_t row_bytes = (size_t)cols_padded / 5;
+    std::vector<uint8_t> packed((size_t)rows * row_bytes);
+    f.read(reinterpret_cast<char*>(packed.data()), packed.size());
+    std::vector<float> scales(rows);
+    f.read(reinterpret_cast<char*>(scales.data()), rows * sizeof(float));
+    HIP_CHECK(hipMalloc(reinterpret_cast<void**>(packed_out), packed.size()));
+    HIP_CHECK(hipMemcpy(*packed_out, packed.data(), packed.size(), hipMemcpyHostToDevice));
+    HIP_CHECK(hipMalloc(reinterpret_cast<void**>(scales_out), rows * sizeof(float)));
+    HIP_CHECK(hipMemcpy(*scales_out, scales.data(), rows * sizeof(float), hipMemcpyHostToDevice));
+    return 0;
+}
+
 }  // namespace
 
 extern "C" rcpp_status_t
@@ -71,10 +106,13 @@ rcpp_bitnet_load_h1b(const char* path, rcpp_bitnet_model_t* out_model) {
 
     int32_t version;
     f.read(reinterpret_cast<char*>(&version), 4);
-    if (version != 1 && version != 2) {
+    if (version != 1 && version != 2 && version != 3 && version != 4) {
         fprintf(stderr, "Unsupported .h1b version: %d\n", version);
         return RCPP_UNSUPPORTED;
     }
+    out_model->format_version = version;
+    const bool use_sherry = (version == 3);
+    const bool use_tq1    = (version == 4);
 
     int32_t cfg[9];
     f.read(reinterpret_cast<char*>(cfg), sizeof(cfg));
@@ -100,6 +138,12 @@ rcpp_bitnet_load_h1b(const char* path, rcpp_bitnet_model_t* out_model) {
     } else {
         out_model->rope_theta   = 500000.0f;
         out_model->rms_norm_eps = 1e-5f;
+    }
+    if (use_sherry) {
+        fprintf(stderr, "[rocm-cpp] .h1b v3 (Sherry 1.25 bpw) — dispatching ternary GEMVs through sherry kernel.\n");
+    }
+    if (use_tq1) {
+        fprintf(stderr, "[rocm-cpp] .h1b v4 (TQ1 base-3, 1.6 bpw, lossless) — dispatching through tq1-halo kernel.\n");
     }
     fprintf(stderr, "[rocm-cpp] .h1b v%d: rope_theta=%.1f rms_norm_eps=%.1e\n",
             version, out_model->rope_theta, out_model->rms_norm_eps);
@@ -146,13 +190,16 @@ rcpp_bitnet_load_h1b(const char* path, rcpp_bitnet_model_t* out_model) {
         if (read_fp32_as_fp16(f, is_, reinterpret_cast<__half**>(&L.ffn_sub_norm_dev))  != 0) return RCPP_HIP_ERROR;
 
         // 7 ternary linear layers: Q K V O gate up down
-        if (read_ternary(f, nh * hd,  hs,    &L.q_packed_dev,    reinterpret_cast<void**>(&L.q_scales_dev))    != 0) return RCPP_HIP_ERROR;
-        if (read_ternary(f, nkv * hd, hs,    &L.k_packed_dev,    reinterpret_cast<void**>(&L.k_scales_dev))    != 0) return RCPP_HIP_ERROR;
-        if (read_ternary(f, nkv * hd, hs,    &L.v_packed_dev,    reinterpret_cast<void**>(&L.v_scales_dev))    != 0) return RCPP_HIP_ERROR;
-        if (read_ternary(f, hs,       nh*hd, &L.o_packed_dev,    reinterpret_cast<void**>(&L.o_scales_dev))    != 0) return RCPP_HIP_ERROR;
-        if (read_ternary(f, is_,      hs,    &L.gate_packed_dev, reinterpret_cast<void**>(&L.gate_scales_dev)) != 0) return RCPP_HIP_ERROR;
-        if (read_ternary(f, is_,      hs,    &L.up_packed_dev,   reinterpret_cast<void**>(&L.up_scales_dev))   != 0) return RCPP_HIP_ERROR;
-        if (read_ternary(f, hs,       is_,   &L.down_packed_dev, reinterpret_cast<void**>(&L.down_scales_dev)) != 0) return RCPP_HIP_ERROR;
+        auto rt = use_tq1    ? read_ternary_tq1
+               : use_sherry ? read_ternary_sherry
+               :              read_ternary;
+        if (rt(f, nh * hd,  hs,    &L.q_packed_dev,    reinterpret_cast<void**>(&L.q_scales_dev))    != 0) return RCPP_HIP_ERROR;
+        if (rt(f, nkv * hd, hs,    &L.k_packed_dev,    reinterpret_cast<void**>(&L.k_scales_dev))    != 0) return RCPP_HIP_ERROR;
+        if (rt(f, nkv * hd, hs,    &L.v_packed_dev,    reinterpret_cast<void**>(&L.v_scales_dev))    != 0) return RCPP_HIP_ERROR;
+        if (rt(f, hs,       nh*hd, &L.o_packed_dev,    reinterpret_cast<void**>(&L.o_scales_dev))    != 0) return RCPP_HIP_ERROR;
+        if (rt(f, is_,      hs,    &L.gate_packed_dev, reinterpret_cast<void**>(&L.gate_scales_dev)) != 0) return RCPP_HIP_ERROR;
+        if (rt(f, is_,      hs,    &L.up_packed_dev,   reinterpret_cast<void**>(&L.up_scales_dev))   != 0) return RCPP_HIP_ERROR;
+        if (rt(f, hs,       is_,   &L.down_packed_dev, reinterpret_cast<void**>(&L.down_scales_dev)) != 0) return RCPP_HIP_ERROR;
     }
 
     // LM head: tied to embedding by default in BitNet. If not tied, halo-1bit

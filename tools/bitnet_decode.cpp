@@ -29,11 +29,13 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cmath>
 #include <fstream>
 #include <ctime>
 #include <iostream>
 #include <mutex>
 #include <random>
+#include <sstream>
 #include <vector>
 
 #include <httplib.h>
@@ -89,6 +91,7 @@ int main(int argc, char** argv) {
     uint64_t sampler_seed = (uint64_t)std::chrono::steady_clock::now().time_since_epoch().count();
     int         server_port = 0;       // >0 enables HTTP server mode
     std::string server_bind = "127.0.0.1";
+    bool        kv_int8 = false;       // --kv-int8 : halve KV DRAM + bandwidth
     int argc_use = argc;
     for (int i = 3; i < argc; ++i) {
         std::string a = argv[i];
@@ -102,6 +105,7 @@ int main(int argc, char** argv) {
         else if (a == "--server"       && i + 1 < argc) { server_port  = std::atoi(argv[++i]); }
         else if (a == "--bind"         && i + 1 < argc) { server_bind  = argv[++i]; }
         else if (a == "--tokenizer"    && i + 1 < argc) { tok_path     = argv[++i]; }
+        else if (a == "--kv-int8")                      { kv_int8      = true; if (argc_use > i) argc_use = i; continue; }
         else continue;
         if (argc_use > i - 1) argc_use = i - 1;
     }
@@ -208,6 +212,30 @@ int main(int argc, char** argv) {
         prompt_ids.push_back(rcpp_tokenizer_bos_id(tok));
         rcpp_tokenizer_free(tok);
         fprintf(stderr, "[repl] %d max tokens/turn. Ctrl-D or 'quit' to exit.\n", num_tokens);
+    } else if (std::string(prompt_arg) == "--ppl") {
+        // PPL mode — score a text file, report mean NLL / perplexity.
+        //   bitnet_decode <model> --ppl <file.txt> [max_tokens] [tokenizer.htok]
+        // Single pass, truncated to max_tokens (default = model max_len-1).
+        if (argc_use < 4) { fprintf(stderr, "usage: --ppl <file.txt> [max_tokens] [tokenizer.htok]\n"); return 1; }
+        const char* ppl_path = argv[3];
+        num_tokens = argc_use > 4 ? std::atoi(argv[4]) : 4095;
+        if (argc_use > 5) tok_path = argv[5];
+        rcpp_tokenizer_t* tok = nullptr;
+        if (rcpp_tokenizer_load(tok_path, &tok) != RCPP_OK) {
+            fprintf(stderr, "cannot load tokenizer .htok: %s\n", tok_path); return 1;
+        }
+        std::ifstream f(ppl_path);
+        if (!f) { fprintf(stderr, "cannot open --ppl file: %s\n", ppl_path); return 1; }
+        std::stringstream ss; ss << f.rdbuf();
+        std::string text = ss.str();
+        prompt_ids.push_back(rcpp_tokenizer_bos_id(tok));
+        auto text_ids = tokenize(tok, text.c_str());
+        // Cap so KV cache fits; leave 1 slot for safety.
+        if ((int)text_ids.size() > num_tokens) text_ids.resize(num_tokens);
+        prompt_ids.insert(prompt_ids.end(), text_ids.begin(), text_ids.end());
+        rcpp_tokenizer_free(tok);
+        fprintf(stderr, "[ppl] %s: %zu chars -> %zu tokens\n",
+                ppl_path, text.size(), prompt_ids.size());
     } else if (prompt_arg[0] == '@') {
         num_tokens = argc > 3 ? std::atoi(argv[3]) : 16;
         std::ifstream f(prompt_arg + 1);
@@ -229,14 +257,31 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    // halo-ai Lane B/B': select ternary GEMV by file format version.
+    //   v1/v2 → halo kernel (2 bpw packing)
+    //   v3    → sherry kernel (1.25 bpw, 3:4 sparsity, lossy on post-hoc requant)
+    //   v4    → tq1-halo kernel (1.6 bpw base-3, lossless for ternary)
+    const auto ternary_gemv = (m.format_version == 4)
+        ? rcpp_ternary_gemv_tq1_halo_f16
+        : (m.format_version == 3)
+            ? rcpp_ternary_gemv_sherry_f16
+            : rcpp_ternary_gemv_halo_f16;
+    // TQ1 expects K padded to multiple of 20 (u32-aligned row bytes). Other
+    // formats use K directly — align_k becomes a no-op for them.
+    const int k_pad_unit = (m.format_version == 4) ? 20 : 1;
+    auto align_k = [&](int k) { return ((k + k_pad_unit - 1) / k_pad_unit) * k_pad_unit; };
+
     const int hs  = m.hidden_size;
     const int is  = m.intermediate_size;
     const int nh  = m.num_heads;
     const int nkv = m.num_kv_heads;
     const int hd  = hs / nh;
+    const int hs_k = align_k(hs);   // K for GEMVs that take hs as input dim (Q/K/V/O/gate/up)
+    const int is_k = align_k(is);   // K for down_proj (takes is as input dim)
     const int L   = m.num_layers;
     const int V   = m.vocab_size;
     const bool repl_mode = (std::string(prompt_arg) == "--repl");
+    const bool ppl_mode  = (std::string(prompt_arg) == "--ppl");
     const int prompt_len = (int)prompt_ids.size();
     // REPL and server both need a big KV slab — REPL for multi-turn growth,
     // server because per-request max_tokens isn't known until HTTP time.
@@ -270,7 +315,8 @@ int main(int argc, char** argv) {
     HIP_OK(hipMalloc(&x,             hs * 2));
     HIP_OK(hipMalloc(&normed,        hs * 2));
     HIP_OK(hipMalloc(&x_i8_scratch_fp16, hs * 2));  // unused slot, kept for parity
-    HIP_OK(hipMalloc(&x_i8,          hs));
+    HIP_OK(hipMalloc(&x_i8,          hs_k));
+    HIP_OK(hipMemsetAsync(x_i8, 0, hs_k, nullptr));
     HIP_OK(hipMalloc(&x_scale_dev,   4));
     HIP_OK(hipMalloc(&q_raw,         nh * hd * 4));
     HIP_OK(hipMalloc(&k_raw,         nkv * hd * 4));
@@ -287,17 +333,37 @@ int main(int argc, char** argv) {
     HIP_OK(hipMalloc(&up_fp16,       is * 2));
     HIP_OK(hipMalloc(&down_fp16,     hs * 2));
     HIP_OK(hipMalloc(&silu_out,      is * 2));
-    HIP_OK(hipMalloc(&silu_i8,       is));
+    HIP_OK(hipMalloc(&silu_i8,       is_k));
+    HIP_OK(hipMemsetAsync(silu_i8, 0, is_k, nullptr));
     HIP_OK(hipMalloc(&silu_scale_dev, 4));
     HIP_OK(hipMalloc(&logits,        V * 4));
     HIP_OK(hipMalloc(&next_tok_dev,  4));
 
     // ---- KV cache (per layer) ----
+    // Default: FP16 per-token per-kv-head per-head-dim.
+    // --kv-int8: INT8 tensor + per-(pos, kv_head) FP16 scale. Halves DRAM/BW.
     std::vector<_Float16*> K_caches(L, nullptr), V_caches(L, nullptr);
-    const size_t kv_size = (size_t)max_len * nkv * hd * sizeof(_Float16);
+    std::vector<int8_t*>   K_caches_i8(L, nullptr), V_caches_i8(L, nullptr);
+    std::vector<_Float16*> K_scales(L, nullptr),   V_scales(L, nullptr);
+    const size_t kv_size    = (size_t)max_len * nkv * hd * sizeof(_Float16);
+    const size_t kv_size_i8 = (size_t)max_len * nkv * hd * sizeof(int8_t);
+    const size_t sc_size    = (size_t)max_len * nkv * sizeof(_Float16);
     for (int l = 0; l < L; ++l) {
-        HIP_OK(hipMalloc(&K_caches[l], kv_size));
-        HIP_OK(hipMalloc(&V_caches[l], kv_size));
+        if (kv_int8) {
+            HIP_OK(hipMalloc(&K_caches_i8[l], kv_size_i8));
+            HIP_OK(hipMalloc(&V_caches_i8[l], kv_size_i8));
+            HIP_OK(hipMalloc(&K_scales[l],    sc_size));
+            HIP_OK(hipMalloc(&V_scales[l],    sc_size));
+        } else {
+            HIP_OK(hipMalloc(&K_caches[l], kv_size));
+            HIP_OK(hipMalloc(&V_caches[l], kv_size));
+        }
+    }
+    if (kv_int8) {
+        const double fp16_mb = (double)(kv_size) * L * 2 / (1024.0 * 1024.0);
+        const double i8_mb   = (double)(kv_size_i8 + sc_size) * L * 2 / (1024.0 * 1024.0);
+        fprintf(stderr, "[kv-int8] KV cache: %.1f MB (vs %.1f MB fp16, %.2fx)\n",
+                i8_mb, fp16_mb, fp16_mb / std::max(i8_mb, 1e-9));
     }
 
     // History the sampler sees — used for repetition penalty. Grows as
@@ -403,35 +469,47 @@ int main(int argc, char** argv) {
             float x_scale;
             HIP_OK(hipMemcpy(&x_scale, x_scale_dev, 4, hipMemcpyDeviceToHost));
 
-            // Q/K/V projections
-            RC_OK(rcpp_ternary_gemv_halo(ly.q_packed_dev, x_i8, x_scale, ly.q_scales_dev, q_raw, nh*hd,  hs, nullptr));
-            RC_OK(rcpp_ternary_gemv_halo(ly.k_packed_dev, x_i8, x_scale, ly.k_scales_dev, k_raw, nkv*hd, hs, nullptr));
-            RC_OK(rcpp_ternary_gemv_halo(ly.v_packed_dev, x_i8, x_scale, ly.v_scales_dev, v_raw, nkv*hd, hs, nullptr));
-
-            // FP32 -> FP16 for RoPE + attention
-            RC_OK(rcpp_fp32_to_fp16(q_raw, q_fp16, nh*hd,  nullptr));
-            RC_OK(rcpp_fp32_to_fp16(k_raw, k_fp16, nkv*hd, nullptr));
-            RC_OK(rcpp_fp32_to_fp16(v_raw, v_fp16, nkv*hd, nullptr));
+            // Q/K/V projections — fused FP16 output (halo-ai Lane A)
+            RC_OK(ternary_gemv(ly.q_packed_dev, x_i8, x_scale, ly.q_scales_dev, q_fp16, nh*hd,  hs_k, nullptr));
+            RC_OK(ternary_gemv(ly.k_packed_dev, x_i8, x_scale, ly.k_scales_dev, k_fp16, nkv*hd, hs_k, nullptr));
+            RC_OK(ternary_gemv(ly.v_packed_dev, x_i8, x_scale, ly.v_scales_dev, v_fp16, nkv*hd, hs_k, nullptr));
 
             // RoPE on Q and K
             RC_OK(rcpp_rope_fp16(q_fp16, pos, m.rope_theta, nh,  hd, nullptr));
             RC_OK(rcpp_rope_fp16(k_fp16, pos, m.rope_theta, nkv, hd, nullptr));
 
             // Append this token's K/V to the per-layer cache at slot 'pos'
-            HIP_OK(hipMemcpy(K_caches[l] + (size_t)pos * nkv * hd, k_fp16, nkv*hd*2, hipMemcpyDeviceToDevice));
-            HIP_OK(hipMemcpy(V_caches[l] + (size_t)pos * nkv * hd, v_fp16, nkv*hd*2, hipMemcpyDeviceToDevice));
-
-            // Attention — decode kernel, attending to positions 0..pos
-            RC_OK(rcpp_kv_cache_attn_decode(q_fp16, K_caches[l], V_caches[l],
-                                            o_fp16, nh, nkv, hd, pos+1, scale, nullptr));
+            if (kv_int8) {
+                // Quantize K/V [nkv, hd] to INT8 with per-kv-head FP16 scale,
+                // writing directly into the cache at offset 'pos'.
+                RC_OK(rcpp_quantize_fp16_to_i8_rowscale(
+                    k_fp16,
+                    K_caches_i8[l] + (size_t)pos * nkv * hd,
+                    K_scales[l]    + (size_t)pos * nkv,
+                    nkv, hd, nullptr));
+                RC_OK(rcpp_quantize_fp16_to_i8_rowscale(
+                    v_fp16,
+                    V_caches_i8[l] + (size_t)pos * nkv * hd,
+                    V_scales[l]    + (size_t)pos * nkv,
+                    nkv, hd, nullptr));
+                RC_OK(rcpp_kv_cache_attn_decode_i8(
+                    q_fp16,
+                    K_caches_i8[l], V_caches_i8[l],
+                    K_scales[l],    V_scales[l],
+                    o_fp16, nh, nkv, hd, pos+1, scale, nullptr));
+            } else {
+                HIP_OK(hipMemcpy(K_caches[l] + (size_t)pos * nkv * hd, k_fp16, nkv*hd*2, hipMemcpyDeviceToDevice));
+                HIP_OK(hipMemcpy(V_caches[l] + (size_t)pos * nkv * hd, v_fp16, nkv*hd*2, hipMemcpyDeviceToDevice));
+                RC_OK(rcpp_kv_cache_attn_decode_fd(q_fp16, K_caches[l], V_caches[l],
+                                                   o_fp16, nh, nkv, hd, pos+1, scale, nullptr));
+            }
 
             // BitNet b1.58: attn_sub_norm on attention output before O proj
             RC_OK(rcpp_rmsnorm_fp16(o_fp16, ly.attn_sub_norm_dev, normed,
                                     m.rms_norm_eps, hs, nullptr));
             RC_OK(rcpp_quantize_fp16_to_i8(normed, x_i8, x_scale_dev, hs, nullptr));
             HIP_OK(hipMemcpy(&x_scale, x_scale_dev, 4, hipMemcpyDeviceToHost));
-            RC_OK(rcpp_ternary_gemv_halo(ly.o_packed_dev, x_i8, x_scale, ly.o_scales_dev, o_raw, hs, nh*hd, nullptr));
-            RC_OK(rcpp_fp32_to_fp16(o_raw, o_fp16, hs, nullptr));
+            RC_OK(ternary_gemv(ly.o_packed_dev, x_i8, x_scale, ly.o_scales_dev, o_fp16, hs, align_k(nh*hd), nullptr));
             RC_OK(rcpp_residual_add_fp32_from_fp16(x_fp32, o_fp16, hs, nullptr));
 
             // --- FFN block ---
@@ -440,10 +518,8 @@ int main(int argc, char** argv) {
             RC_OK(rcpp_quantize_fp16_to_i8(normed, x_i8, x_scale_dev, hs, nullptr));
             HIP_OK(hipMemcpy(&x_scale, x_scale_dev, 4, hipMemcpyDeviceToHost));
 
-            RC_OK(rcpp_ternary_gemv_halo(ly.gate_packed_dev, x_i8, x_scale, ly.gate_scales_dev, gate_raw, is, hs, nullptr));
-            RC_OK(rcpp_ternary_gemv_halo(ly.up_packed_dev,   x_i8, x_scale, ly.up_scales_dev,   up_raw,   is, hs, nullptr));
-            RC_OK(rcpp_fp32_to_fp16(gate_raw, gate_fp16, is, nullptr));
-            RC_OK(rcpp_fp32_to_fp16(up_raw,   up_fp16,   is, nullptr));
+            RC_OK(ternary_gemv(ly.gate_packed_dev, x_i8, x_scale, ly.gate_scales_dev, gate_fp16, is, hs_k, nullptr));
+            RC_OK(ternary_gemv(ly.up_packed_dev,   x_i8, x_scale, ly.up_scales_dev,   up_fp16,   is, hs_k, nullptr));
 
             // BitNet-b1.58 FFN activation: relu²(gate) * up — fused with
             // ffn_sub_norm in FP32 to avoid FP16 overflow of the raw product
@@ -454,8 +530,7 @@ int main(int argc, char** argv) {
             float silu_scale;
             HIP_OK(hipMemcpy(&silu_scale, silu_scale_dev, 4, hipMemcpyDeviceToHost));
 
-            RC_OK(rcpp_ternary_gemv_halo(ly.down_packed_dev, silu_i8, silu_scale, ly.down_scales_dev, down_raw, hs, is, nullptr));
-            RC_OK(rcpp_fp32_to_fp16(down_raw, down_fp16, hs, nullptr));
+            RC_OK(ternary_gemv(ly.down_packed_dev, silu_i8, silu_scale, ly.down_scales_dev, down_fp16, hs, is_k, nullptr));
             RC_OK(rcpp_residual_add_fp32_from_fp16(x_fp32, down_fp16, hs, nullptr));
         }
 
@@ -595,6 +670,53 @@ int main(int argc, char** argv) {
         return 0;
     };
 
+    // PPL mode: feed each token, read fp32 logits, accumulate -log_softmax
+    // at the next token's id. exp(mean NLL) = perplexity.
+    if (ppl_mode) {
+        const size_t N = prompt_ids.size();
+        if (N < 2) { fprintf(stderr, "[ppl] need >= 2 tokens, got %zu\n", N); return 1; }
+        double total_nll = 0.0;
+        size_t scored = 0;
+        auto t_start = std::chrono::high_resolution_clock::now();
+        for (size_t i = 0; i + 1 < N; ++i) {
+            (void)forward_token((int)prompt_ids[i], (int)i);
+            HIP_OK(hipDeviceSynchronize());
+            HIP_OK(hipMemcpy(logits_host.data(), logits, V * 4, hipMemcpyDeviceToHost));
+            float max_l = logits_host[0];
+            for (int v = 1; v < V; ++v) if (logits_host[v] > max_l) max_l = logits_host[v];
+            double sum_exp = 0.0;
+            for (int v = 0; v < V; ++v) sum_exp += std::exp((double)(logits_host[v] - max_l));
+            const int target = prompt_ids[i + 1];
+            double logp = (double)(logits_host[target] - max_l) - std::log(sum_exp);
+            total_nll += -logp;
+            ++scored;
+            if ((scored & 63) == 0) {
+                auto now = std::chrono::high_resolution_clock::now();
+                double el = std::chrono::duration<double>(now - t_start).count();
+                fprintf(stderr, "\r[ppl] %zu/%zu  mean_nll=%.4f  ppl=%.2f  %.1f tok/s",
+                        scored, N - 1, total_nll / scored, std::exp(total_nll / scored),
+                        scored / std::max(el, 1e-9));
+                fflush(stderr);
+            }
+        }
+        auto t_end = std::chrono::high_resolution_clock::now();
+        double el = std::chrono::duration<double>(t_end - t_start).count();
+        double mean_nll = total_nll / (double)scored;
+        fprintf(stderr, "\n[ppl] scored=%zu mean_nll=%.6f perplexity=%.4f elapsed=%.2fs tok/s=%.1f\n",
+                scored, mean_nll, std::exp(mean_nll), el, scored / el);
+        printf("{\"scored\":%zu,\"mean_nll\":%.6f,\"perplexity\":%.6f,\"elapsed_s\":%.3f,\"tok_per_s\":%.2f}\n",
+               scored, mean_nll, std::exp(mean_nll), el, scored / el);
+        for (int l = 0; l < L; ++l) {
+            if (kv_int8) {
+                hipFree(K_caches_i8[l]); hipFree(V_caches_i8[l]);
+                hipFree(K_scales[l]);    hipFree(V_scales[l]);
+            } else {
+                hipFree(K_caches[l]); hipFree(V_caches[l]);
+            }
+        }
+        return 0;
+    }
+
     // Run the first (or only) turn. In REPL / server modes the "initial
     // prompt" is just BOS — do a prefill-only pass (max_new=0) and let
     // the loop below drive real generation once the user / HTTP
@@ -669,7 +791,12 @@ int main(int argc, char** argv) {
         });
 
         svr.Post("/v1/chat/completions", [&](const httplib::Request& req, httplib::Response& res) {
-            std::lock_guard<std::mutex> lk(gen_mu);
+            // shared_ptr<unique_lock> so the streaming branch can copy-capture
+            // it into the chunked content provider and keep the mutex held for
+            // the duration of GPU work (provider runs AFTER the handler returns).
+            // httplib stores the provider as std::function, which requires a
+            // copyable callable — unique_lock alone isn't.
+            auto lk = std::make_shared<std::unique_lock<std::mutex>>(gen_mu);
             nlohmann::json j;
             try { j = nlohmann::json::parse(req.body); }
             catch (const std::exception& e) {
@@ -739,7 +866,8 @@ int main(int argc, char** argv) {
                      prompt_sz = (int)req_prompt.size(),
                      &run_turn, &temperature, &top_p_val, &rep_penalty, &top_k_val,
                      save_temp, save_top_p, save_rep, save_top_k,
-                     req_prompt, req_max](size_t, httplib::DataSink& sink) {
+                     req_prompt, req_max,
+                     lk](size_t, httplib::DataSink& sink) {
                         auto fire = [&](const std::string& delta) {
                             nlohmann::json chunk = {
                                 {"id",      this_dump},
@@ -838,7 +966,14 @@ int main(int argc, char** argv) {
     if (dec_tok) rcpp_tokenizer_free(dec_tok);
 
     // Cleanup
-    for (int l = 0; l < L; ++l) { hipFree(K_caches[l]); hipFree(V_caches[l]); }
+    for (int l = 0; l < L; ++l) {
+        if (kv_int8) {
+            hipFree(K_caches_i8[l]); hipFree(V_caches_i8[l]);
+            hipFree(K_scales[l]);    hipFree(V_scales[l]);
+        } else {
+            hipFree(K_caches[l]); hipFree(V_caches[l]);
+        }
+    }
     rcpp_bitnet_free(&m);
     return 0;
 }

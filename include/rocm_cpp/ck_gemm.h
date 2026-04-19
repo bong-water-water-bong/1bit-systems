@@ -94,6 +94,50 @@ rcpp_ternary_gemv_halo(const void* packed_weights_dev,
                        int M, int K,
                        void*       stream);
 
+// halo-ai Lane A: fused FP16-output variant. Identical math to the FP32-out
+// version, but writes __half directly — eliminates the 1:1 rcpp_fp32_to_fp16
+// follow-up that fires for every GEMV in the decode loop.
+//   output_f16_dev: [M] __half, on device
+rcpp_status_t
+rcpp_ternary_gemv_halo_f16(const void* packed_weights_dev,
+                           const void* activations_i8_dev,
+                           float       activation_scale,
+                           const void* row_scales_dev,
+                           void*       output_f16_dev,
+                           int M, int K,
+                           void*       stream);
+
+// halo-ai Lane B: Sherry 1.25-bit packing (halo-1bit v3, "sherry" variant).
+// Weights are 3:4-sparse: every group of 4 has exactly one forced-zero.
+// Packing: 5 bits per 4 weights = (zero_pos[2] || signs[3]). Row bytes =
+// K * 5 / 32. K must be a multiple of 32. Output is FP16 (fused convert).
+//   packed_weights_dev: uint8 [M, K*5/32], u32-aligned, K-contiguous
+rcpp_status_t
+rcpp_ternary_gemv_sherry_f16(const void* packed_weights_dev,
+                             const void* activations_i8_dev,
+                             float       activation_scale,
+                             const void* row_scales_dev,
+                             void*       output_f16_dev,
+                             int M, int K,
+                             void*       stream);
+
+// halo-ai Lane B': TQ1 base-3 packing (halo-1bit v4, "tq1-halo" variant).
+// 5 ternaries per byte via d0 + d1·3 + d2·9 + d3·27 + d4·81 (d_i = 0/1/2 → -1/0/+1).
+// **Lossless for ternary** — any ±1/0 pattern survives intact, unlike Sherry.
+// 1.6 bpw. K is padded by the caller to the next multiple of 20 (=80 bits =
+// 4 bytes = 1 u32 macro-group); pass the PADDED K here. Activation buffer must
+// also be sized to K_padded (contents of the tail bytes don't matter — the
+// packed weights at those positions are zero so contribution is zero).
+//   packed_weights_dev: uint8 [M, K_padded/5], u32-aligned
+rcpp_status_t
+rcpp_ternary_gemv_tq1_halo_f16(const void* packed_weights_dev,
+                               const void* activations_i8_dev,
+                               float       activation_scale,
+                               const void* row_scales_dev,
+                               void*       output_f16_dev,
+                               int M, int K_padded,
+                               void*       stream);
+
 // -----------------------------------------------------------------------------
 // Primitive kernels — support math so consumers don't have to write their own.
 // All are batch=1 (decode). Batched variants come with Phase 6 KV cache work.
@@ -216,6 +260,18 @@ rcpp_kv_cache_attn_decode(const void* Q_dev, const void* K_dev, const void* V_de
                           int num_q_heads, int num_kv_heads, int head_dim,
                           int seq_len, float scale, void* stream);
 
+// Split-KV Flash-Decoding variant of the above. Identical signature + math,
+// but splits the seq axis into TILE=128 chunks so pass 1 grid = (num_q_heads,
+// num_kv_tiles) recovers occupancy on gfx1151 (20 Q-heads alone leaves the
+// scheduler starved). A second reduce pass combines the per-tile online
+// softmax partials. A cached device-side scratch buffer holds the partials
+// across calls — no per-call hipMalloc in the hot path.
+rcpp_status_t
+rcpp_kv_cache_attn_decode_fd(const void* Q_dev, const void* K_dev, const void* V_dev,
+                             void* out_dev,
+                             int num_q_heads, int num_kv_heads, int head_dim,
+                             int seq_len, float scale, void* stream);
+
 // Prefill attention — multi-token, causal mask. Each output position t attends
 // only to K/V[0..t]. All tensors in [seq_len, heads, head_dim] layout (Q uses
 // num_q_heads, K/V use num_kv_heads). Grid scales as seq_len * num_q_heads.
@@ -224,6 +280,53 @@ rcpp_kv_cache_attn_prefill(const void* Q_dev, const void* K_dev, const void* V_d
                            void* out_dev,
                            int num_q_heads, int num_kv_heads, int head_dim,
                            int seq_len, float scale, void* stream);
+
+// -----------------------------------------------------------------------------
+// Phase 6b — INT8 KV cache attention (half the KV DRAM + bandwidth).
+//
+// Same Flash-Decoding online-softmax shape as the fp16 variants above, but K/V
+// are stored as int8 with a per-(pos, kv_head) fp16 scale. Dequant is fused
+// inside the dot-product / V accumulation.
+//
+// Layouts:
+//   Q         : FP16 [num_q_heads, head_dim]           (decode)
+//               FP16 [seq_len, num_q_heads, head_dim]  (prefill)
+//   K_i8 / V_i8        : INT8 [seq_len, num_kv_heads, head_dim]
+//   K_scales / V_scales: FP16 [seq_len, num_kv_heads]     (row-major, pos-major)
+//   out                : FP16 output (same shape as Q).
+//
+// NOTE on the scale layout: `scales[pos * num_kv_heads + kv_head]` — contiguous
+// fp16 buffer with position as the outer dim. One scale per (slot, kv_head).
+rcpp_status_t
+rcpp_kv_cache_attn_decode_i8(const void* Q_dev,
+                             const void* K_i8_dev, const void* V_i8_dev,
+                             const void* K_scales_fp16_dev, const void* V_scales_fp16_dev,
+                             void* out_dev,
+                             int num_q_heads, int num_kv_heads, int head_dim,
+                             int seq_len, float scale, void* stream);
+
+rcpp_status_t
+rcpp_kv_cache_attn_prefill_i8(const void* Q_dev,
+                              const void* K_i8_dev, const void* V_i8_dev,
+                              const void* K_scales_fp16_dev, const void* V_scales_fp16_dev,
+                              void* out_dev,
+                              int num_q_heads, int num_kv_heads, int head_dim,
+                              int seq_len, float scale, void* stream);
+
+// Per-row symmetric int8 quantizer with fp16 scale output. Each block quantizes
+// one row of row_len fp16 values, writing row_len int8 values and a single fp16
+// scale = max(|x|)/127 (clamped >= 1e-8). Used to feed the int8 KV cache during
+// decode (num_rows = num_kv_heads, row_len = head_dim; scales accumulate into
+// the [seq_len, num_kv_heads] buffer at the right pos offset).
+//
+// Spec note: this variant takes (num_rows, row_len) rather than a single
+// length n — a single-row launch would require num_kv_heads tiny launches per
+// layer per token, which pounds the launch queue for no reason. For a
+// single-row call, pass num_rows = 1.
+rcpp_status_t
+rcpp_quantize_fp16_to_i8_rowscale(const void* x_fp16_dev, void* out_i8_dev,
+                                  void* scale_fp16_out_dev,
+                                  int num_rows, int row_len, void* stream);
 
 // -----------------------------------------------------------------------------
 // Standalone (CK-free) prefill launcher.

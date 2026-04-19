@@ -139,6 +139,12 @@ extern void ternary_gemv_phase5_dot4_launch(const void*, const void*, float,
                                             const void*, void*, int, int, void*);
 extern void ternary_gemv_phase5_halo_launch(const void*, const void*, float,
                                             const void*, void*, int, int, void*);
+extern void ternary_gemv_phase5_halo_f16_launch(const void*, const void*, float,
+                                                const void*, void*, int, int, void*);
+extern void ternary_gemv_sherry_f16_launch(const void*, const void*, float,
+                                           const void*, void*, int, int, void*);
+extern void ternary_gemv_tq1_halo_f16_launch(const void*, const void*, float,
+                                             const void*, void*, int, int, void*);
 
 rcpp_status_t
 rcpp_ternary_gemv(const void* packed, const void* x_i8, float x_scale,
@@ -159,6 +165,39 @@ rcpp_ternary_gemv_halo(const void* packed, const void* x_i8, float x_scale,
     if(M <= 0 || K <= 0)                      return RCPP_INVALID_ARG;
     if(K % 16 != 0)                           return RCPP_INVALID_ARG;
     ternary_gemv_phase5_halo_launch(packed, x_i8, x_scale, row_scales, y, M, K, stream);
+    return RCPP_OK;
+}
+
+rcpp_status_t
+rcpp_ternary_gemv_halo_f16(const void* packed, const void* x_i8, float x_scale,
+                           const void* row_scales, void* y_f16,
+                           int M, int K, void* stream) {
+    if(!packed || !x_i8 || !row_scales || !y_f16) return RCPP_INVALID_ARG;
+    if(M <= 0 || K <= 0)                          return RCPP_INVALID_ARG;
+    if(K % 16 != 0)                               return RCPP_INVALID_ARG;
+    ternary_gemv_phase5_halo_f16_launch(packed, x_i8, x_scale, row_scales, y_f16, M, K, stream);
+    return RCPP_OK;
+}
+
+rcpp_status_t
+rcpp_ternary_gemv_sherry_f16(const void* packed, const void* x_i8, float x_scale,
+                             const void* row_scales, void* y_f16,
+                             int M, int K, void* stream) {
+    if(!packed || !x_i8 || !row_scales || !y_f16) return RCPP_INVALID_ARG;
+    if(M <= 0 || K <= 0)                          return RCPP_INVALID_ARG;
+    if(K % 32 != 0)                               return RCPP_INVALID_ARG;  // macro-group boundary
+    ternary_gemv_sherry_f16_launch(packed, x_i8, x_scale, row_scales, y_f16, M, K, stream);
+    return RCPP_OK;
+}
+
+rcpp_status_t
+rcpp_ternary_gemv_tq1_halo_f16(const void* packed, const void* x_i8, float x_scale,
+                               const void* row_scales, void* y_f16,
+                               int M, int K_padded, void* stream) {
+    if(!packed || !x_i8 || !row_scales || !y_f16) return RCPP_INVALID_ARG;
+    if(M <= 0 || K_padded <= 0)                   return RCPP_INVALID_ARG;
+    if(K_padded % 20 != 0)                        return RCPP_INVALID_ARG;  // 20 weights/u32
+    ternary_gemv_tq1_halo_f16_launch(packed, x_i8, x_scale, row_scales, y_f16, M, K_padded, stream);
     return RCPP_OK;
 }
 

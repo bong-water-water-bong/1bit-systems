@@ -65,18 +65,26 @@ add_library(rocm_cpp SHARED
     src/wmma_peak_probe.hip
     src/prim_kernels.hip
     src/kv_cache_attn.hip
+    src/kv_cache_attn_i8.hip
+    src/kv_cache_attn_fd.hip
     src/h1b_loader.cpp
     src/tokenizer.cpp
     kernels/ternary_gemv_phase5_dot4.hip
-    kernels/ternary_gemv_phase5_halo.hip)
+    kernels/ternary_gemv_phase5_halo.hip
+    kernels/ternary_gemv_sherry.hip
+    kernels/ternary_gemv_tq1_halo.hip)
 set_source_files_properties(
     src/ck_gemm.cpp
     src/prefill_standalone.hip
     src/wmma_peak_probe.hip
     src/prim_kernels.hip
     src/kv_cache_attn.hip
+    src/kv_cache_attn_i8.hip
+    src/kv_cache_attn_fd.hip
     kernels/ternary_gemv_phase5_dot4.hip
     kernels/ternary_gemv_phase5_halo.hip
+    kernels/ternary_gemv_sherry.hip
+    kernels/ternary_gemv_tq1_halo.hip
     PROPERTIES LANGUAGE HIP)
 target_include_directories(rocm_cpp PUBLIC
     $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
@@ -127,6 +135,30 @@ target_compile_options(bitnet_debate PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
 target_link_libraries(bitnet_debate PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(bitnet_debate PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+
+# -- tools/bench_sherry : Lane B microbench — halo v2 vs Sherry v3 packing ---
+add_executable(bench_sherry tools/bench_sherry.cpp)
+set_source_files_properties(tools/bench_sherry.cpp PROPERTIES LANGUAGE HIP)
+target_compile_options(bench_sherry PRIVATE
+    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_link_libraries(bench_sherry PRIVATE rocm_cpp hip::host hip::device)
+set_target_properties(bench_sherry PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+
+# -- tools/bench_kv_i8 : INT8 KV cache decode attention microbench ------------
+add_executable(bench_kv_i8 tools/bench_kv_i8.cpp)
+set_source_files_properties(tools/bench_kv_i8.cpp PROPERTIES LANGUAGE HIP)
+target_compile_options(bench_kv_i8 PRIVATE
+    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_link_libraries(bench_kv_i8 PRIVATE rocm_cpp hip::host hip::device)
+set_target_properties(bench_kv_i8 PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+
+# -- tools/bench_kv_fd : split-KV Flash-Decoding attention microbench ---------
+add_executable(bench_kv_fd tools/bench_kv_fd.cpp)
+set_source_files_properties(tools/bench_kv_fd.cpp PROPERTIES LANGUAGE HIP)
+target_compile_options(bench_kv_fd PRIVATE
+    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_link_libraries(bench_kv_fd PRIVATE rocm_cpp hip::host hip::device)
+set_target_properties(bench_kv_fd PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
 # -- tools/bitnet_tui : FTXUI terminal UI (talks to bitnet_decode --server) ---
 add_executable(bitnet_tui tools/bitnet_tui.cpp)

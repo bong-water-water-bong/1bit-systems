@@ -132,9 +132,14 @@ __global__ void rmsnorm_fp16_kernel(
 
 // ============================================================================
 // 3. RoPE — apply rotary embedding to [num_heads, head_dim] at position pos.
-//    Pair (x[2i], x[2i+1]) -> (cos*x0 - sin*x1, sin*x0 + cos*x1)
-//    freq[i] = 1 / theta^(2i / head_dim)
-//    Single block handles one (head, position) in the vector.
+//    HuggingFace LLaMA / BitNet convention (split-half, NOT interleaved):
+//      for i in [0, hd/2):
+//        row[i]       <- cos*row[i]       - sin*row[i+hd/2]
+//        row[i+hd/2]  <- sin*row[i]_orig  + cos*row[i+hd/2]
+//    freq[i] = 1 / theta^(2i / head_dim), angle = pos * freq
+//    Both halves share cos/sin per index (HF does `cat(freqs, freqs)`).
+//    Single block handles one head; each thread owns one i in [0, hd/2)
+//    and writes BOTH row[i] and row[i+hd/2] after reading both originals.
 // ============================================================================
 
 __global__ void rope_fp16_kernel(
@@ -155,10 +160,10 @@ __global__ void rope_fp16_kernel(
         const float angle = (float)pos * freq;
         const float c = std::cosf(angle);
         const float s = std::sinf(angle);
-        const float x0 = (float)row[2 * i + 0];
-        const float x1 = (float)row[2 * i + 1];
-        row[2 * i + 0] = __float2half(c * x0 - s * x1);
-        row[2 * i + 1] = __float2half(s * x0 + c * x1);
+        const float x0 = (float)row[i];             // lower half
+        const float x1 = (float)row[i + half_dim];  // upper half
+        row[i]            = __float2half(c * x0 - s * x1);
+        row[i + half_dim] = __float2half(s * x0 + c * x1);
     }
 }
 
@@ -627,7 +632,15 @@ rcpp_rope_fp16(void* x_dev, int pos, float theta,
                int num_heads, int head_dim, void* stream)
 {
     if (!x_dev || num_heads <= 0 || head_dim <= 0 || (head_dim & 1)) return RCPP_INVALID_ARG;
-    dim3 grid(num_heads, 1, 1), block(BLOCK, 1, 1);
+    // head_dim/2 is the real thread count (each thread owns one (i, i+hd/2) pair).
+    // For BitNet-2B hd=128 → half_dim=64 → one block = 2 wave32 warps, which
+    // matches the two coalesced 64-byte halves of the row. Rounding up to a
+    // wave32 multiple keeps the tail warp fully masked rather than partial.
+    const int half_dim = head_dim / 2;
+    int block_threads = ((half_dim + WARP - 1) / WARP) * WARP;
+    if (block_threads < WARP)  block_threads = WARP;
+    if (block_threads > BLOCK) block_threads = BLOCK;
+    dim3 grid(num_heads, 1, 1), block(block_threads, 1, 1);
     hipLaunchKernelGGL(rope_fp16_kernel,
                        grid, block, 0, (hipStream_t)stream,
                        static_cast<__half*>(x_dev),

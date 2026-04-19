@@ -47,6 +47,8 @@ typedef struct {
     float rope_theta;
     float rms_norm_eps;
 
+    int format_version;      // 1/2 = halo v2 (2 bpw); 3 = Sherry v3 (1.25 bpw)
+
     void* embedding_dev;            // FP16 [vocab, hidden]
     void* final_norm_weight_dev;    // FP16 [hidden]
     rcpp_bitnet_layer_t* layers;    // [num_layers]
