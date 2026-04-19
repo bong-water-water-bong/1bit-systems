@@ -6,9 +6,31 @@ rust-version.workspace = true
 license.workspace      = true
 repository.workspace   = true
 authors.workspace      = true
-description  = "halo-server — strix-ai-rs (scaffolded, see crates/halo-cli for first finished crate)"
+description  = "halo-server — OpenAI-compatible HTTP server for the halo-ai stack (replaces bitnet_decode --server and lemonade-server)"
 
 [lib]
 path = "src/lib.rs"
 
+[[bin]]
+name = "halo-server"
+path = "src/main.rs"
+
 [dependencies]
+tokio              = { workspace = true }
+tracing            = { workspace = true }
+tracing-subscriber = { workspace = true }
+axum               = { workspace = true }
+tower              = { workspace = true }
+tower-http         = { workspace = true }
+serde              = { workspace = true }
+serde_json         = { workspace = true }
+futures            = { workspace = true }
+async-stream       = { workspace = true }
+tokio-stream       = { workspace = true }
+clap               = { workspace = true }
+anyhow             = { workspace = true }
+thiserror          = { workspace = true }
+uuid               = { workspace = true }
+
+[dev-dependencies]
+reqwest            = { workspace = true }

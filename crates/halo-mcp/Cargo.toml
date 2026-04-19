@@ -6,9 +6,19 @@ rust-version.workspace = true
 license.workspace      = true
 repository.workspace   = true
 authors.workspace      = true
-description  = "halo-mcp — strix-ai-rs (scaffolded, see crates/halo-cli for first finished crate)"
+description  = "halo-mcp — JSON-RPC 2.0 stdio MCP server exposing halo-agents specialists as tools (Rust rewrite of /home/bcloud/repos/halo-mcp)"
 
 [lib]
 path = "src/lib.rs"
 
+[[bin]]
+name = "halo-mcp"
+path = "src/main.rs"
+
 [dependencies]
+tokio              = { workspace = true }
+serde              = { workspace = true }
+serde_json         = { workspace = true }
+tracing            = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow             = { workspace = true }

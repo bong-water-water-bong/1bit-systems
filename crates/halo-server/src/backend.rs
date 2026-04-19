@@ -1,0 +1,196 @@
+//! Inference backend abstraction.
+//!
+//! `halo-server` is HTTP plumbing only — actual token generation happens
+//! behind the [`InferenceBackend`] trait. Today the sole implementation is
+//! [`EchoBackend`], which returns the string `"stub"` token-by-token. Once
+//! `halo-router` grows a real dispatcher it will implement this same trait
+//! and be swapped in at `main.rs` wiring time; no handler code needs to
+//! change.
+//!
+//! The streaming contract is a `Stream<Item = Result<String, ServerError>>`
+//! where each item is a single delta chunk (typically one token, but we do
+//! not enforce granularity — the backend may coalesce). The non-streaming
+//! path is expressed as `generate()` returning the fully assembled text
+//! plus a [`GenerationUsage`] token count.
+//!
+//! We rely on native `async fn` in traits (stable since Rust 1.75, pinned
+//! here by the workspace `rust-version = 1.85`) plus `Send` bounds via the
+//! `return_type_notation`-free form: we return a `Pin<Box<dyn Future>>` on
+//! object-safe call sites where needed, but the primary trait uses plain
+//! AFIT — callers of the `dyn` form go through the
+//! `InferenceBackendDyn` convenience wrapper below.
+
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+
+use futures::stream::{self, Stream};
+
+use crate::api::{ChatMessage, ModelCard, Usage};
+use crate::error::ServerError;
+
+/// Opaque boxed stream of deltas produced during generation.
+///
+/// `Send` is required because axum handlers run on a multi-threaded tokio
+/// runtime and the stream outlives the handler (it is consumed by the SSE
+/// writer task).
+pub type TokenStream =
+    Pin<Box<dyn Stream<Item = Result<String, ServerError>> + Send + 'static>>;
+
+/// Parameters forwarded from the OpenAI request to the backend.
+///
+/// We deliberately keep this minimal and bag-of-options — the concrete
+/// backends know which knobs they honor. Anything the backend ignores is
+/// silently dropped.
+#[derive(Debug, Clone, Default)]
+pub struct GenerationParams {
+    pub model: String,
+    pub max_tokens: u32,
+    pub temperature: Option<f32>,
+    pub top_p: Option<f32>,
+    pub frequency_penalty: Option<f32>,
+    pub presence_penalty: Option<f32>,
+}
+
+/// Token-count accounting reported back to the OpenAI client.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct GenerationUsage {
+    pub prompt_tokens: u32,
+    pub completion_tokens: u32,
+}
+
+impl GenerationUsage {
+    pub fn into_api(self) -> Usage {
+        Usage {
+            prompt_tokens: self.prompt_tokens,
+            completion_tokens: self.completion_tokens,
+            total_tokens: self.prompt_tokens + self.completion_tokens,
+        }
+    }
+}
+
+/// Boxed send-future alias — the hand-written object-safe form of AFIT.
+type BoxFut<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+/// The only thing the HTTP layer asks of a generation engine.
+///
+/// Written in the object-safe "return `Pin<Box<Future>>`" style rather than
+/// native AFIT so we can hold it as `Arc<dyn InferenceBackend>` in axum's
+/// shared state. (AFIT + `dyn` is still nightly-only at the time of writing;
+/// this is the same trick `tower::Service` uses.)
+///
+/// Implementations are almost always easier to write via the blanket
+/// wrapper in the [`impl_backend!`](crate::impl_backend) macro, or by hand
+/// using `Box::pin(async move { ... })`.
+pub trait InferenceBackend: Send + Sync + 'static {
+    /// Non-streaming completion.
+    fn generate<'a>(
+        &'a self,
+        messages: &'a [ChatMessage],
+        params: &'a GenerationParams,
+    ) -> BoxFut<'a, Result<(String, GenerationUsage), ServerError>>;
+
+    /// Streaming completion. Returns a stream of delta strings; the handler
+    /// wraps each one in an OpenAI-shaped SSE `data:` event.
+    fn generate_stream<'a>(
+        &'a self,
+        messages: &'a [ChatMessage],
+        params: &'a GenerationParams,
+    ) -> BoxFut<'a, Result<TokenStream, ServerError>>;
+
+    /// Model cards advertised through `GET /v1/models`.
+    fn list_models(&self) -> Vec<ModelCard> {
+        vec![ModelCard::halo("bitnet-b1.58-2b-4t")]
+    }
+}
+
+// ─── EchoBackend ─────────────────────────────────────────────────────────
+
+/// Stub backend — returns the literal string `"stub"` regardless of input.
+///
+/// This is the seam until `halo-router` grows a real dispatcher. Kept in
+/// this crate (not behind a feature flag) so integration tests can exercise
+/// the full HTTP surface without a model on disk.
+#[derive(Debug, Default, Clone)]
+pub struct EchoBackend {
+    /// If set, the reply becomes `{reply_prefix}{first_user_message}` —
+    /// handy for tests that want to assert round-tripping without relying
+    /// on the literal `"stub"`.
+    pub reply_prefix: Option<String>,
+}
+
+impl EchoBackend {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_prefix(prefix: impl Into<String>) -> Self {
+        Self {
+            reply_prefix: Some(prefix.into()),
+        }
+    }
+
+    fn render(&self, messages: &[ChatMessage]) -> String {
+        match &self.reply_prefix {
+            Some(p) => {
+                let last_user = messages
+                    .iter()
+                    .rev()
+                    .find(|m| m.role == "user")
+                    .map(|m| m.content.as_str())
+                    .unwrap_or("");
+                format!("{p}{last_user}")
+            }
+            None => "stub".to_string(),
+        }
+    }
+}
+
+impl InferenceBackend for EchoBackend {
+    fn generate<'a>(
+        &'a self,
+        messages: &'a [ChatMessage],
+        _params: &'a GenerationParams,
+    ) -> BoxFut<'a, Result<(String, GenerationUsage), ServerError>> {
+        Box::pin(async move {
+            let text = self.render(messages);
+            // Rough prompt token count: whitespace-split across all messages.
+            let prompt_tokens = messages
+                .iter()
+                .map(|m| m.content.split_whitespace().count() as u32)
+                .sum();
+            let completion_tokens = text.split_whitespace().count() as u32;
+            Ok((
+                text,
+                GenerationUsage {
+                    prompt_tokens,
+                    completion_tokens,
+                },
+            ))
+        })
+    }
+
+    fn generate_stream<'a>(
+        &'a self,
+        messages: &'a [ChatMessage],
+        _params: &'a GenerationParams,
+    ) -> BoxFut<'a, Result<TokenStream, ServerError>> {
+        Box::pin(async move {
+            // Stream character-by-character so tests can verify that the
+            // SSE path is really chunked and not silently buffering the
+            // whole body. Real backends emit one token per chunk.
+            let text = self.render(messages);
+            let chunks: Vec<Result<String, ServerError>> =
+                text.chars().map(|c| Ok(c.to_string())).collect();
+            let s: TokenStream = Box::pin(stream::iter(chunks));
+            Ok(s)
+        })
+    }
+}
+
+/// Shared-state handle stored in axum's router extension.
+///
+/// We use `Arc<dyn InferenceBackend>` (not a generic) so the router type is
+/// concrete — generics over the whole `Router` percolate into every
+/// handler signature and make tests painful.
+pub type SharedBackend = Arc<dyn InferenceBackend>;

@@ -1,0 +1,26 @@
+[package]
+name         = "halo-bitnet-mlx"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+authors.workspace      = true
+description  = "halo-ai ternary inference via MLX on Apple Silicon (wraps strix-ai-rs/bitnet-mlx-rs)"
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+# Build with `--features mlx-apple` on Apple Silicon to pull the real engine.
+# Default: stub API that compiles everywhere (including AMD gfx1151 hosts).
+default   = []
+mlx-apple = ["bitnet-inference"]
+
+[dependencies]
+anyhow  = { workspace = true }
+tracing = { workspace = true }
+
+# Git-pinned against the fork. mlx-rs requires macOS + Xcode toolchain —
+# cargo won't even try to build this unless the feature is enabled.
+bitnet-inference = { git = "https://github.com/strix-ai-rs/bitnet-mlx-rs.git", optional = true }

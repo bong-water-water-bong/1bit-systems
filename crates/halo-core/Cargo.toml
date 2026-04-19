@@ -6,9 +6,17 @@ rust-version.workspace = true
 license.workspace      = true
 repository.workspace   = true
 authors.workspace      = true
-description  = "halo-core — strix-ai-rs (scaffolded, see crates/halo-cli for first finished crate)"
+description  = "halo-core — CPU-side gen-2 halo-ai: .h1b / .htok loaders, sampler, shared types"
 
 [lib]
 path = "src/lib.rs"
 
 [dependencies]
+thiserror  = { workspace = true }
+memmap2    = { workspace = true }
+byteorder  = { workspace = true }
+fastrand   = { workspace = true }
+half       = { workspace = true }
+
+[dev-dependencies]
+tempfile   = "3"

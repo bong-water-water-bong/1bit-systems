@@ -6,9 +6,24 @@ rust-version.workspace = true
 license.workspace      = true
 repository.workspace   = true
 authors.workspace      = true
-description  = "halo-bitnet-hip — strix-ai-rs (scaffolded, see crates/halo-cli for first finished crate)"
+description  = "FFI bridge from Rust to rocm-cpp's HIP ternary BitNet kernels (gfx1151)."
 
 [lib]
 path = "src/lib.rs"
 
+[features]
+# Default: link against the native librocm_cpp.so on this host. Disable via
+# `--no-default-features` on CI machines without AMD GPUs / ROCm installed —
+# the crate then exposes the same public API, with every call returning
+# `RcppStatus::Unsupported` and no native symbols referenced.
+default      = ["link-rocm"]
+link-rocm    = []
+
 [dependencies]
+thiserror    = { workspace = true }
+
+[dev-dependencies]
+# libloading is used only in the smoke test to dlopen the .so by path and
+# resolve one symbol. Keeps the test independent of whether the build-time
+# linker found the library.
+libloading   = "0.8"
