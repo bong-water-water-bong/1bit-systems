@@ -11,7 +11,7 @@
     <section class="hero">
       <h1 class="wordmark">halo-ai</h1>
       <p class="subtitle">strix-ai-rs — ternary inference for AMD Strix Halo</p>
-      <p class="metric">83 tok/s &middot; PPL 9.16 &middot; 2-bit weights</p>
+      <p class="metric"><span id="hero-tokps">—</span> tok/s &middot; PPL 9.16 &middot; 2-bit weights</p>
       <p class="live">
         <span id="dot" class="dot dot-off" aria-hidden="true"></span>
         <span id="live-text">checking gen-2 server…</span>
@@ -71,10 +71,18 @@
         const j = await r.json();
         const dot = document.getElementById('dot');
         const txt = document.getElementById('live-text');
+        const hero = document.getElementById('hero-tokps');
         dot.className = 'dot ' + (j.v2_up ? 'dot-on' : 'dot-off');
-        txt.textContent = j.v2_up
-          ? `gen-2 online — ${j.model} @ ${j.tokps.toFixed(1)} tok/s`
-          : 'gen-2 offline';
+        // Hero tok/s: show "—" when we have no live samples yet (tokps=0)
+        // instead of lying with a stubbed number.
+        const tps = (typeof j.tokps === 'number') ? j.tokps : 0;
+        hero.textContent = tps > 0 ? tps.toFixed(1) : '—';
+        if (j.v2_up) {
+          const rate = tps > 0 ? `${tps.toFixed(1)} tok/s` : 'idle';
+          txt.textContent = `gen-2 online — ${j.model} @ ${rate}`;
+        } else {
+          txt.textContent = 'gen-2 offline';
+        }
       } catch (e) { /* keep previous state */ }
     }
     poll(); setInterval(poll, 3000);

@@ -45,6 +45,8 @@ use tokio::sync::Mutex;
 pub use backend_impl::{BackendError, HipBackend};
 pub use detect::{BackendKind, detect};
 
+// Re-exported below once the type is declared — see PerplexityResult.
+
 /// Sampling + stopping parameters forwarded through the router.
 ///
 /// Deliberately smaller than OpenAI's full request shape — halo-server
@@ -212,6 +214,165 @@ impl Router {
         guard.backend.reset();
         guard.pos = 0;
     }
+
+    /// Compute perplexity over `text`.
+    ///
+    /// Semantics match the gen-1 C++ `bitnet_decode --ppl` mode byte-for-byte:
+    ///
+    /// 1. Tokenize `text` (with BOS). Truncate to at most `max_tokens` tokens.
+    /// 2. Starting from `pos=0` (KV cache is reset for the run), feed tokens
+    ///    one at a time through `forward_token`. At each step `i`, compute
+    ///    `log_softmax(logits)[prompt_ids[i+1]]` via log-sum-exp, accumulate
+    ///    `-logp` into `total_nll`, increment `scored`.
+    /// 3. If the sequence is longer than `stride`, we re-chunk: every
+    ///    `stride` tokens we reset the KV cache and restart at `pos=0`. The
+    ///    C++ reference does not do this — it's always a single pass — but
+    ///    is what we'd need if `max_tokens > max_context`. For parity with
+    ///    the documented 1024-token baseline, pass `max_tokens=1024,
+    ///    stride=1024` and we take the single-pass path.
+    ///
+    /// Returns `(mean_nll, perplexity, scored_tokens, elapsed_ms)`.
+    ///
+    /// Invariants:
+    ///   * After this call the router's `pos` is reset to 0 (KV cache is
+    ///     considered clean).
+    ///   * `stride` clamped to `max_context`. `max_tokens` clamped to
+    ///     `usize::MAX` but limited by the actual tokenized length.
+    pub async fn perplexity(
+        &self,
+        text: String,
+        stride: usize,
+        max_tokens: usize,
+    ) -> Result<PerplexityResult, BackendError> {
+        let inner = self.inner.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut guard = inner.blocking_lock();
+            perplexity_blocking(&mut guard, &text, stride, max_tokens)
+        })
+        .await
+        .map_err(|e| BackendError::Other(format!("blocking task join: {e}")))?
+    }
+}
+
+/// PPL harness result.
+#[derive(Debug, Clone)]
+pub struct PerplexityResult {
+    /// Mean negative log-likelihood across all scored tokens (nats).
+    pub mean_nll: f64,
+    /// `exp(mean_nll)` — standard perplexity.
+    pub perplexity: f64,
+    /// Number of (context, next-token) pairs that contributed to the mean.
+    pub scored_tokens: usize,
+    /// Wall-clock time of the scoring loop in milliseconds.
+    pub elapsed_ms: f64,
+}
+
+fn perplexity_blocking(
+    inner: &mut Inner,
+    text: &str,
+    stride: usize,
+    max_tokens: usize,
+) -> Result<PerplexityResult, BackendError> {
+    // Reset KV so the run is deterministic regardless of previous chat
+    // history. Matches gen-1 where --ppl always starts from a fresh decoder.
+    inner.backend.reset();
+    inner.pos = 0;
+
+    let mut ids: Vec<TokenId> = inner.backend.tokenize(text);
+    if ids.len() > max_tokens {
+        ids.truncate(max_tokens);
+    }
+    if ids.len() < 2 {
+        return Err(BackendError::BadInput(
+            "ppl: need at least 2 tokens after tokenization",
+        ));
+    }
+    // `stride` bounds the per-pass window length. 0 is treated as
+    // "whole sequence in one pass".
+    let stride = if stride == 0 { ids.len() } else { stride };
+
+    let mut logits_scratch: Vec<f32> = Vec::new();
+    let mut total_nll: f64 = 0.0;
+    let mut scored: usize = 0;
+    let start = std::time::Instant::now();
+
+    let n = ids.len();
+    let mut chunk_start = 0usize;
+    while chunk_start + 1 < n {
+        let chunk_end = (chunk_start + stride).min(n);
+        // For each chunk we feed tokens [chunk_start .. chunk_end) at
+        // positions [0 .. chunk_end-chunk_start) and score the next-token
+        // probability at every step except the last of this chunk (that
+        // one has no target inside the chunk unless the chunk ends at `n`,
+        // in which case chunk_end == n and i+1 == n so we also stop).
+        // Reset KV between chunks.
+        if chunk_start > 0 {
+            inner.backend.reset();
+            inner.pos = 0;
+        }
+        let chunk_len = chunk_end - chunk_start;
+        for i in 0..chunk_len {
+            let tok = ids[chunk_start + i];
+            let pos = i as i32;
+            let _argmax = inner
+                .backend
+                .forward_token(tok, pos, &mut logits_scratch)?;
+            // Target for this step is ids[chunk_start + i + 1]; only valid
+            // while it's inside the current chunk (we re-feed at the next
+            // chunk boundary).
+            let target_idx = chunk_start + i + 1;
+            if target_idx >= chunk_end {
+                break;
+            }
+            let target = ids[target_idx];
+            let nll = neg_log_softmax_at(&logits_scratch, target);
+            total_nll += nll;
+            scored += 1;
+        }
+        if chunk_end == n {
+            break;
+        }
+        chunk_start = chunk_end;
+    }
+
+    // Leave the backend in a clean state so the next chat request doesn't
+    // inherit our KV cache.
+    inner.backend.reset();
+    inner.pos = 0;
+
+    let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+    if scored == 0 {
+        return Err(BackendError::BadInput("ppl: no tokens were scored"));
+    }
+    let mean_nll = total_nll / (scored as f64);
+    Ok(PerplexityResult {
+        mean_nll,
+        perplexity: mean_nll.exp(),
+        scored_tokens: scored,
+        elapsed_ms,
+    })
+}
+
+/// Compute `-log_softmax(logits)[target]` in f64 via log-sum-exp.
+///
+/// Shared helper; factored out so the PPL math is unit-testable without
+/// a GPU.
+pub(crate) fn neg_log_softmax_at(logits: &[f32], target: TokenId) -> f64 {
+    let v = logits.len();
+    debug_assert!(v > 0);
+    debug_assert!((target as usize) < v, "target out of vocab range");
+    let mut max_l = logits[0];
+    for &l in &logits[1..] {
+        if l > max_l {
+            max_l = l;
+        }
+    }
+    let mut sum_exp: f64 = 0.0;
+    for &l in logits {
+        sum_exp += ((l - max_l) as f64).exp();
+    }
+    let logp = (logits[target as usize] - max_l) as f64 - sum_exp.ln();
+    -logp
 }
 
 /// Synchronous generation path — shared between `generate` and
@@ -326,3 +487,67 @@ fn default_model_id(h1b_path: &Path) -> String {
 
 // (thiserror's `#[from]` on the `Halo` / `Hip` variants already generates
 // the `From<HaloError>` / `From<RcppError>` impls the `?` operator needs.)
+
+#[cfg(test)]
+mod ppl_math_tests {
+    //! Unit tests for the PPL math helpers. These are GPU-free — they
+    //! exercise the log-softmax reduction that accumulates `mean_nll`
+    //! without going through `forward_token`.
+
+    use super::neg_log_softmax_at;
+
+    /// With a uniform logit vector of length V, `-log_softmax` at any
+    /// target equals `log(V)`. Perplexity of a uniform predictor over V
+    /// classes is V — that's the textbook sanity check.
+    #[test]
+    fn uniform_logits_give_log_v() {
+        for v in [2usize, 10, 128, 32_000] {
+            let logits = vec![0.7f32; v];
+            let nll = neg_log_softmax_at(&logits, (v / 2) as i32);
+            let expected = (v as f64).ln();
+            assert!(
+                (nll - expected).abs() < 1e-9,
+                "uniform V={v}: got {nll}, expected {expected}"
+            );
+        }
+    }
+
+    /// With an argmax-strong logit at the target, NLL is near zero and
+    /// therefore perplexity near 1.
+    #[test]
+    fn confident_target_is_near_zero_nll() {
+        let mut logits = vec![-50.0f32; 1000];
+        logits[42] = 100.0;
+        let nll = neg_log_softmax_at(&logits, 42);
+        assert!(nll < 1e-10, "expected near-zero NLL, got {nll}");
+        assert!((nll.exp() - 1.0).abs() < 1e-9);
+    }
+
+    /// Two-class softmax with logit difference d: NLL of the wrong class
+    /// equals `log(1 + exp(d))` on the low side and `log(1 + exp(-d))` on
+    /// the high side. Spot-check one concrete value.
+    #[test]
+    fn two_class_closed_form() {
+        let logits = [0.0f32, 2.0];
+        // softmax[0] = 1 / (1 + e^2); nll(target=0) = log(1 + e^2)
+        let nll0 = neg_log_softmax_at(&logits, 0);
+        let expected0 = (1.0f64 + 2.0f64.exp()).ln();
+        assert!((nll0 - expected0).abs() < 1e-9, "{nll0} vs {expected0}");
+        // Consistency: exp(-nll0) + exp(-nll1) must equal 1.
+        let nll1 = neg_log_softmax_at(&logits, 1);
+        let p_sum = (-nll0).exp() + (-nll1).exp();
+        assert!((p_sum - 1.0).abs() < 1e-9, "probs sum to {p_sum}, not 1");
+    }
+
+    /// Invariance to a constant logit shift — numerical stability check.
+    #[test]
+    fn log_softmax_shift_invariant() {
+        let a = [1.0f32, 2.0, 3.0, 4.0, 5.0];
+        let b: Vec<f32> = a.iter().map(|&x| x + 10_000.0).collect();
+        for t in 0..a.len() {
+            let na = neg_log_softmax_at(&a, t as i32);
+            let nb = neg_log_softmax_at(&b, t as i32);
+            assert!((na - nb).abs() < 1e-6, "shift not invariant at t={t}: {na} vs {nb}");
+        }
+    }
+}

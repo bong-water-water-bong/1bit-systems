@@ -64,3 +64,10 @@ build = [
 # TODO(user): author strix-landing.service (systemd --user) before launch.
 units = ["strix-landing.service"]
 check = "http://127.0.0.1:8190/_health"
+
+[component.burnin]
+description = "Shadow-traffic burn-in: gen-1 :8080 vs gen-2 :8180, 72h parity log"
+deps        = ["core", "bitnet-gen1"]
+build       = []
+units       = ["strix-burnin.service"]
+check       = ""

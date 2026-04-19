@@ -7,7 +7,8 @@
 //! Routes:
 //! * `GET /`              — embedded HTML
 //! * `GET /style.css`     — embedded CSS
-//! * `GET /_live/status`  — JSON `{v2_up, v1_up, model, tokps}`, always 200
+//! * `GET /_live/status`  — JSON `{v2_up, v1_up, model, tokps, p50_ms,
+//!                          p95_ms, requests, generated_tokens}`, always 200
 //! * `GET /_health`       — plain text "ok"
 
 mod status;
@@ -184,10 +185,18 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let bytes = to_bytes(resp.into_body(), 4 * 1024).await.unwrap();
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        // All four keys must be present regardless of backend state.
-        assert!(v.get("v2_up").is_some());
-        assert!(v.get("v1_up").is_some());
-        assert!(v.get("model").is_some());
-        assert!(v.get("tokps").is_some());
+        // All eight keys must be present regardless of backend state.
+        for k in [
+            "v2_up",
+            "v1_up",
+            "model",
+            "tokps",
+            "p50_ms",
+            "p95_ms",
+            "requests",
+            "generated_tokens",
+        ] {
+            assert!(v.get(k).is_some(), "missing key {k} in {v}");
+        }
     }
 }

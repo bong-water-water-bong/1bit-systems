@@ -102,6 +102,37 @@ pub trait InferenceBackend: Send + Sync + 'static {
     fn list_models(&self) -> Vec<ModelCard> {
         vec![ModelCard::halo("bitnet-b1.58-2b-4t")]
     }
+
+    /// Optional perplexity scoring path.
+    ///
+    /// Backends that can expose per-token log-probabilities override this;
+    /// the default returns `Backend("ppl not supported on this backend")`
+    /// so stub / echo builds fail the `/ppl` endpoint gracefully (501-ish
+    /// surfaced as a 500 via our error mapping, with a clear message).
+    fn perplexity<'a>(
+        &'a self,
+        _text: String,
+        _stride: u32,
+        _max_tokens: u32,
+    ) -> BoxFut<'a, Result<PerplexityOutput, ServerError>> {
+        Box::pin(async move {
+            Err(ServerError::Backend(
+                "ppl not supported on this backend (rebuild halo-server with \
+                 --features real-backend and load a model via --model)".into(),
+            ))
+        })
+    }
+}
+
+/// Backend-facing PPL result, mirroring
+/// [`halo_router::PerplexityResult`] but without pulling the router into
+/// the default build.
+#[derive(Debug, Clone, Copy)]
+pub struct PerplexityOutput {
+    pub mean_nll: f64,
+    pub perplexity: f64,
+    pub tokens: u32,
+    pub elapsed_ms: f64,
 }
 
 // ─── EchoBackend ─────────────────────────────────────────────────────────
@@ -315,6 +346,27 @@ pub mod real {
 
         fn list_models(&self) -> Vec<ModelCard> {
             vec![ModelCard::halo(self.router.model_id().to_string())]
+        }
+
+        fn perplexity<'a>(
+            &'a self,
+            text: String,
+            stride: u32,
+            max_tokens: u32,
+        ) -> BoxFut<'a, Result<super::PerplexityOutput, ServerError>> {
+            let router = self.router.clone();
+            Box::pin(async move {
+                let res = router
+                    .perplexity(text, stride as usize, max_tokens as usize)
+                    .await
+                    .map_err(|e| ServerError::Backend(format!("ppl: {e}")))?;
+                Ok(super::PerplexityOutput {
+                    mean_nll: res.mean_nll,
+                    perplexity: res.perplexity,
+                    tokens: res.scored_tokens as u32,
+                    elapsed_ms: res.elapsed_ms,
+                })
+            })
         }
     }
 }

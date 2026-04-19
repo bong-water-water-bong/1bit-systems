@@ -1,9 +1,17 @@
 //! Live-status probe for the gen-2 halo-server on :8180.
 //!
 //! The landing page polls `/_live/status` every 3 s and uses the result to
-//! drive the pulsing green dot in the hero. We deliberately never 5xx this
-//! endpoint — if halo-server is down we just report `v2_up: false` so the
-//! UI stays legible.
+//! drive the pulsing green dot + live tok/s number in the hero. We
+//! deliberately never 5xx this endpoint — if halo-server is down we just
+//! report `v2_up: false` so the UI stays legible.
+//!
+//! Two probes run in sequence:
+//! 1. `GET /v1/models` → `v2_up`, `model`.
+//! 2. `GET /metrics` → `tokps`, `p50_ms`, `p95_ms`, `requests`,
+//!    `generated_tokens`. Graceful degradation: if the metrics endpoint is
+//!    unreachable (older server build, 404), the numeric fields stay at 0
+//!    rather than getting a hard-coded placeholder — `index.html` displays
+//!    an em-dash in that case.
 
 use std::time::Duration;
 
@@ -16,6 +24,10 @@ pub struct LiveStatus {
     pub v1_up: bool,
     pub model: String,
     pub tokps: f64,
+    pub p50_ms: f64,
+    pub p95_ms: f64,
+    pub requests: u64,
+    pub generated_tokens: u64,
 }
 
 impl LiveStatus {
@@ -25,17 +37,35 @@ impl LiveStatus {
             v1_up: false,
             model: String::new(),
             tokps: 0.0,
+            p50_ms: 0.0,
+            p95_ms: 0.0,
+            requests: 0,
+            generated_tokens: 0,
         }
     }
 }
 
-/// Probe `http://127.0.0.1:8180/v1/models` with a 2 s timeout.
+/// Probe `http://127.0.0.1:8180/metrics` with a 2 s timeout.
 ///
-/// Returns a populated `LiveStatus` on success; `LiveStatus::offline()` on
-/// any failure (timeout, connection refused, non-2xx, malformed JSON). The
-/// `tokps` field is a placeholder — halo-server doesn't expose live tok/s
-/// yet, so we surface the burn-bench headline (83.0) when the server is up
-/// and will wire a real metric once /metrics lands.
+/// Returns the raw JSON blob on success, `None` on any failure (timeout,
+/// connection refused, non-2xx, malformed JSON). Kept `pub` so integration
+/// tests can exercise it directly.
+pub async fn probe_metrics(http: &reqwest::Client) -> Option<serde_json::Value> {
+    let req = http
+        .get("http://127.0.0.1:8180/metrics")
+        .timeout(Duration::from_secs(2))
+        .send()
+        .await
+        .ok()?;
+    if !req.status().is_success() {
+        return None;
+    }
+    req.json::<serde_json::Value>().await.ok()
+}
+
+/// Probe `http://127.0.0.1:8180/v1/models` with a 2 s timeout, then merge
+/// in live metrics from `/metrics`. Returns `LiveStatus::offline()` if the
+/// models probe fails; metrics failures just zero out the numeric fields.
 pub async fn probe(client: &reqwest::Client) -> LiveStatus {
     let url = "http://127.0.0.1:8180/v1/models";
     let req = client
@@ -63,11 +93,28 @@ pub async fn probe(client: &reqwest::Client) -> LiveStatus {
         .unwrap_or("unknown")
         .to_string();
 
+    // Merge in /metrics. If that probe fails, leave numeric fields at 0 —
+    // the frontend renders that as "—".
+    let (tokps, p50_ms, p95_ms, requests, generated_tokens) = match probe_metrics(client).await {
+        Some(m) => (
+            m.get("tokps_recent").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            m.get("p50_ms").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            m.get("p95_ms").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            m.get("requests").and_then(|v| v.as_u64()).unwrap_or(0),
+            m.get("generated_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
+        ),
+        None => (0.0, 0.0, 0.0, 0, 0),
+    };
+
     LiveStatus {
         v2_up: true,
         v1_up: false, // we only probe gen-2 for now; gen-1 check is future work
         model,
-        tokps: 83.0,
+        tokps,
+        p50_ms,
+        p95_ms,
+        requests,
+        generated_tokens,
     }
 }
 
@@ -81,7 +128,29 @@ mod tests {
         assert!(!s.v2_up);
         assert!(!s.v1_up);
         assert_eq!(s.tokps, 0.0);
+        assert_eq!(s.p50_ms, 0.0);
+        assert_eq!(s.p95_ms, 0.0);
+        assert_eq!(s.requests, 0);
+        assert_eq!(s.generated_tokens, 0);
         assert!(s.model.is_empty());
+    }
+
+    #[test]
+    fn offline_serializes_all_fields() {
+        let s = LiveStatus::offline();
+        let v = serde_json::to_value(&s).unwrap();
+        for k in [
+            "v2_up",
+            "v1_up",
+            "model",
+            "tokps",
+            "p50_ms",
+            "p95_ms",
+            "requests",
+            "generated_tokens",
+        ] {
+            assert!(v.get(k).is_some(), "offline snapshot missing field {k}");
+        }
     }
 
     #[tokio::test]
@@ -94,6 +163,7 @@ mod tests {
         if !s.v2_up {
             assert_eq!(s.tokps, 0.0);
             assert!(s.model.is_empty());
+            assert_eq!(s.requests, 0);
         }
     }
 }

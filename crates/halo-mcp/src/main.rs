@@ -1,20 +1,19 @@
-// halo-mcp — Phase 0 entry point.
+// halo-mcp — Phase 1 entry point.
 //
 // Flow:
-//   1. Build the ToolRegistry (17 specialist stubs).
-//   2. Wire it into a StdioServer with the Phase 0 "not implemented"
-//      handler.
-//   3. Drive the JSON-RPC loop on stdin/stdout until EOF.
+//   1. Build a StdioServer wired to the default halo-agents registry
+//      (17 stubs via Registry::default_stubs, one Arc shared across
+//      requests).
+//   2. Drive the JSON-RPC loop on stdin/stdout until EOF.
 //
 // Signals: SIGTERM / SIGINT close stdin via the kernel and let run()
-// return Ok(()) naturally. We don't install handlers in Phase 0 — no
-// background Runtime thread exists yet to shut down gracefully.
+// return Ok(()) naturally. We don't install handlers yet — the current
+// workload is entirely synchronous stubs, so there's nothing to drain.
 //
 // Environment:
-//   HALO_MCP_TIMEOUT_MS — BusBridge request timeout (default 30000).
-//                         Reserved for Phase 1 once the bridge is live;
-//                         read + logged here so ops tooling can verify
-//                         it's plumbed end-to-end.
+//   HALO_MCP_TIMEOUT_MS — reserved for when real specialists do I/O.
+//                         Currently just logged so ops tooling can
+//                         verify the plumbing end-to-end.
 //   RUST_LOG            — standard tracing filter. Defaults to
 //                         "halo_mcp=info" if unset.
 
@@ -46,13 +45,13 @@ async fn main() -> Result<()> {
         .init();
 
     let timeout_ms = load_timeout_ms();
-    let server = StdioServer::phase0();
+    let server = StdioServer::with_default_agents();
 
     info!(
         version = %halo_mcp::SERVER_VERSION,
         tools = server.registry().len(),
         timeout_ms,
-        "halo-mcp starting (Phase 0 — tools/call returns 'not implemented')"
+        "halo-mcp starting (Phase 1 — tools/call routes via halo_agents::Registry)"
     );
 
     server.run(io::stdin(), io::stdout()).await?;

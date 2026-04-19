@@ -169,6 +169,48 @@ pub struct CompletionChunkChoice {
     pub finish_reason: Option<&'static str>,
 }
 
+// ─── /ppl ────────────────────────────────────────────────────────────────
+
+/// Input for `POST /ppl` — score a text blob against the loaded model.
+///
+/// Scoring is single-pass: we tokenize the full text (with BOS), truncate
+/// to `max_tokens`, then feed each token into the decoder and accumulate
+/// `-log_softmax(logits)[next_token]`. See
+/// [`halo_router::Router::perplexity`] for the exact algorithm; it is a
+/// straight port of gen-1 `bitnet_decode --ppl`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PplRequest {
+    /// Raw text to score. Typically a slice of wikitext-103-test.txt.
+    pub text: String,
+    /// Re-chunk window. `0` or `>= max_tokens` = single pass (the gen-1
+    /// default). Larger than the router's `max_context` is clamped.
+    #[serde(default = "default_ppl_stride")]
+    pub stride: u32,
+    /// Upper bound on the number of tokens actually scored — protects
+    /// against a huge paste locking the backend for minutes.
+    #[serde(default = "default_ppl_max_tokens")]
+    pub max_tokens: u32,
+}
+
+fn default_ppl_stride() -> u32 {
+    1024
+}
+
+fn default_ppl_max_tokens() -> u32 {
+    8192
+}
+
+/// Output of `POST /ppl`. Field names mirror gen-1's `--ppl` JSON line so
+/// downstream tooling can parse either transparently.
+#[derive(Debug, Clone, Serialize)]
+pub struct PplResponse {
+    pub mean_nll: f64,
+    pub perplexity: f64,
+    /// Number of (context, target) pairs averaged into `mean_nll`.
+    pub tokens: u32,
+    pub elapsed_ms: f64,
+}
+
 // ─── /v1/models ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize)]

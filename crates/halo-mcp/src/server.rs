@@ -1,4 +1,5 @@
-//! JSON-RPC 2.0 stdio server.
+//! JSON-RPC 2.0 stdio MCP server — bridges Claude Code's MCP client to
+//! `halo_agents::Registry`.
 //!
 //! Rust port of `/home/bcloud/repos/halo-mcp/src/stdio_server.cpp`.
 //!
@@ -6,15 +7,23 @@
 //!   * MCP spec revision `2024-11-05` (stable as of Apr 2026).
 //!   * One JSON-RPC object per line, `\n`-delimited (Claude Code MCP client
 //!     convention — no LSP-style `Content-Length` framing).
-//!   * Notifications (missing `id`) still get a response in Phase 0 to
-//!     match the C++ implementation; Claude Code never sends pure
-//!     notifications on `tools/*` anyway.
+//!   * Notifications (missing `id`) still get a response so the C++ and Rust
+//!     binaries behave identically on the wire.
 //!   * EOF on stdin is graceful — we flush stdout and the caller exits 0.
+//!
+//! Dispatch model:
+//!   `tools/call` looks up the MCP tool by its exact name in the
+//!   [`ToolRegistry`], then forwards the call to
+//!   [`halo_agents::Registry::dispatch`]. The registry is shared across
+//!   every request via `Arc<Registry>` — no per-request allocation.
 
+use std::sync::Arc;
+
+use halo_agents::Registry;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 
-use crate::registry::{Tool, ToolRegistry};
+use crate::registry::ToolRegistry;
 
 /// MCP protocol revision we speak.
 pub const PROTOCOL_VERSION: &str = "2024-11-05";
@@ -33,25 +42,6 @@ pub mod err {
     pub const INTERNAL: i32 = -32603;
     /// Server-defined range: -32000 to -32099. Reserved for "unknown tool".
     pub const UNKNOWN_TOOL: i32 = -32001;
-}
-
-/// Handler signature for `tools/call`. Takes the matched tool + raw
-/// arguments, returns a JSON payload (which may itself carry an `error`
-/// key — that gets surfaced via MCP `isError`).
-pub type CallHandler = Box<dyn Fn(&Tool, &Value) -> Value + Send + Sync>;
-
-/// The Phase 0 default handler — returns `{"error": "not implemented"}`
-/// for every call, matching the behaviour of the C++ binary built
-/// without `HALO_MCP_HAS_AGENT_CPP`.
-pub fn phase0_not_implemented_handler() -> CallHandler {
-    Box::new(|tool: &Tool, _args: &Value| -> Value {
-        json!({
-            "error": "not implemented",
-            "tool": tool.name,
-            "target_agent": tool.target_agent,
-            "phase": 0,
-        })
-    })
 }
 
 fn make_ok(id: Value, result: Value) -> Value {
@@ -73,35 +63,41 @@ fn make_err(id: Value, code: i32, msg: impl Into<String>) -> Value {
     })
 }
 
-/// The JSON-RPC server. Owns the tool registry and call handler; driven
-/// by [`run`](StdioServer::run).
+/// The JSON-RPC server. Owns the `ToolRegistry` (for `tools/list` shape)
+/// and a shared `halo_agents::Registry` (for `tools/call` dispatch).
 pub struct StdioServer {
-    registry: ToolRegistry,
-    handler: CallHandler,
+    tools: ToolRegistry,
+    agents: Arc<Registry>,
 }
 
 impl StdioServer {
-    /// Construct a server from a registry and a call handler.
-    pub fn new(registry: ToolRegistry, handler: CallHandler) -> Self {
-        Self { registry, handler }
+    /// Construct a server from a tool registry and a shared agents registry.
+    pub fn new(tools: ToolRegistry, agents: Arc<Registry>) -> Self {
+        Self { tools, agents }
     }
 
-    /// Convenience: Phase 0 server with the default 17-tool registry and
-    /// the "not implemented" call handler.
-    pub fn phase0() -> Self {
+    /// Convenience: default tools derived from `halo_agents::Name::ALL`,
+    /// agents registry seeded with `Registry::default_stubs()`. This is the
+    /// wiring the binary uses on startup.
+    pub fn with_default_agents() -> Self {
         Self::new(
-            ToolRegistry::default_phase0(),
-            phase0_not_implemented_handler(),
+            ToolRegistry::from_agents(),
+            Arc::new(Registry::default_stubs()),
         )
     }
 
-    /// Borrow the underlying registry (useful for metrics / tests).
+    /// Borrow the underlying tool registry (useful for metrics / tests).
     pub fn registry(&self) -> &ToolRegistry {
-        &self.registry
+        &self.tools
+    }
+
+    /// Borrow the shared agents registry.
+    pub fn agents(&self) -> &Arc<Registry> {
+        &self.agents
     }
 
     /// Handle a single parsed JSON-RPC request, returning the response.
-    pub fn handle_request(&self, req: &Value) -> Value {
+    pub async fn handle_request(&self, req: &Value) -> Value {
         // JSON-RPC allows id to be string, number, or null. Echo what we
         // received; absence means notification.
         let id = req.get("id").cloned().unwrap_or(Value::Null);
@@ -122,7 +118,7 @@ impl StdioServer {
 
             "tools/list" => {
                 let tools: Vec<Value> = self
-                    .registry
+                    .tools
                     .iter()
                     .map(|t| {
                         json!({
@@ -135,7 +131,7 @@ impl StdioServer {
                 make_ok(id, json!({ "tools": tools }))
             }
 
-            "tools/call" => self.handle_tools_call(id, req),
+            "tools/call" => self.handle_tools_call(id, req).await,
 
             other => make_err(
                 id,
@@ -145,7 +141,7 @@ impl StdioServer {
         }
     }
 
-    fn handle_tools_call(&self, id: Value, req: &Value) -> Value {
+    async fn handle_tools_call(&self, id: Value, req: &Value) -> Value {
         let params = match req.get("params") {
             Some(Value::Object(_)) => req.get("params").unwrap().clone(),
             Some(Value::Null) | None => Value::Object(Default::default()),
@@ -165,28 +161,28 @@ impl StdioServer {
             .cloned()
             .unwrap_or_else(|| Value::Object(Default::default()));
 
-        let Some(tool) = self.registry.find(&name) else {
-            return make_err(
-                id,
-                err::UNKNOWN_TOOL,
-                format!("unknown tool: {name}"),
-            );
-        };
+        // Reject names we don't publish in `tools/list`. This keeps the
+        // MCP-visible surface identical to the agents registry without
+        // trusting the client to stay inside it.
+        if self.tools.find(&name).is_none() {
+            return make_err(id, err::UNKNOWN_TOOL, format!("unknown tool: {name}"));
+        }
 
-        // The handler is a pure fn in Phase 0 and can't panic through
-        // user input — but we still guard Phase 1 bus-bridge paths by
-        // catching unwinds is overkill here; we simply let panics abort
-        // (panic = "abort" in release profile anyway). If a future
-        // handler needs to surface std::io errors, wrap them inside the
-        // JSON payload as `{"error": "..."}`.
-        let result = (self.handler)(tool, &args);
-        let is_error = result.get("error").is_some();
+        // Forward to the agents registry. A dispatch error here means the
+        // specialist itself rejected the payload; surface it as an MCP
+        // `isError` content block rather than a JSON-RPC error so Claude
+        // Code can show it to the user without aborting the session.
+        let payload = match self.agents.dispatch(&name, args).await {
+            Ok(v) => v,
+            Err(e) => json!({ "error": e.to_string(), "tool": name }),
+        };
+        let is_error = payload.get("error").is_some();
 
         make_ok(
             id,
             json!({
                 "content": [
-                    { "type": "text", "text": result.to_string() }
+                    { "type": "text", "text": payload.to_string() }
                 ],
                 "isError": is_error,
             }),
@@ -210,7 +206,7 @@ impl StdioServer {
             }
 
             let resp = match serde_json::from_str::<Value>(&line) {
-                Ok(req) => self.handle_request(&req),
+                Ok(req) => self.handle_request(&req).await,
                 Err(e) => make_err(
                     Value::Null,
                     err::INVALID_REQUEST,
@@ -234,21 +230,22 @@ impl StdioServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::io::AsyncReadExt;
 
     fn server() -> StdioServer {
-        StdioServer::phase0()
+        StdioServer::with_default_agents()
     }
 
-    #[test]
-    fn initialize_returns_server_info() {
+    #[tokio::test]
+    async fn initialize_returns_server_info() {
         let s = server();
-        let resp = s.handle_request(&json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {}
-        }));
+        let resp = s
+            .handle_request(&json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {}
+            }))
+            .await;
         assert_eq!(resp["jsonrpc"], "2.0");
         assert_eq!(resp["id"], 1);
         assert_eq!(resp["result"]["serverInfo"]["name"], SERVER_NAME);
@@ -257,88 +254,135 @@ mod tests {
         assert!(resp["result"]["capabilities"]["tools"].is_object());
     }
 
-    #[test]
-    fn tools_list_returns_seventeen() {
+    #[tokio::test]
+    async fn tools_list_returns_seventeen_matching_name_all() {
+        use halo_agents::Name;
         let s = server();
-        let resp = s.handle_request(&json!({
-            "jsonrpc": "2.0",
-            "id": "x",
-            "method": "tools/list"
-        }));
+        let resp = s
+            .handle_request(&json!({
+                "jsonrpc": "2.0",
+                "id": "x",
+                "method": "tools/list"
+            }))
+            .await;
         assert_eq!(resp["id"], "x");
         let tools = resp["result"]["tools"].as_array().expect("tools array");
         assert_eq!(tools.len(), 17);
-        // Every tool must have name + description + inputSchema.
+
+        let got: Vec<&str> = tools
+            .iter()
+            .map(|t| t["name"].as_str().unwrap())
+            .collect();
+        let want: Vec<&str> = Name::ALL.iter().map(|n| n.as_str()).collect();
+        assert_eq!(got, want, "tools/list order must match Name::ALL");
+
         for t in tools {
             assert!(t["name"].is_string());
             assert!(t["description"].is_string());
-            assert!(t["inputSchema"].is_object());
+            assert_eq!(t["inputSchema"]["type"], "object");
         }
     }
 
-    #[test]
-    fn tools_list_preserves_order() {
+    #[tokio::test]
+    async fn tools_call_routes_to_agents_stub() {
         let s = server();
-        let resp = s.handle_request(&json!({
-            "jsonrpc": "2.0", "id": 1, "method": "tools/list"
-        }));
-        let tools = resp["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools[0]["name"], "muse_call");
-        assert_eq!(tools[16]["name"], "anvil_call");
-    }
-
-    #[test]
-    fn tools_call_unknown_tool_returns_minus_32001() {
-        let s = server();
-        let resp = s.handle_request(&json!({
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/call",
-            "params": { "name": "nope_call", "arguments": {} }
-        }));
-        assert_eq!(resp["error"]["code"], err::UNKNOWN_TOOL);
-    }
-
-    #[test]
-    fn tools_call_returns_not_implemented_envelope() {
-        let s = server();
-        let resp = s.handle_request(&json!({
-            "jsonrpc": "2.0",
-            "id": 3,
-            "method": "tools/call",
-            "params": { "name": "muse_call", "arguments": {"hello": "world"} }
-        }));
-        // The Phase 0 handler writes `{"error": "not implemented", ...}`
-        // into the content block and sets isError = true.
-        assert_eq!(resp["result"]["isError"], true);
+        let resp = s
+            .handle_request(&json!({
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": { "name": "anvil", "arguments": { "cmd": "ping" } }
+            }))
+            .await;
+        assert_eq!(resp["result"]["isError"], false);
         let text = resp["result"]["content"][0]["text"]
             .as_str()
             .expect("content text");
-        assert!(text.contains("not implemented"), "got: {text}");
-        assert!(text.contains("muse"));
+        // The halo-agents stub returns {specialist, status:"stub", echo:req}.
+        let inner: Value = serde_json::from_str(text).expect("inner json");
+        assert_eq!(inner["status"], "stub");
+        assert_eq!(inner["specialist"], "anvil");
+        assert_eq!(inner["echo"]["cmd"], "ping");
     }
 
-    #[test]
-    fn unknown_method_returns_minus_32601() {
+    #[tokio::test]
+    async fn tools_call_unknown_tool_returns_minus_32001() {
         let s = server();
-        let resp = s.handle_request(&json!({
-            "jsonrpc": "2.0",
-            "id": 4,
-            "method": "does/not/exist"
-        }));
+        let resp = s
+            .handle_request(&json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": { "name": "nope", "arguments": {} }
+            }))
+            .await;
+        assert_eq!(resp["error"]["code"], err::UNKNOWN_TOOL);
+        assert!(resp.get("result").is_none());
+    }
+
+    #[tokio::test]
+    async fn unknown_method_returns_minus_32601() {
+        let s = server();
+        let resp = s
+            .handle_request(&json!({
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "does/not/exist"
+            }))
+            .await;
         assert_eq!(resp["error"]["code"], err::METHOD_NOT_FOUND);
     }
 
-    #[test]
-    fn invalid_params_object_rejected() {
+    #[tokio::test]
+    async fn invalid_params_object_rejected() {
         let s = server();
-        let resp = s.handle_request(&json!({
-            "jsonrpc": "2.0",
-            "id": 5,
-            "method": "tools/call",
-            "params": 42
-        }));
+        let resp = s
+            .handle_request(&json!({
+                "jsonrpc": "2.0",
+                "id": 5,
+                "method": "tools/call",
+                "params": 42
+            }))
+            .await;
         assert_eq!(resp["error"]["code"], err::INVALID_PARAMS);
+    }
+
+    #[tokio::test]
+    async fn tools_call_missing_arguments_defaults_to_empty_object() {
+        // No `arguments` key — the stub should still get called with {}.
+        let s = server();
+        let resp = s
+            .handle_request(&json!({
+                "jsonrpc": "2.0",
+                "id": 7,
+                "method": "tools/call",
+                "params": { "name": "muse" }
+            }))
+            .await;
+        let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+        let inner: Value = serde_json::from_str(text).unwrap();
+        assert_eq!(inner["specialist"], "muse");
+        assert_eq!(inner["echo"], json!({}));
+    }
+
+    #[tokio::test]
+    async fn tools_call_every_specialist_roundtrips() {
+        use halo_agents::Name;
+        let s = server();
+        for n in Name::ALL {
+            let resp = s
+                .handle_request(&json!({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": { "name": n.as_str(), "arguments": {} }
+                }))
+                .await;
+            let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+            let inner: Value = serde_json::from_str(text).unwrap();
+            assert_eq!(inner["status"], "stub", "bad status for {}", n.as_str());
+            assert_eq!(inner["specialist"], n.as_str());
+        }
     }
 
     #[tokio::test]
@@ -361,6 +405,22 @@ mod tests {
         assert_eq!(r1["result"]["tools"].as_array().unwrap().len(), 17);
         assert_eq!(r2["id"], 2);
         assert_eq!(r2["result"]["serverInfo"]["name"], SERVER_NAME);
+    }
+
+    #[tokio::test]
+    async fn stdio_loop_tools_call_end_to_end() {
+        let s = server();
+        let input = b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"anvil\",\"arguments\":{\"cmd\":\"ping\"}}}\n"
+            .to_vec();
+        let mut output: Vec<u8> = Vec::new();
+        s.run(&input[..], &mut output).await.expect("run ok");
+
+        let text = String::from_utf8(output).unwrap();
+        let resp: Value = serde_json::from_str(text.trim()).unwrap();
+        assert_eq!(resp["id"], 1);
+        let inner_text = resp["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(inner_text.contains("\"status\":\"stub\""), "got: {inner_text}");
+        assert!(inner_text.contains("\"echo\":{\"cmd\":\"ping\"}"), "got: {inner_text}");
     }
 
     #[tokio::test]
@@ -398,7 +458,6 @@ mod tests {
         assert!(output.is_empty());
     }
 
-    // Sanity: verify our helpers produce well-formed JSON-RPC shapes.
     #[test]
     fn make_ok_and_err_shape() {
         let ok = make_ok(json!(1), json!({"x": 1}));
@@ -409,12 +468,19 @@ mod tests {
         assert_eq!(e["error"]["message"], "boom");
     }
 
-    // Read back a single response line from a Vec<u8> output.
-    #[allow(dead_code)]
-    async fn read_one_line(buf: &[u8]) -> String {
-        let mut r = BufReader::new(buf);
-        let mut s = String::new();
-        r.read_to_string(&mut s).await.unwrap();
-        s
+    #[tokio::test]
+    async fn agents_registry_is_shared_arc() {
+        // Confirm two handle_request calls reuse the same Arc<Registry> —
+        // we're not rebuilding per request.
+        let s = server();
+        let before = Arc::strong_count(s.agents());
+        let _ = s
+            .handle_request(&json!({
+                "jsonrpc":"2.0","id":1,"method":"tools/call",
+                "params":{"name":"muse","arguments":{}}
+            }))
+            .await;
+        let after = Arc::strong_count(s.agents());
+        assert_eq!(before, after, "Arc strong_count should be stable across requests");
     }
 }

@@ -35,12 +35,14 @@
 pub mod api;
 pub mod backend;
 pub mod error;
+pub mod metrics;
 pub mod routes;
 pub mod shutdown;
 
-pub use backend::{EchoBackend, InferenceBackend, TokenStream};
+pub use backend::{EchoBackend, InferenceBackend, PerplexityOutput, TokenStream};
 #[cfg(feature = "real-backend")]
 pub use backend::RealBackend;
 pub use error::ServerError;
+pub use metrics::{Metrics, MetricsSnapshot};
 pub use routes::build_router;
 pub use shutdown::shutdown_signal;
