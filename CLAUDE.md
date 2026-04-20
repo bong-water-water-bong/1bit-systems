@@ -10,10 +10,12 @@ Keep terse; when in doubt, follow `ARCHITECTURE.md`.
   systemd unit or a path that serves HTTP. If a component needs orchestration,
   write it in Rust.
 - **Rule B — C++20 only for kernels.** All HIP kernels stay in the
-  `rocm-cpp/` subtree of `1bit-systems` (fold pending; during grace
-  week, the standalone `bong-water-water-bong/rocm-cpp` mirror still
-  works). Do NOT reimplement kernels in Rust. FFI through `1bit-hip`.
-  (Old `stampby/rocm-cpp` archived, `stampby` handle retired.)
+  `rocm-cpp/` subtree of this monorepo (folded 2026-04-20 via
+  `git subtree add`; history preserved). Do NOT reimplement kernels in
+  Rust. FFI through `1bit-hip`. The standalone
+  `bong-water-water-bong/rocm-cpp` mirror stays readable for one grace
+  week, then archives. Old `stampby/rocm-cpp` already archived,
+  `stampby` handle retired.
 - **Rule C — hipBLAS is banned** in the runtime path. Native Tensile kernels
   only. If you find yourself reaching for hipBLAS, step back and port the
   kernel to `rocm-cpp` instead.

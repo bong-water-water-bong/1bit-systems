@@ -6,8 +6,9 @@
 //!
 //! Resolution order for the .so directory:
 //!   1. `ROCM_CPP_LIB_DIR` environment variable (packaging / CI override)
-//!   2. `$HOME/repos/rocm-cpp/build`                     (canonical dev path)
-//!   3. `/usr/local/lib`, `/usr/lib`                      (system-install)
+//!   2. `<workspace>/rocm-cpp/build`                      (canonical, post-fold)
+//!   3. `$HOME/repos/rocm-cpp/build`                      (legacy-clone fallback)
+//!   4. `/usr/local/lib`, `/usr/lib`                      (system-install)
 //!
 //! If the `link-rocm` feature is off, we emit NO link directives — the crate
 //! compiles as a stubs-only library for CI hosts without an AMD GPU.
@@ -97,7 +98,22 @@ fn find_rocm_cpp_dir() -> Option<PathBuf> {
         }
     }
 
-    // 2. Canonical developer checkout — $HOME/repos/rocm-cpp/build.
+    // 2. Canonical in-tree path — <workspace>/rocm-cpp/build (post-fold).
+    //    build.rs lives at <workspace>/crates/1bit-hip/build.rs so the
+    //    workspace root is two `..` up from CARGO_MANIFEST_DIR.
+    if let Some(manifest_dir) = env::var_os("CARGO_MANIFEST_DIR") {
+        let in_tree = PathBuf::from(manifest_dir)
+            .join("../../rocm-cpp/build")
+            .canonicalize()
+            .ok();
+        if let Some(p) = in_tree {
+            if contains_rocm_cpp_so(&p) {
+                return Some(p);
+            }
+        }
+    }
+
+    // 3. Legacy-clone fallback — $HOME/repos/rocm-cpp/build.
     if let Some(home) = env::var_os("HOME") {
         let canonical = PathBuf::from(home).join("repos/rocm-cpp/build");
         if contains_rocm_cpp_so(&canonical) {
@@ -105,7 +121,7 @@ fn find_rocm_cpp_dir() -> Option<PathBuf> {
         }
     }
 
-    // 3. System-install fallbacks.
+    // 4. System-install fallbacks.
     for candidate in ["/usr/local/lib", "/usr/lib"] {
         let p = PathBuf::from(candidate);
         if contains_rocm_cpp_so(&p) {
