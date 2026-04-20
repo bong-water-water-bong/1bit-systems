@@ -8,8 +8,8 @@
 #   check       — optional HTTP healthcheck; 2xx = installed OK
 
 [component.core]
-description = "halo-ai core — halo CLI + halo-server + halo-lemonade gateway + halo-gaia TUI + landing page"
-deps        = []
+description = "halo-ai core — halo CLI + halo-server + halo-lemonade gateway + halo-gaia TUI + landing page + voice/echo/mcp"
+deps        = ["voice", "echo", "mcp"]
 build = [
     ["cargo", "install", "--path", "crates/halo-cli",      "--force", "--quiet"],
     ["cargo", "install", "--path", "crates/halo-server",   "--force", "--quiet",
@@ -26,15 +26,63 @@ units = [
 check = "http://127.0.0.1:8180/v1/models"
 
 [component.agents]
-description = "17 specialist dispatcher (tokio bus, JSON-RPC over MCP)"
-deps        = ["core"]
+description = "17 specialist dispatcher (tokio bus, JSON-RPC over MCP) — alias for mcp"
+deps        = ["mcp"]
+build       = []
+units       = []
+check       = ""
+
+# halo-voice — sentence-boundary TTS streaming CLI. Installs the binary to
+# ~/.cargo/bin (via `cargo install`). No systemd unit; the binary is invoked
+# on demand by `halo say`, `halo-echo`, and ad-hoc shell pipelines.
+[component.voice]
+description = "halo-voice CLI — LLM SSE → TTS streaming pipeline (binary only, no unit)"
+deps        = []
+build = [
+    ["cargo", "install", "--path", "crates/halo-voice", "--force", "--quiet"],
+]
+units = []
+check = ""
+
+# halo-echo — persistent WebSocket voice server on 127.0.0.1:8085. Wraps
+# halo-voice and ships Opus frames to browser clients.
+[component.echo]
+description = "halo-echo — WebSocket voice server on :8085 (Opus frames, wraps halo-voice)"
+deps        = ["voice"]
+build = [
+    ["cargo", "install", "--path", "crates/halo-echo", "--force", "--quiet"],
+]
+units = ["strix-echo.service"]
+check = ""
+
+# halo-mcp — stdio JSON-RPC MCP bridge. Installed as a binary only; Claude
+# Code / external MCP clients launch it on demand, no systemd unit.
+[component.mcp]
+description = "halo-mcp — stdio MCP bridge over halo-agents registry (binary only, no unit)"
+deps        = []
 build = [
     ["cargo", "install", "--path", "crates/halo-mcp", "--force", "--quiet"],
 ]
 units = []
 check = ""
 
-[component.voice]
+# strix-cloudflared — Cloudflare Tunnel to api.halo-ai.studio.
+# NOTE: installing this component ONLY copies the systemd unit + config
+# template into place. The operator MUST run `cloudflared tunnel login` +
+# `cloudflared tunnel create` + edit ~/.cloudflared/config.yml BEFORE
+# enabling the unit. See strixhalo/cloudflared/config.yml.template header.
+[component.tunnel]
+description = "cloudflared tunnel for api.halo-ai.studio (copies unit + template; operator must auth first)"
+deps        = []
+build       = []
+units       = []
+files = [
+    ["strixhalo/systemd/strix-cloudflared.service",  "systemd/user/strix-cloudflared.service"],
+    ["strixhalo/cloudflared/config.yml.template",    "cloudflared/config.yml.template"],
+]
+check       = ""
+
+[component.whisper-kokoro]
 description = "Whisper STT + Kokoro TTS (external repos, systemd only)"
 deps        = []
 build       = []

@@ -16,6 +16,7 @@
 //!   * One JSON-RPC object per `\n`-delimited line (Claude Code MCP
 //!     convention). No LSP `Content-Length` framing.
 
+pub mod memory;
 pub mod registry;
 pub mod server;
 pub mod skills;

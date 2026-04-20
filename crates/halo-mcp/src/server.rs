@@ -19,10 +19,11 @@
 
 use std::sync::{Arc, Mutex};
 
-use halo_agents::{Registry, SkillStore};
+use halo_agents::{MemoryStore, Registry, SkillStore};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 
+use crate::memory as memory_tool;
 use crate::registry::ToolRegistry;
 use crate::skills as skill_tool;
 
@@ -71,19 +72,21 @@ pub struct StdioServer {
     tools: ToolRegistry,
     agents: Arc<Registry>,
     skills: Arc<Mutex<SkillStore>>,
+    memory: Arc<Mutex<MemoryStore>>,
 }
 
 impl StdioServer {
     /// Construct a server from a tool registry, a shared agents registry,
-    /// and a shared skill store. The tool registry must already include
-    /// the `skill_manage` descriptor if callers want it surfaced in
-    /// `tools/list`.
+    /// a shared skill store, and a shared memory store. The tool registry
+    /// must already include the `skill_manage` + `memory_manage`
+    /// descriptors if callers want them surfaced in `tools/list`.
     pub fn new(
         tools: ToolRegistry,
         agents: Arc<Registry>,
         skills: Arc<Mutex<SkillStore>>,
+        memory: Arc<Mutex<MemoryStore>>,
     ) -> Self {
-        Self { tools, agents, skills }
+        Self { tools, agents, skills, memory }
     }
 
     /// Convenience: default tools derived from `halo_agents::Name::ALL`,
@@ -104,21 +107,35 @@ impl StdioServer {
         let agents = Arc::new(Registry::default_stubs());
         let mut tools = ToolRegistry::from_agents_registry(&agents);
         tools.push(skill_tool::tool());
+        tools.push(memory_tool::tool());
         let skills = SkillStore::new().unwrap_or_else(|_| {
             SkillStore::with_root(std::env::temp_dir().join("halo-mcp-skills-fallback"))
         });
-        Self::new(tools, agents, Arc::new(Mutex::new(skills)))
+        let memory = MemoryStore::new().unwrap_or_else(|_| {
+            MemoryStore::with_root(std::env::temp_dir().join("halo-mcp-memory-fallback"))
+                .expect("tempdir memory fallback")
+        });
+        Self::new(
+            tools,
+            agents,
+            Arc::new(Mutex::new(skills)),
+            Arc::new(Mutex::new(memory)),
+        )
     }
 
     /// Test-friendly constructor: wires the default agents registry but
-    /// roots the skill store at an arbitrary path (tempdir in tests).
-    /// Adds `skill_manage` to the tool registry.
+    /// roots the skill + memory stores at arbitrary paths (tempdir in
+    /// tests). Adds `skill_manage` + `memory_manage` to the tool registry.
     pub fn with_skill_root(root: std::path::PathBuf) -> Self {
         let agents = Arc::new(Registry::default_stubs());
         let mut tools = ToolRegistry::from_agents_registry(&agents);
         tools.push(skill_tool::tool());
-        let skills = Arc::new(Mutex::new(SkillStore::with_root(root)));
-        Self::new(tools, agents, skills)
+        tools.push(memory_tool::tool());
+        let skills = Arc::new(Mutex::new(SkillStore::with_root(root.clone())));
+        let memory = Arc::new(Mutex::new(
+            MemoryStore::with_root(root.join("memories")).expect("memory tempdir"),
+        ));
+        Self::new(tools, agents, skills, memory)
     }
 
     /// Borrow the underlying tool registry (useful for metrics / tests).
@@ -134,6 +151,11 @@ impl StdioServer {
     /// Borrow the shared skill store.
     pub fn skills(&self) -> &Arc<Mutex<SkillStore>> {
         &self.skills
+    }
+
+    /// Borrow the shared memory store.
+    pub fn memory(&self) -> &Arc<Mutex<MemoryStore>> {
+        &self.memory
     }
 
     /// Handle a single parsed JSON-RPC request, returning the response.
@@ -208,12 +230,14 @@ impl StdioServer {
             return make_err(id, err::UNKNOWN_TOOL, format!("unknown tool: {name}"));
         }
 
-        // `skill_manage` is not a specialist — it mutates the on-disk
-        // SKILL.md store directly. Route it before the agents dispatch.
-        // Errors surface as an MCP `isError` content block, same as the
-        // specialist path.
+        // `skill_manage` + `memory_manage` are not specialists — they
+        // mutate on-disk files directly. Route them before the agents
+        // dispatch. Errors surface as an MCP `isError` content block,
+        // same as the specialist path.
         let payload = if name == skill_tool::TOOL_NAME {
             skill_tool::handle(&self.skills, args)
+        } else if name == memory_tool::TOOL_NAME {
+            memory_tool::handle(&self.memory, args)
         } else {
             // Forward to the agents registry. A dispatch error here means
             // the specialist itself rejected the payload; surface it as an
@@ -315,8 +339,8 @@ mod tests {
             .await;
         assert_eq!(resp["id"], "x");
         let tools = resp["result"]["tools"].as_array().expect("tools array");
-        // 17 specialists + skill_manage.
-        assert_eq!(tools.len(), 18);
+        // 17 specialists + skill_manage + memory_manage.
+        assert_eq!(tools.len(), 19);
 
         let got: Vec<&str> = tools
             .iter()
@@ -324,7 +348,8 @@ mod tests {
             .collect();
         let mut want: Vec<&str> = Name::ALL.iter().map(|n| n.as_str()).collect();
         want.push(crate::skills::TOOL_NAME);
-        assert_eq!(got, want, "tools/list order must match Name::ALL + skill_manage");
+        want.push(crate::memory::TOOL_NAME);
+        assert_eq!(got, want, "tools/list order must match Name::ALL + skill_manage + memory_manage");
 
         for t in tools {
             assert!(t["name"].is_string());
@@ -505,7 +530,7 @@ mod tests {
         let r2: Value = serde_json::from_str(lines[1]).unwrap();
         assert_eq!(r1["id"], 1);
         // 17 specialists + skill_manage.
-        assert_eq!(r1["result"]["tools"].as_array().unwrap().len(), 18);
+        assert_eq!(r1["result"]["tools"].as_array().unwrap().len(), 19);
         assert_eq!(r2["id"], 2);
         assert_eq!(r2["result"]["serverInfo"]["name"], SERVER_NAME);
     }
