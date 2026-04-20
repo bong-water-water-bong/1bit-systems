@@ -3,7 +3,7 @@
 
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
@@ -24,16 +24,77 @@ struct Component {
     build: Vec<Vec<String>>,
     #[serde(default)]
     units: Vec<String>,
-    /// Tracked files to copy into the user's config tree. Each entry is
-    /// `[source_relative_to_workspace, dest_relative_to_user_config_root]`.
-    /// Destination root is `$XDG_CONFIG_HOME` (default `~/.config`).
-    /// This is how the `tunnel` component drops a systemd user unit +
-    /// cloudflared config template onto a fresh box without needing a
-    /// build step or enabling the unit (operator must auth first).
+    /// Distro packages required for the component to function. Advisory
+    /// only — halo install does NOT run `pacman -S` on the operator's
+    /// box; install.sh is the one place that actually installs system
+    /// packages. The field is surfaced in `halo install --list` and in
+    /// `halo install <component>` logs so a missing `xrt` etc. is
+    /// visible rather than silently failing at runtime.
     #[serde(default)]
-    files: Vec<Vec<String>>,
+    packages: Vec<String>,
+    /// Tracked files to copy into the user's config tree. Two supported
+    /// shapes (see `FileEntry`):
+    ///
+    ///   files = [["src", "dest"], ...]                         # legacy pair
+    ///   files = [{ src = "src", dst = "dest",                  # new table
+    ///              substitute = { USER = "$USER" } }, ...]
+    ///
+    /// The destination root is `$XDG_CONFIG_HOME` (default `~/.config`),
+    /// UNLESS the destination is absolute (starts with `/`), in which case
+    /// it is written to that absolute path via `sudo tee` — this is how
+    /// the `npu` component drops `/etc/security/limits.d/99-npu-memlock.conf`
+    /// without the operator having to copy it by hand.
+    #[serde(default)]
+    files: Vec<FileEntry>,
     #[serde(default)]
     check: String,
+}
+
+/// A tracked-file entry in `packages.toml`. Accepts both legacy pair form
+/// (`["src", "dest"]`) and the new table form with optional `substitute`
+/// placeholders. Deserialized with `#[serde(untagged)]` so existing
+/// components keep working.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum FileEntry {
+    /// `[src, dest]` — legacy.
+    Pair(Vec<String>),
+    /// `{ src, dst, substitute }` — new.
+    Table {
+        src: String,
+        dst: String,
+        #[serde(default)]
+        substitute: HashMap<String, String>,
+    },
+}
+
+impl FileEntry {
+    fn src(&self) -> Result<&str> {
+        match self {
+            FileEntry::Pair(v) => match v.as_slice() {
+                [s, _] => Ok(s.as_str()),
+                other => bail!("files entry must be [src, dest], got {other:?}"),
+            },
+            FileEntry::Table { src, .. } => Ok(src.as_str()),
+        }
+    }
+
+    fn dst(&self) -> Result<&str> {
+        match self {
+            FileEntry::Pair(v) => match v.as_slice() {
+                [_, d] => Ok(d.as_str()),
+                other => bail!("files entry must be [src, dest], got {other:?}"),
+            },
+            FileEntry::Table { dst, .. } => Ok(dst.as_str()),
+        }
+    }
+
+    fn substitute(&self) -> HashMap<String, String> {
+        match self {
+            FileEntry::Pair(_) => HashMap::new(),
+            FileEntry::Table { substitute, .. } => substitute.clone(),
+        }
+    }
 }
 
 fn parse() -> Result<Manifest> {
@@ -68,6 +129,9 @@ pub async fn list() -> Result<()> {
         println!("  {:<16} {}", name, c.description);
         if !c.deps.is_empty() {
             println!("  {:<16}   deps: {}", "", c.deps.join(", "));
+        }
+        if !c.packages.is_empty() {
+            println!("  {:<16}   packages: {}", "", c.packages.join(", "));
         }
     }
     Ok(())
@@ -109,26 +173,100 @@ fn run(root: &Path, argv: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// Copy a single tracked file from the workspace into the user's config
-/// tree. Creates parent dirs as needed. Does NOT overwrite an existing
-/// destination (operator may have already customized it) — prints a
-/// "skip (exists)" note instead.
-fn copy_tracked_file(root: &Path, cfg_root: &Path, src_rel: &str, dest_rel: &str) -> Result<()> {
+/// Expand placeholder values in a `substitute` map. Supports `$USER`
+/// (most common), `$HOME`, and literal string values. Returns the
+/// concrete replacement string for a placeholder.
+fn expand_placeholder(raw: &str) -> String {
+    match raw {
+        "$USER" => std::env::var("USER").unwrap_or_default(),
+        "$HOME" => std::env::var("HOME").unwrap_or_default(),
+        other => other.to_string(),
+    }
+}
+
+/// Render a tracked file's contents, substituting `@KEY@` placeholders
+/// with the expanded value for each entry in `subs`. With an empty map
+/// this is a straight file read.
+fn render_tracked(src: &Path, subs: &HashMap<String, String>) -> Result<Vec<u8>> {
+    let raw = std::fs::read_to_string(src)
+        .with_context(|| format!("read {}", src.display()))?;
+    let mut out = raw;
+    for (key, raw_val) in subs {
+        let needle = format!("@{key}@");
+        let value = expand_placeholder(raw_val);
+        out = out.replace(&needle, &value);
+    }
+    Ok(out.into_bytes())
+}
+
+/// Copy a single tracked file from the workspace into either the user's
+/// config tree (relative dest) or an absolute path (e.g.
+/// `/etc/security/limits.d/*`) via `sudo tee`. Creates parent dirs as
+/// needed. Does NOT overwrite an existing destination (operator may have
+/// already customized it) — prints a "skip (exists)" note instead.
+///
+/// If `subs` is non-empty, `@KEY@` placeholders in the source file are
+/// replaced with the expansion of each value before the write.
+fn copy_tracked_file(
+    root: &Path,
+    cfg_root: &Path,
+    src_rel: &str,
+    dest_rel: &str,
+    subs: &HashMap<String, String>,
+) -> Result<()> {
     let src = root.join(src_rel);
-    let dest = cfg_root.join(dest_rel);
     if !src.is_file() {
         bail!("tracked file not found: {}", src.display());
     }
+
+    // Absolute destinations go to the real filesystem via sudo tee. This
+    // lets `npu` drop `/etc/security/limits.d/99-npu-memlock.conf` as
+    // part of `halo install core` without a separate shell step.
+    let dest_is_absolute = Path::new(dest_rel).is_absolute();
+    let dest = if dest_is_absolute {
+        PathBuf::from(dest_rel)
+    } else {
+        cfg_root.join(dest_rel)
+    };
+
     if dest.exists() {
         println!("    skip (exists): {}", dest.display());
         return Ok(());
     }
+
+    let rendered = render_tracked(&src, subs)?;
+
+    if dest_is_absolute {
+        // System path. Use `sudo tee` so the operator gets one auth
+        // prompt instead of a panic on EACCES.
+        println!("    installing (sudo) {} → {}", src_rel, dest.display());
+        let mut child = Command::new("sudo")
+            .args(["tee", dest.to_str().ok_or_else(|| anyhow::anyhow!("bad dest path"))?])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .with_context(|| format!("spawn sudo tee {}", dest.display()))?;
+        {
+            use std::io::Write;
+            let stdin = child.stdin.as_mut()
+                .ok_or_else(|| anyhow::anyhow!("no stdin for sudo tee"))?;
+            stdin.write_all(&rendered)
+                .with_context(|| format!("write to sudo tee for {}", dest.display()))?;
+        }
+        let status = child.wait()
+            .with_context(|| format!("wait sudo tee for {}", dest.display()))?;
+        if !status.success() {
+            bail!("sudo tee failed for {}", dest.display());
+        }
+        return Ok(());
+    }
+
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("mkdir {}", parent.display()))?;
     }
-    std::fs::copy(&src, &dest)
-        .with_context(|| format!("copy {} → {}", src.display(), dest.display()))?;
+    std::fs::write(&dest, &rendered)
+        .with_context(|| format!("write {}", dest.display()))?;
     println!("    copied {} → {}", src_rel, dest.display());
     Ok(())
 }
@@ -147,16 +285,22 @@ pub async fn run_install(component: &str) -> Result<()> {
         let c = &m.component[name];
         println!("── {name}: {} ──", c.description);
 
+        if !c.packages.is_empty() {
+            println!(
+                "    required distro packages: {} (install via install.sh / pacman)",
+                c.packages.join(", ")
+            );
+        }
+
         for step in &c.build { run(root, step)?; }
 
-        for pair in &c.files {
-            let (src_rel, dest_rel) = match pair.as_slice() {
-                [s, d] => (s.as_str(), d.as_str()),
-                other => bail!(
-                    "component '{name}': files entry must be [src, dest], got {other:?}"
-                ),
-            };
-            copy_tracked_file(root, &cfg_root, src_rel, dest_rel)?;
+        for entry in &c.files {
+            let src_rel = entry.src()
+                .with_context(|| format!("component '{name}' files entry"))?;
+            let dest_rel = entry.dst()
+                .with_context(|| format!("component '{name}' files entry"))?;
+            let subs = entry.substitute();
+            copy_tracked_file(root, &cfg_root, src_rel, dest_rel, &subs)?;
         }
 
         for unit in &c.units {
@@ -241,12 +385,19 @@ mod tests {
         let tunnel = &m.component["tunnel"];
         assert!(tunnel.build.is_empty(), "tunnel must not run a cargo build");
         assert!(tunnel.units.is_empty(), "tunnel must not auto-enable the unit");
+        let tunnel_has = |needle: &str| {
+            tunnel.files.iter().any(|f| {
+                let src = f.src().unwrap_or("");
+                let dst = f.dst().unwrap_or("");
+                src.contains(needle) || dst.contains(needle)
+            })
+        };
         assert!(
-            tunnel.files.iter().any(|f| f.iter().any(|p| p.contains("strix-cloudflared.service"))),
+            tunnel_has("strix-cloudflared.service"),
             "tunnel must copy strix-cloudflared.service"
         );
         assert!(
-            tunnel.files.iter().any(|f| f.iter().any(|p| p.contains("config.yml.template"))),
+            tunnel_has("config.yml.template"),
             "tunnel must copy the cloudflared config.yml.template"
         );
     }
@@ -310,18 +461,19 @@ mod tests {
         }
     }
 
-    /// Every `files = [[src, dest], ...]` source must resolve to a tracked
-    /// file in the workspace. This is the check that catches a missing
-    /// `strixhalo/cloudflared/config.yml.template` before a fresh box hits
-    /// the runtime error.
+    /// Every `files = [...]` source (pair or table form) must resolve to
+    /// a tracked file in the workspace. This is the check that catches a
+    /// missing `strixhalo/cloudflared/config.yml.template` before a fresh
+    /// box hits the runtime error.
     #[test]
     fn declared_tracked_files_exist_on_disk() {
         let m = parse().unwrap();
         let root = workspace_root();
         for (name, c) in &m.component {
-            for pair in &c.files {
-                assert_eq!(pair.len(), 2, "component '{name}' files entry must be [src, dest]");
-                let src = root.join(&pair[0]);
+            for entry in &c.files {
+                let src_rel = entry.src()
+                    .unwrap_or_else(|e| panic!("component '{name}' files entry: {e}"));
+                let src = root.join(src_rel);
                 assert!(
                     src.is_file(),
                     "component '{name}' points at missing tracked file {src:?}"
@@ -360,7 +512,7 @@ mod tests {
         let m = parse().unwrap();
         let names: Vec<&str> = m.component.keys().map(String::as_str).collect();
         for required in [
-            "core", "voice", "echo", "mcp", "tunnel",
+            "core", "voice", "echo", "mcp", "tunnel", "npu",
             "power", "lemonade", "landing", "gaia",
         ] {
             assert!(
@@ -433,7 +585,7 @@ mod tests {
 
     /// Parsing a synthetic manifest with a `files = [[src, dest]]` entry
     /// should deserialize into the new `files` vector. Guards against a
-    /// future refactor accidentally dropping the field.
+    /// future refactor accidentally dropping the legacy pair shape.
     #[test]
     fn files_field_deserializes() {
         let src = r#"
@@ -446,7 +598,93 @@ files = [
         let m = parse_src(src).unwrap();
         let c = &m.component["example"];
         assert_eq!(c.files.len(), 1);
-        assert_eq!(c.files[0][0], "strixhalo/systemd/strix-cloudflared.service");
-        assert_eq!(c.files[0][1], "systemd/user/strix-cloudflared.service");
+        assert_eq!(c.files[0].src().unwrap(), "strixhalo/systemd/strix-cloudflared.service");
+        assert_eq!(c.files[0].dst().unwrap(), "systemd/user/strix-cloudflared.service");
+        assert!(c.files[0].substitute().is_empty(), "pair form carries no substitutions");
+    }
+
+    // ───────────────────────────────────────────────────────────
+    // NPU component tests (2026-04-20)
+    // ───────────────────────────────────────────────────────────
+
+    /// The `npu` component must be declared in `packages.toml`, declare
+    /// both XRT packages (as a documentation-of-intent note; install.sh
+    /// actually runs pacman), and drop the memlock config template via
+    /// the new table-form `files` entry with `substitute = { USER = "$USER" }`.
+    /// Also verifies that `halo install --list` (the `list` fn's data) will
+    /// include "npu" and that `halo install core` transitively installs it.
+    #[test]
+    fn npu_component_declared_with_substitute() {
+        let m = parse().expect("packages.toml must parse");
+
+        // `halo install --list` coverage — the `list` fn iterates
+        // `m.component` and the keys must include "npu".
+        let names: Vec<&str> = m.component.keys().map(String::as_str).collect();
+        assert!(
+            names.contains(&"npu"),
+            "halo install --list must include 'npu', got {names:?}"
+        );
+
+        let npu = m.component.get("npu").expect("component.npu must exist");
+        // core must pull in npu so fresh-box `halo install core` wires
+        // the NPU userspace automatically.
+        let core = &m.component["core"];
+        assert!(
+            core.deps.iter().any(|d| d == "npu"),
+            "core must depend on 'npu' (got {:?})",
+            core.deps
+        );
+
+        // The two XRT packages from CachyOS extra must be declared so
+        // `halo install --list` surfaces them.
+        for pkg in ["xrt", "xrt-plugin-amdxdna"] {
+            assert!(
+                npu.packages.iter().any(|p| p == pkg),
+                "npu must declare distro package '{pkg}', got {:?}",
+                npu.packages
+            );
+        }
+
+        // Files list must contain the memlock template → absolute-path
+        // install at /etc/security/limits.d/ with substitute USER=$USER.
+        let mut saw = false;
+        for entry in &npu.files {
+            let src = entry.src().unwrap();
+            let dst = entry.dst().unwrap();
+            if src == "strixhalo/security/99-npu-memlock.conf.tmpl"
+                && dst == "/etc/security/limits.d/99-npu-memlock.conf"
+            {
+                let subs = entry.substitute();
+                assert_eq!(
+                    subs.get("USER").map(String::as_str),
+                    Some("$USER"),
+                    "npu memlock entry must declare substitute.USER = \"$USER\", got {subs:?}"
+                );
+                saw = true;
+            }
+        }
+        assert!(saw, "npu must declare the memlock limits.d template file");
+    }
+
+    /// New-schema parse: a synthetic `files = [{ src, dst, substitute }]`
+    /// entry must deserialize into the table variant with its substitute
+    /// map intact. This is the direct parse-level guard that the
+    /// `substitute = { USER = "$USER" }` field round-trips.
+    #[test]
+    fn files_table_form_with_substitute_deserializes() {
+        let src = r#"
+[component.npu]
+description = "x"
+files = [
+  { src = "strixhalo/security/99-npu-memlock.conf.tmpl", dst = "/etc/security/limits.d/99-npu-memlock.conf", substitute = { USER = "$USER" } },
+]
+"#;
+        let m = parse_src(src).unwrap();
+        let c = &m.component["npu"];
+        assert_eq!(c.files.len(), 1);
+        assert_eq!(c.files[0].src().unwrap(), "strixhalo/security/99-npu-memlock.conf.tmpl");
+        assert_eq!(c.files[0].dst().unwrap(), "/etc/security/limits.d/99-npu-memlock.conf");
+        let subs = c.files[0].substitute();
+        assert_eq!(subs.get("USER").map(String::as_str), Some("$USER"));
     }
 }

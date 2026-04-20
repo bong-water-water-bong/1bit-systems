@@ -35,6 +35,15 @@ pub mod backend_impl;
 pub mod detect;
 pub mod tokenizer;
 
+// The XDNA 2 FFI crate is a compile-time dep so flipping halo-router's
+// `real-xdna` feature propagates to `halo-bitnet-xdna/real-xrt`. We don't
+// call into it yet — see `Router::generate`'s routing guard — but keeping
+// the `use` here ensures any future NPU wiring has a live import path,
+// and that `cargo` doesn't garbage-collect the dep when link-time pruning
+// kicks in.
+#[allow(unused_imports)]
+use halo_bitnet_xdna as _xdna;
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -46,6 +55,104 @@ pub use backend_impl::{BackendError, HipBackend, ModelFormat, sniff_model_format
 pub use detect::{BackendKind, detect};
 
 // Re-exported below once the type is declared — see PerplexityResult.
+
+/// Caller-selectable forward-pass backend.
+///
+/// Distinct from [`BackendKind`], which is the *detected* hardware family —
+/// [`Backend`] is the *requested* dispatch surface. The two coincide today
+/// (both default to HIP on gfx1151), but they diverge once the NPU lands:
+/// `Backend::Xdna` is chosen explicitly via `HALO_BACKEND=xdna` or
+/// [`RouterConfig::backend`] and routes long-prompt prefills to the XDNA 2
+/// NPU through [`halo_bitnet_xdna`] while decode stays on the iGPU.
+///
+/// Variants:
+///
+/// * [`Backend::Hip`] — AMD gfx1151 iGPU via `halo-bitnet-hip`. Default.
+/// * [`Backend::Xdna`] — XDNA 2 NPU via `halo-bitnet-xdna`. Prefill-only,
+///   crossover at prompt length ≥ 33. Stub today; real dispatch wires on
+///   once Peano lands a working xclbin (see
+///   `docs/wiki/NPU-Kernel-Design.md`).
+/// * [`Backend::Cpu`] — host fallback. Not implemented; constructing a
+///   router with `Backend::Cpu` is accepted but any forward pass will
+///   surface [`BackendError::NotYetWired`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Backend {
+    /// gfx1151 iGPU path via `halo-bitnet-hip` (the production path).
+    Hip,
+    /// XDNA 2 NPU path via `halo-bitnet-xdna`. Prefill only, feature-gated
+    /// behind `real-xdna`; in default builds forward() returns
+    /// [`BackendError::NotYetWired`] for prompts ≥ 33 tokens.
+    Xdna,
+    /// Host CPU fallback. Placeholder — no kernels wired.
+    Cpu,
+}
+
+impl Backend {
+    /// Parse a `HALO_BACKEND=...` value. Case-insensitive. Accepted
+    /// spellings: `hip`, `xdna`, `cpu`. Any other value returns an error
+    /// that names all three accepted spellings so operators see the valid
+    /// set without having to `grep` the source.
+    pub fn parse_env(raw: &str) -> Result<Self, BackendError> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "hip" => Ok(Backend::Hip),
+            "xdna" => Ok(Backend::Xdna),
+            "cpu" => Ok(Backend::Cpu),
+            other => Err(BackendError::Other(format!(
+                "HALO_BACKEND: unknown value {other:?}; accepted: hip | xdna | cpu"
+            ))),
+        }
+    }
+
+    /// Human-readable label for logs / `/v1/models`.
+    pub fn label(self) -> &'static str {
+        match self {
+            Backend::Hip => "hip",
+            Backend::Xdna => "xdna",
+            Backend::Cpu => "cpu",
+        }
+    }
+}
+
+impl Default for Backend {
+    fn default() -> Self {
+        Backend::Hip
+    }
+}
+
+/// Prompt-length threshold above which [`Backend::Xdna`] claims the prefill
+/// pass. Below this the HIP path handles the whole forward (NPU kernel
+/// launch overhead dominates for short prompts).
+///
+/// Aspirational target from
+/// `docs/wiki/Peak-Performance-Projection.md`; tune once the xclbin lands.
+pub const XDNA_PREFILL_MIN_TOKENS: usize = 33;
+
+/// Router configuration — which forward-pass backend to dispatch on.
+///
+/// Constructed either explicitly by the server layer or via
+/// [`RouterConfig::from_env`], which reads `HALO_BACKEND` and falls back to
+/// [`Backend::Hip`] when unset. Separate struct (rather than a bare enum
+/// argument on `Router::new_with`) so we have a natural place to grow
+/// knobs like a prefill-threshold override or an XDNA kernel-cache path
+/// without churning call sites.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RouterConfig {
+    /// Which execution surface the router dispatches the forward pass to.
+    pub backend: Backend,
+}
+
+impl RouterConfig {
+    /// Build a config from the `HALO_BACKEND` env var. Unset → defaults
+    /// (Hip). Set but unparsable → [`BackendError::Other`].
+    pub fn from_env() -> Result<Self, BackendError> {
+        match std::env::var("HALO_BACKEND") {
+            Ok(raw) if !raw.is_empty() => Ok(Self {
+                backend: Backend::parse_env(&raw)?,
+            }),
+            _ => Ok(Self::default()),
+        }
+    }
+}
 
 /// Sampling + stopping parameters forwarded through the router.
 ///
@@ -98,6 +205,10 @@ pub struct Router {
     inner: Arc<Mutex<Inner>>,
     model_id: String,
     kind: BackendKind,
+    /// Caller-selected dispatch surface. Separate from `kind` (which is
+    /// *detected* hardware); `backend` is what the operator asked for via
+    /// `HALO_BACKEND` / [`RouterConfig`].
+    backend: Backend,
 }
 
 struct Inner {
@@ -112,22 +223,49 @@ impl Router {
     /// is resolved by taking the model path and replacing `.h1b` with
     /// `.htok`.
     ///
+    /// Dispatch backend is taken from the `HALO_BACKEND` env var (via
+    /// [`RouterConfig::from_env`]); set to `hip` (default), `xdna`, or
+    /// `cpu`.
+    ///
     /// Fails if no supported backend is available on this host.
     pub fn new(h1b_path: impl AsRef<Path>) -> Result<Self, BackendError> {
         let h1b_path = h1b_path.as_ref();
         let htok_path = default_htok_path(h1b_path);
         let model_id = default_model_id(h1b_path);
 
-        Self::new_with(h1b_path, &htok_path, model_id, 4096)
+        let cfg = RouterConfig::from_env()?;
+        Self::new_with_config(h1b_path, &htok_path, model_id, 4096, cfg)
     }
 
     /// Full constructor — lets the caller pin the tokenizer location,
-    /// model id, and max KV cache size.
+    /// model id, and max KV cache size. Backend defaults to `Hip`.
     pub fn new_with(
         h1b_path: &Path,
         htok_path: &Path,
         model_id: String,
         max_context: usize,
+    ) -> Result<Self, BackendError> {
+        Self::new_with_config(
+            h1b_path,
+            htok_path,
+            model_id,
+            max_context,
+            RouterConfig::default(),
+        )
+    }
+
+    /// Full constructor with an explicit [`RouterConfig`]. This is the
+    /// call site that actually reads `cfg.backend` and pins it onto the
+    /// returned router. The weight-load path is still HIP-only: even
+    /// under `Backend::Xdna`, weights upload to the iGPU today because
+    /// the NPU's weight surface isn't defined yet. The dispatch decision
+    /// happens inside [`Router::generate`] — see the routing guard there.
+    pub fn new_with_config(
+        h1b_path: &Path,
+        htok_path: &Path,
+        model_id: String,
+        max_context: usize,
+        cfg: RouterConfig,
     ) -> Result<Self, BackendError> {
         let kind = detect();
         match kind {
@@ -135,7 +273,8 @@ impl Router {
                 let backend = HipBackend::new(h1b_path, htok_path, model_id.clone(), max_context)?;
                 tracing::info!(
                     model_id,
-                    backend = %kind.label(),
+                    hw = %kind.label(),
+                    requested = cfg.backend.label(),
                     label = backend.label(),
                     "router ready"
                 );
@@ -143,6 +282,7 @@ impl Router {
                     inner: Arc::new(Mutex::new(Inner { backend, pos: 0 })),
                     model_id,
                     kind,
+                    backend: cfg.backend,
                 })
             }
             BackendKind::Mlx => {
@@ -161,9 +301,24 @@ impl Router {
         &self.model_id
     }
 
-    /// Which backend family the router selected.
+    /// Which backend family the *hardware detection* selected.
     pub fn backend_kind(&self) -> BackendKind {
         self.kind
+    }
+
+    /// Which dispatch surface the *operator asked for* (via `HALO_BACKEND`
+    /// or an explicit [`RouterConfig`]).
+    pub fn backend(&self) -> Backend {
+        self.backend
+    }
+
+    /// Evaluate the prefill-routing decision without running the forward
+    /// pass. Factored out of [`Router::generate`] so both sync and stream
+    /// paths (and tests) share the same policy.
+    ///
+    /// Delegates to [`prefill_routing_decision`] with `self.backend`.
+    pub fn check_prefill_routing(&self, prompt_tokens: usize) -> Result<(), BackendError> {
+        prefill_routing_decision(self.backend, prompt_tokens)
     }
 
     /// Non-streaming generation. Blocks the calling task while the
@@ -171,9 +326,10 @@ impl Router {
     /// caller is on a shared runtime thread.
     pub async fn generate(&self, req: RouterRequest) -> Result<RouterResponse, BackendError> {
         let inner = self.inner.clone();
+        let backend = self.backend;
         tokio::task::spawn_blocking(move || {
             let mut guard = inner.blocking_lock();
-            generate_blocking(&mut guard, req, None)
+            generate_blocking(&mut guard, req, None, backend)
         })
         .await
         .map_err(|e| BackendError::Other(format!("blocking task join: {e}")))?
@@ -192,6 +348,7 @@ impl Router {
         BackendError,
     > {
         let inner = self.inner.clone();
+        let backend = self.backend;
         let (tx, rx) = tokio::sync::mpsc::channel::<Result<String, BackendError>>(64);
         tokio::task::spawn_blocking(move || {
             let mut guard = inner.blocking_lock();
@@ -200,7 +357,7 @@ impl Router {
                 // If the client hung up we cannot do anything useful; drop.
                 let _ = tx_clone.blocking_send(Ok(delta));
             };
-            if let Err(e) = generate_blocking(&mut guard, req, Some(Box::new(sink))) {
+            if let Err(e) = generate_blocking(&mut guard, req, Some(Box::new(sink)), backend) {
                 let _ = tx.blocking_send(Err(e));
             }
         });
@@ -383,12 +540,26 @@ fn generate_blocking(
     inner: &mut Inner,
     req: RouterRequest,
     mut on_delta: Option<Box<dyn FnMut(String) + Send>>,
+    backend: Backend,
 ) -> Result<RouterResponse, BackendError> {
     // ---- Tokenize prompt ----
     let prompt_ids: Vec<TokenId> = inner.backend.tokenize(&req.prompt);
     if prompt_ids.is_empty() {
         return Err(BackendError::BadInput("empty prompt after tokenization"));
     }
+
+    // ---- Routing guard ----
+    //
+    // Today this is the whole XDNA 2 integration: we check whether the
+    // operator asked for the NPU + the prompt is long enough to be worth
+    // prefilling there, and if so we refuse gracefully with
+    // `BackendError::NotYetWired`. Flipping the real path on is a matter
+    // of (a) building halo-router with `--features real-xdna`, (b) dropping
+    // a Peano-compiled xclbin where the shim expects, and (c) replacing
+    // the error arm with an actual `halo_bitnet_xdna::XdnaDevice::run_kernel`
+    // dispatch. Until then the fall-through to the HIP path is the happy
+    // path for every caller.
+    prefill_routing_decision(backend, prompt_ids.len())?;
 
     let prompt_tokens = prompt_ids.len() as u32;
     let max_new = req.max_new_tokens.max(1) as usize;
@@ -495,6 +666,42 @@ fn default_model_id(h1b_path: &Path) -> String {
 // (thiserror's `#[from]` on the `Halo` / `Hip` variants already generates
 // the `From<HaloError>` / `From<RcppError>` impls the `?` operator needs.)
 
+/// Standalone routing-policy function. `Ok(())` = safe to dispatch on the
+/// current HIP path. `Err(BackendError::NotYetWired(...))` = the caller
+/// selected a backend whose real dispatch is not compiled / loaded yet.
+///
+/// Rules:
+///
+/// * [`Backend::Hip`] → always OK.
+/// * [`Backend::Xdna`] with `prompt_tokens >= `[`XDNA_PREFILL_MIN_TOKENS`]
+///   → `NotYetWired("NPU prefill backend not loaded — build xclbin via
+///   Peano first, see docs/wiki/NPU-Kernel-Design.md")`.
+/// * [`Backend::Xdna`] with a shorter prompt → OK (we fall through to HIP
+///   decode; the NPU isn't worth its launch overhead on tiny prompts).
+/// * [`Backend::Cpu`] → always `NotYetWired` (no CPU kernels yet).
+///
+/// Separate from [`Router::check_prefill_routing`] so tests don't need to
+/// stand up a Router (which requires HIP + a real .h1b). Both paths share
+/// this implementation, so asserting against this function also validates
+/// the live `generate` path byte-for-byte.
+pub fn prefill_routing_decision(
+    backend: Backend,
+    prompt_tokens: usize,
+) -> Result<(), BackendError> {
+    match backend {
+        Backend::Hip => Ok(()),
+        Backend::Xdna if prompt_tokens >= XDNA_PREFILL_MIN_TOKENS => {
+            Err(BackendError::NotYetWired(
+                "NPU prefill backend not loaded — build xclbin via Peano first, see docs/wiki/NPU-Kernel-Design.md",
+            ))
+        }
+        Backend::Xdna => Ok(()),
+        Backend::Cpu => Err(BackendError::NotYetWired(
+            "CPU fallback backend is unimplemented — set HALO_BACKEND=hip",
+        )),
+    }
+}
+
 #[cfg(test)]
 mod ppl_math_tests {
     //! Unit tests for the PPL math helpers. These are GPU-free — they
@@ -556,5 +763,129 @@ mod ppl_math_tests {
             let nb = neg_log_softmax_at(&b, t as i32);
             assert!((na - nb).abs() < 1e-6, "shift not invariant at t={t}: {na} vs {nb}");
         }
+    }
+}
+
+#[cfg(test)]
+mod backend_config_tests {
+    //! Tests for the `Backend` enum + `RouterConfig` env-var plumbing +
+    //! the prefill-routing guard that gates XDNA 2 NPU dispatch.
+    //!
+    //! These are GPU-free: they exercise parsing and policy, never the
+    //! forward pass. The "forward returns NotYetWired" test goes through
+    //! [`prefill_routing_decision`], which is the same function
+    //! [`generate_blocking`] calls — so a pass here means the live
+    //! `Router::generate` path would surface the identical error.
+    //!
+    //! Env-var tests serialize through a Mutex because `std::env::set_var`
+    //! mutates process-global state and other tests in the same binary
+    //! can race with it.
+    use super::*;
+    use std::sync::Mutex;
+
+    /// Serialize the env-var tests — `std::env` is process-global.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Rule: the default dispatch surface is HIP. Gen-1 + gen-2 ship this
+    /// way; flipping the default would silently send CI boxes without
+    /// `HALO_BACKEND` set off the happy path.
+    #[test]
+    fn default_backend_is_hip() {
+        assert_eq!(Backend::default(), Backend::Hip);
+        assert_eq!(RouterConfig::default().backend, Backend::Hip);
+    }
+
+    /// `HALO_BACKEND=xdna` must parse to `Backend::Xdna` and land on the
+    /// RouterConfig. Case-insensitive + whitespace-tolerant.
+    #[test]
+    fn halo_backend_env_parses_xdna() {
+        let _g = ENV_LOCK.lock().unwrap();
+        // SAFETY: edition-2024 moved env mutation behind unsafe. We're
+        // single-threaded inside the lock.
+        unsafe { std::env::set_var("HALO_BACKEND", "xdna"); }
+        let cfg = RouterConfig::from_env().expect("parse");
+        assert_eq!(cfg.backend, Backend::Xdna);
+
+        // Whitespace / case tolerance — ops tooling isn't always tidy.
+        unsafe { std::env::set_var("HALO_BACKEND", "  XDNA\n"); }
+        let cfg2 = RouterConfig::from_env().expect("parse");
+        assert_eq!(cfg2.backend, Backend::Xdna);
+
+        // cpu round-trip too — keeps the three-way discriminator honest.
+        unsafe { std::env::set_var("HALO_BACKEND", "cpu"); }
+        let cfg3 = RouterConfig::from_env().expect("parse");
+        assert_eq!(cfg3.backend, Backend::Cpu);
+
+        unsafe { std::env::remove_var("HALO_BACKEND"); }
+    }
+
+    /// A garbage `HALO_BACKEND` value must error cleanly — no panic,
+    /// no silent fallback. Message must name the accepted spellings so
+    /// the operator knows the valid set.
+    #[test]
+    fn halo_backend_env_rejects_garbage() {
+        let _g = ENV_LOCK.lock().unwrap();
+        unsafe { std::env::set_var("HALO_BACKEND", "nonsense"); }
+        let err = RouterConfig::from_env().expect_err("should reject");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("hip") && msg.contains("xdna") && msg.contains("cpu"),
+            "error should list accepted spellings; got: {msg}"
+        );
+        unsafe { std::env::remove_var("HALO_BACKEND"); }
+    }
+
+    /// The NPU crossover threshold is literally 33 tokens; a 33-token
+    /// prompt on Backend::Xdna must refuse with the canonical
+    /// `NotYetWired` message. This is the exact arm the live
+    /// `generate_blocking` takes — same function, same string.
+    #[test]
+    fn xdna_long_prompt_returns_not_yet_wired() {
+        // Boundary: 33 tokens is at threshold → refuse.
+        let err = prefill_routing_decision(Backend::Xdna, XDNA_PREFILL_MIN_TOKENS)
+            .expect_err("xdna @ threshold must refuse");
+        match err {
+            BackendError::NotYetWired(msg) => {
+                assert_eq!(
+                    msg,
+                    "NPU prefill backend not loaded — build xclbin via Peano first, see docs/wiki/NPU-Kernel-Design.md",
+                    "stub message drifted — update memory + docs together"
+                );
+            }
+            other => panic!("expected NotYetWired, got {other:?}"),
+        }
+
+        // Comfortably over threshold — same arm.
+        let err = prefill_routing_decision(Backend::Xdna, 256)
+            .expect_err("long xdna prompt must refuse");
+        assert!(matches!(err, BackendError::NotYetWired(_)));
+
+        // Short prompt on Xdna: falls through (the NPU launch overhead
+        // isn't worth it for tiny prefills, so HIP handles it).
+        assert!(prefill_routing_decision(Backend::Xdna, 32).is_ok());
+        assert!(prefill_routing_decision(Backend::Xdna, 1).is_ok());
+
+        // Hip is always fine; Cpu always refuses.
+        assert!(prefill_routing_decision(Backend::Hip, 4096).is_ok());
+        assert!(matches!(
+            prefill_routing_decision(Backend::Cpu, 1).unwrap_err(),
+            BackendError::NotYetWired(_)
+        ));
+    }
+
+    /// Label round-trip: every variant must render a stable, unique string
+    /// for operator logs + `/v1/models`.
+    #[test]
+    fn backend_labels_are_unique() {
+        let hip = Backend::Hip.label();
+        let xdna = Backend::Xdna.label();
+        let cpu = Backend::Cpu.label();
+        assert_ne!(hip, xdna);
+        assert_ne!(xdna, cpu);
+        assert_ne!(hip, cpu);
+        // And parse-env round-trips through the canonical lowercase label.
+        assert_eq!(Backend::parse_env(hip).unwrap(), Backend::Hip);
+        assert_eq!(Backend::parse_env(xdna).unwrap(), Backend::Xdna);
+        assert_eq!(Backend::parse_env(cpu).unwrap(), Backend::Cpu);
     }
 }

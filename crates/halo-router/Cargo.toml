@@ -14,8 +14,15 @@ path = "src/lib.rs"
 [features]
 # Default: the router compiles without linking any GPU kernels (CI / check
 # friendly). Turn on `hip` to link halo-bitnet-hip's rocm-cpp kernels.
-default   = []
-hip       = ["halo-bitnet-hip/link-rocm"]
+#
+# `real-xdna` flips halo-bitnet-xdna out of stub mode into real libxrt
+# linkage. Off by default so `cargo build --workspace` stays green on
+# hosts without libxrt installed. Turn it on once Peano lands a working
+# xclbin — the Xdna backend arm in forward() will start actually dispatching
+# rather than returning the NotYetWired stub error.
+default    = []
+hip        = ["halo-bitnet-hip/link-rocm"]
+real-xdna  = ["halo-bitnet-xdna/real-xrt"]
 
 [dependencies]
 anyhow  = { workspace = true }
@@ -29,3 +36,7 @@ half      = { workspace = true }
 
 halo-core        = { workspace = true }
 halo-bitnet-hip  = { path = "../halo-bitnet-hip", default-features = false }
+# XDNA 2 NPU FFI crate. Default-features off + explicit stub so CI hosts
+# without libxrt still build. Flipping halo-router's own `real-xdna`
+# feature on propagates to halo-bitnet-xdna/real-xrt.
+halo-bitnet-xdna = { path = "../halo-bitnet-xdna", default-features = false, features = ["stub"] }

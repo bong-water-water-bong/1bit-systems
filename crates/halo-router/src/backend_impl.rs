@@ -154,6 +154,17 @@ pub enum BackendError {
     /// Caught bad inputs before kicking off GEMVs.
     #[error("bad input: {0}")]
     BadInput(&'static str),
+    /// A peer backend has been selected but its real dispatch path is not
+    /// compiled / loaded in this build. Surfaced today by the XDNA 2 NPU
+    /// arm of the router — the stub FFI crate is always built, but the
+    /// `real-xdna` feature (→ `halo-bitnet-xdna/real-xrt`) is off by
+    /// default and no Peano-compiled xclbin exists yet.
+    ///
+    /// This is not a panic on purpose: ops tooling treats it like any
+    /// other `BackendError` and can fall back to the HIP path by
+    /// retrying with `HALO_BACKEND=hip`.
+    #[error("{0}")]
+    NotYetWired(&'static str),
     /// Anything else.
     #[error("router: {0}")]
     Other(String),

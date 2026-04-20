@@ -8,8 +8,8 @@
 #   check       — optional HTTP healthcheck; 2xx = installed OK
 
 [component.core]
-description = "halo-ai core — halo CLI + halo-server + halo-lemonade gateway + halo-gaia TUI + landing page + voice/echo/mcp"
-deps        = ["voice", "echo", "mcp"]
+description = "halo-ai core — halo CLI + halo-server + halo-lemonade gateway + halo-gaia TUI + landing page + voice/echo/mcp + npu userspace"
+deps        = ["voice", "echo", "mcp", "npu"]
 build = [
     ["cargo", "install", "--path", "crates/halo-cli",      "--force", "--quiet"],
     ["cargo", "install", "--path", "crates/halo-server",   "--force", "--quiet",
@@ -64,6 +64,23 @@ build = [
     ["cargo", "install", "--path", "crates/halo-mcp", "--force", "--quiet"],
 ]
 units = []
+check = ""
+
+# npu — XDNA 2 NPU userspace. Declares package intent (xrt +
+# xrt-plugin-amdxdna from CachyOS `extra`) and drops the memlock
+# limits.d file via the new substitute-aware files[] entry. The
+# actual pacman call lives in install.sh; halo install itself only
+# deploys the config file (absolute-path writes go through sudo tee).
+# Operator must re-login for memlock=unlimited to take effect.
+[component.npu]
+description = "XDNA 2 NPU userspace (XRT + memlock + firmware)"
+deps        = []
+packages    = ["xrt", "xrt-plugin-amdxdna"]
+build       = []
+units       = []
+files = [
+    { src = "strixhalo/security/99-npu-memlock.conf.tmpl", dst = "/etc/security/limits.d/99-npu-memlock.conf", substitute = { USER = "$USER" } },
+]
 check = ""
 
 # strix-cloudflared — Cloudflare Tunnel to api.halo-ai.studio.

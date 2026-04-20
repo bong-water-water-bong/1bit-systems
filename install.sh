@@ -14,7 +14,7 @@ set -euo pipefail
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'
 CYAN='\033[0;36m';  DIM='\033[2m';       BOLD='\033[1m'; NC='\033[0m'
 
-TOTAL_STEPS=6
+TOTAL_STEPS=7
 STEP_IDX=0
 STEP_START=0
 
@@ -116,6 +116,70 @@ else
     cmake --build . -j "$(nproc)" --target bitnet_decode rocm_cpp 2>&1 | progress_pipe "hipcc"
     popd >/dev/null
     ok "bitnet_decode built"
+fi
+
+# ── step 3.5: XDNA 2 NPU userspace (optional) ────────────────
+### XDNA 2 NPU userspace (optional)
+#
+# XRT + amdxdna driver + memlock limits. Required to drive the AIE
+# tiles from `halo-bitnet-xdna`. Skipped silently on boxes without an
+# NPU device (lspci/accel0 probe). Package install intent only — we
+# don't actually run pacman here; the operator runs install.sh with
+# sudo or answers the one pacman prompt.
+step "XDNA 2 NPU userspace (optional)"
+NPU_PRESENT=0
+if [[ -e /dev/accel/accel0 ]]; then
+    NPU_PRESENT=1
+    info "found /dev/accel/accel0"
+elif lspci 2>/dev/null | grep -qi 'npu\|signal processing controller'; then
+    NPU_PRESENT=1
+    info "lspci shows an NPU-class device"
+fi
+
+if [[ "$NPU_PRESENT" == "0" ]]; then
+    info "no NPU detected — skipping XDNA 2 userspace"
+    ok "skipped (no NPU)"
+elif [[ "$CI_MODE" != "0" ]]; then
+    info "CI mode — skipping pacman + limits.d"
+    ok "skipped (CI)"
+else
+    # 1. XRT + amdxdna plugin (CachyOS extra; no AUR).
+    if pacman -Q xrt >/dev/null 2>&1 && pacman -Q xrt-plugin-amdxdna >/dev/null 2>&1; then
+        info "xrt + xrt-plugin-amdxdna already installed"
+    else
+        info "installing xrt + xrt-plugin-amdxdna via pacman"
+        sudo pacman -S --noconfirm xrt xrt-plugin-amdxdna 2>&1 | progress_pipe "pacman"
+    fi
+
+    # 2. memlock limits.d from tracked template (substitute @USER@).
+    MEMLOCK_TMPL="$WORKSPACE_DIR/strixhalo/security/99-npu-memlock.conf.tmpl"
+    MEMLOCK_DST="/etc/security/limits.d/99-npu-memlock.conf"
+    if [[ -f "$MEMLOCK_DST" ]]; then
+        info "memlock limits already deployed at $MEMLOCK_DST"
+    elif [[ ! -f "$MEMLOCK_TMPL" ]]; then
+        warn "missing template $MEMLOCK_TMPL — skipping memlock install"
+    else
+        info "deploying $MEMLOCK_DST (USER=$USER)"
+        sed "s|@USER@|$USER|g" "$MEMLOCK_TMPL" | sudo tee "$MEMLOCK_DST" >/dev/null
+        info "re-login required for memlock=unlimited to take effect"
+    fi
+
+    # 3. kernel-side sanity.
+    if [[ -e /dev/accel/accel0 ]]; then
+        info "/dev/accel/accel0 present"
+    else
+        warn "/dev/accel/accel0 missing — amdxdna module may not be loaded"
+    fi
+
+    # 4. xrt-smi examine (don't fail on non-zero: CachyOS first-login memlock
+    #    issue produces a warning until the user re-logs in).
+    if command -v xrt-smi >/dev/null 2>&1; then
+        info "xrt-smi examine:"
+        xrt-smi examine 2>&1 | sed 's/^/    /' || true
+    else
+        info "xrt-smi not on PATH yet (source /etc/profile.d/xrt_setup.sh or re-login)"
+    fi
+    ok "NPU userspace staged"
 fi
 
 # ── step 4: halo-workspace build ─────────────────────────────
