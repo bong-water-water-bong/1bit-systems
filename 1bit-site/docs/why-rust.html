@@ -28,7 +28,7 @@
 <a href="/docs/why-shadow-burnin.html">Why Shadow-Burnin</a>
 <a href="/docs/why-h1b-format.html">Why H1b Format</a>
 <a href="/docs/why-caddy-systemd.html">Why Caddy + Systemd</a>
-<a href="/docs/why-halo-agents.html">Why halo-agents</a>
+<a href="/docs/why-1bit-agents.html">Why 1bit-agents</a>
 <a href="/docs/why-no-python.html">Why No Python</a>
 <a href="/docs/why-parity-gates.html">Why Parity Gates</a>
 <a href="/docs/why-no-npu-yet.html">Why No NPU Yet</a>
@@ -39,7 +39,7 @@
 <a href="/docs/amd-gaia-integration.html">AMD GAIA</a>
 <a href="/docs/medusa-integration-plan.html">Medusa plan</a>
 <a href="/docs/rotorquant-default-decision.html">Rotorquant</a>
-<a href="/docs/halo-whisper-streaming-plan.html">Whisper streaming</a>
+<a href="/docs/1bit-whisper-streaming-plan.html">Whisper streaming</a>
 <a href="/docs/npu-kernel-design.html">NPU kernel</a>
 <a href="/docs/ternary-on-aie-pack-plan.html">Ternary on AIE</a>
 <a href="/docs/peak-performance-projection.html">Peak projection</a>
@@ -49,11 +49,11 @@
 <a href="/docs/beta-10-day-ttl.html">Beta 10-day TTL</a>
 <a href="/docs/sdd-workflow.html">SDD workflow</a>
 <h4>crates</h4>
-<a href="/docs/crate-halo-echo.html">halo-echo</a>
-<a href="/docs/crate-halo-helm.html">halo-helm</a>
-<a href="/docs/crate-halo-landing.html">halo-landing</a>
-<a href="/docs/crate-halo-lemonade.html">halo-lemonade</a>
-<a href="/docs/crate-halo-agents-watch.html">halo-agents-watch</a>
+<a href="/docs/crate-1bit-echo.html">1bit-echo</a>
+<a href="/docs/crate-1bit-helm.html">1bit-helm</a>
+<a href="/docs/crate-1bit-landing.html">1bit-landing</a>
+<a href="/docs/crate-1bit-lemonade.html">1bit-lemonade</a>
+<a href="/docs/crate-1bit-agents-watch.html">1bit-agents-watch</a>
 <h4>amd scans</h4>
 <a href="/docs/amd-ai-ml-tools-scan.html">AI/ML tools</a>
 <a href="/docs/amd-compilers-analyzers-scan.html">Compilers</a>
@@ -72,11 +72,11 @@
 <h2 id="the-split">The split</h2>
 <pre><code> ┌────────────────────────────────────────────────────────┐
  │  Rust (halo-workspace, 11 crates, 121+ tests)          │
- │  halo-cli · halo-server · halo-router · halo-mcp       │
- │  halo-agents · halo-lemonade · halo-helm · halo-landing│
- │  halo-core (mmap + tokenizer + sampler) · halo-bitnet-*│
+ │  1bit-cli · 1bit-server · 1bit-router · 1bit-mcp       │
+ │  1bit-agents · 1bit-lemonade · 1bit-helm · 1bit-landing│
+ │  1bit-core (mmap + tokenizer + sampler) · halo-bitnet-*│
  └──────────────────────────┬─────────────────────────────┘
-                            │ extern &quot;C&quot; FFI via halo-bitnet-hip
+                            │ extern &quot;C&quot; FFI via 1bit-hip
  ┌──────────────────────────▼─────────────────────────────┐
  │  C++ / HIP (rocm-cpp, bong-water-water-bong canonical)             │
  │  ternary_gemv_halo · ternary_gemv_sherry · ternary_tq1 │
@@ -94,17 +94,17 @@
 <h2 id="why-everything-else-in-rust">Why everything else in Rust</h2>
 <ul>
 <li><strong>Memory safety</strong> — the orchestration layer manages HTTP request lifecycles, SSE streams, model weight mmaps, tokenizer tables, KV cache ownership, systemd journal pipes. A Python <code>KeyError</code> or C++ use-after-free at that layer takes down the serving process. <code>Result&lt;T, E&gt;</code> + ownership prevents that class of bug entirely.</li>
-<li><strong><code>tokio</code> + <code>axum</code></strong> — proven async HTTP/SSE stack. The halo-server implements OpenAI chat completions, SSE streaming, and per-request sharded metrics in ~1 500 LOC.</li>
+<li><strong><code>tokio</code> + <code>axum</code></strong> — proven async HTTP/SSE stack. The 1bit-server implements OpenAI chat completions, SSE streaming, and per-request sharded metrics in ~1 500 LOC.</li>
 <li><strong><code>serde</code> + <code>schemars</code></strong> — typed JSON-RPC, MCP tool schemas, config loading. Each specialist declares <code>#[derive(JsonSchema)]</code> on its input/output struct and the MCP <code>tools/list</code> output falls out for free.</li>
 <li><strong><code>cargo</code> as build + package manager</strong> — one command (<code>cargo build --workspace</code>) builds all 11 crates. CI runs <code>cargo test --workspace</code>. No <code>make</code>, no <code>cmake</code> at this layer.</li>
-<li><strong>Binary distribution</strong> — Rust produces static-link-friendly binaries with no runtime dep. <code>halo-server</code> is 2.4 MB and needs only <code>libamdhip64.so</code> + <code>librocm_cpp.so</code> from the system.</li>
+<li><strong>Binary distribution</strong> — Rust produces static-link-friendly binaries with no runtime dep. <code>1bit-server</code> is 2.4 MB and needs only <code>libamdhip64.so</code> + <code>librocm_cpp.so</code> from the system.</li>
 </ul>
 <h2 id="why-not-pure-rust-end-to-end">Why not pure Rust end-to-end?</h2>
 <p>Tried considering it. Vetoed because:</p>
 <ul>
 <li><strong>Rust-HIP bindings aren't production</strong> — <code>hip-sys</code>, <code>rocm-rs</code> exist but each is one person + a partial surface. Writing a HIP kernel in pure Rust today means giving up on intrinsics.</li>
 <li><strong>Rust-GPU (wgpu / Vulkan) doesn't map to ROCm's kernel model</strong> — Metal/Vulkan compute shaders are a different abstraction than HIP's CUDA-style kernels. Porting rocm-cpp's ternary GEMV to wgpu would mean a complete rewrite that loses 30-50% perf.</li>
-<li><strong>The FFI boundary is stable</strong> — <code>halo-bitnet-hip</code> exposes 30+ extern &quot;C&quot; functions. Over a year of development, this boundary has changed &lt;5 times. FFI cost is low.</li>
+<li><strong>The FFI boundary is stable</strong> — <code>1bit-hip</code> exposes 30+ extern &quot;C&quot; functions. Over a year of development, this boundary has changed &lt;5 times. FFI cost is low.</li>
 </ul>
 <h2 id="why-not-pure-c-end-to-end">Why not pure C++ end-to-end?</h2>
 <p>Rejected for the orchestration layer. Reasons:</p>
@@ -112,7 +112,7 @@
 <li><strong>Concurrency</strong> — <code>tokio</code> gives us structured async for free. In C++ we'd pull <code>asio</code> + write equivalent plumbing for 3× the code.</li>
 <li><strong>Serde + typed JSON</strong> — <code>nlohmann::json</code> works but loses type safety at every touchpoint. <code>serde_json::from_value</code> + <code>#[derive(Deserialize)]</code> catches shape errors at compile.</li>
 <li><strong>Ecosystem</strong> — <code>clap</code> for CLIs, <code>tracing</code> for logs, <code>reqwest</code> for HTTP clients, <code>axum</code> for HTTP servers. Each equivalent in C++ is a one-person github project.</li>
-<li><strong>Distribution</strong> — <code>halo-server</code> binary is 2.4 MB static-ish. A C++ equivalent with openssl + asio + nlohmann + stdlib is 15-30 MB or dynamic-link hell.</li>
+<li><strong>Distribution</strong> — <code>1bit-server</code> binary is 2.4 MB static-ish. A C++ equivalent with openssl + asio + nlohmann + stdlib is 15-30 MB or dynamic-link hell.</li>
 </ul>
 <h2 id="not-python-ever-at-runtime">Not Python (ever, at runtime)</h2>
 <p>Rule A. See <a href="why-no-python.html"><code>Why-No-Python.md</code></a>.</p>
@@ -120,7 +120,7 @@
 <h2 id="the-inherited-trade-off">The inherited trade-off</h2>
 <p>We pay:</p>
 <ul>
-<li>One FFI boundary (halo-bitnet-hip) that needs manual memory + lifetime care across <code>extern &quot;C&quot;</code>.</li>
+<li>One FFI boundary (1bit-hip) that needs manual memory + lifetime care across <code>extern &quot;C&quot;</code>.</li>
 <li>Two build systems (cargo + cmake).</li>
 <li>Two languages for contributors to read.</li>
 </ul>

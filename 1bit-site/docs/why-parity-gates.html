@@ -28,7 +28,7 @@
 <a href="/docs/why-shadow-burnin.html">Why Shadow-Burnin</a>
 <a href="/docs/why-h1b-format.html">Why H1b Format</a>
 <a href="/docs/why-caddy-systemd.html">Why Caddy + Systemd</a>
-<a href="/docs/why-halo-agents.html">Why halo-agents</a>
+<a href="/docs/why-1bit-agents.html">Why 1bit-agents</a>
 <a href="/docs/why-no-python.html">Why No Python</a>
 <a href="/docs/why-parity-gates.html">Why Parity Gates</a>
 <a href="/docs/why-no-npu-yet.html">Why No NPU Yet</a>
@@ -39,7 +39,7 @@
 <a href="/docs/amd-gaia-integration.html">AMD GAIA</a>
 <a href="/docs/medusa-integration-plan.html">Medusa plan</a>
 <a href="/docs/rotorquant-default-decision.html">Rotorquant</a>
-<a href="/docs/halo-whisper-streaming-plan.html">Whisper streaming</a>
+<a href="/docs/1bit-whisper-streaming-plan.html">Whisper streaming</a>
 <a href="/docs/npu-kernel-design.html">NPU kernel</a>
 <a href="/docs/ternary-on-aie-pack-plan.html">Ternary on AIE</a>
 <a href="/docs/peak-performance-projection.html">Peak projection</a>
@@ -49,11 +49,11 @@
 <a href="/docs/beta-10-day-ttl.html">Beta 10-day TTL</a>
 <a href="/docs/sdd-workflow.html">SDD workflow</a>
 <h4>crates</h4>
-<a href="/docs/crate-halo-echo.html">halo-echo</a>
-<a href="/docs/crate-halo-helm.html">halo-helm</a>
-<a href="/docs/crate-halo-landing.html">halo-landing</a>
-<a href="/docs/crate-halo-lemonade.html">halo-lemonade</a>
-<a href="/docs/crate-halo-agents-watch.html">halo-agents-watch</a>
+<a href="/docs/crate-1bit-echo.html">1bit-echo</a>
+<a href="/docs/crate-1bit-helm.html">1bit-helm</a>
+<a href="/docs/crate-1bit-landing.html">1bit-landing</a>
+<a href="/docs/crate-1bit-lemonade.html">1bit-lemonade</a>
+<a href="/docs/crate-1bit-agents-watch.html">1bit-agents-watch</a>
 <h4>amd scans</h4>
 <a href="/docs/amd-ai-ml-tools-scan.html">AI/ML tools</a>
 <a href="/docs/amd-compilers-analyzers-scan.html">Compilers</a>
@@ -81,7 +81,7 @@
 <p>Unit tests run on every PR. Parity runs before every cutover.</p>
 <h2 id="the-two-harnesses">The two harnesses</h2>
 <h3 id="shadow-burnin-argmax-byte-compare">Shadow-burnin (argmax byte-compare)</h3>
-<p><code>benchmarks/shadow-burnin.sh</code> fires the same prompt at <code>/v1</code> (gen-1 C++ bitnet_decode on :8080) and <code>/v2</code> (gen-2 Rust halo-server on :8180), diffs the replies byte-for-byte. Pace: ~1 round / 2-3 s.</p>
+<p><code>benchmarks/shadow-burnin.sh</code> fires the same prompt at <code>/v1</code> (gen-1 C++ bitnet_decode on :8080) and <code>/v2</code> (gen-2 Rust 1bit-server on :8180), diffs the replies byte-for-byte. Pace: ~1 round / 2-3 s.</p>
 <ul>
 <li><strong>Current</strong>: <strong>95.55% byte-exact</strong> over <strong>14,344 rounds</strong> (2026-04-20)</li>
 <li><strong>Drift analysis</strong>: <strong>74.9% of all misses trace to ONE prompt</strong> — <code>idx=7</code>, &quot;chemical symbol for gold&quot;. That's a single sampler delta, not a systemic divergence. Fix it and parity jumps to <strong>~98.9%</strong>.</li>
@@ -108,7 +108,7 @@ halo burnin since 2026-04-19T00:00:00Z
 </code></pre>
 <p>If any of those trend down in the 48 hours before cutover, we don't flip. Receipts matter more than vibes.</p>
 <h2 id="the-operator-interface">The operator interface</h2>
-<p><code>halo burnin {stats,drift,recent,since}</code> reads the JSONL log at <code>~/claude output/shadow-burnin.jsonl</code> (note the space in the path, quote it). State persists at <code>~/.local/share/halo-ai/shadow-burnin.state</code>.</p>
+<p><code>halo burnin {stats,drift,recent,since}</code> reads the JSONL log at <code>~/claude output/shadow-burnin.jsonl</code> (note the space in the path, quote it). State persists at <code>~/.local/share/1bit systems/shadow-burnin.state</code>.</p>
 <pre><code class="lang-bash">halo burnin stats
 # bytes_exact:   14344 / 15012  (95.55%)
 # top_miss:      idx=7 &quot;chemical symbol...&quot; (75.0% of misses)

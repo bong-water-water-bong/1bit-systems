@@ -28,7 +28,7 @@
 <a href="/docs/why-shadow-burnin.html">Why Shadow-Burnin</a>
 <a href="/docs/why-h1b-format.html">Why H1b Format</a>
 <a href="/docs/why-caddy-systemd.html">Why Caddy + Systemd</a>
-<a href="/docs/why-halo-agents.html">Why halo-agents</a>
+<a href="/docs/why-1bit-agents.html">Why 1bit-agents</a>
 <a href="/docs/why-no-python.html">Why No Python</a>
 <a href="/docs/why-parity-gates.html">Why Parity Gates</a>
 <a href="/docs/why-no-npu-yet.html">Why No NPU Yet</a>
@@ -39,7 +39,7 @@
 <a href="/docs/amd-gaia-integration.html">AMD GAIA</a>
 <a href="/docs/medusa-integration-plan.html">Medusa plan</a>
 <a href="/docs/rotorquant-default-decision.html">Rotorquant</a>
-<a href="/docs/halo-whisper-streaming-plan.html">Whisper streaming</a>
+<a href="/docs/1bit-whisper-streaming-plan.html">Whisper streaming</a>
 <a href="/docs/npu-kernel-design.html">NPU kernel</a>
 <a href="/docs/ternary-on-aie-pack-plan.html">Ternary on AIE</a>
 <a href="/docs/peak-performance-projection.html">Peak projection</a>
@@ -49,11 +49,11 @@
 <a href="/docs/beta-10-day-ttl.html">Beta 10-day TTL</a>
 <a href="/docs/sdd-workflow.html">SDD workflow</a>
 <h4>crates</h4>
-<a href="/docs/crate-halo-echo.html">halo-echo</a>
-<a href="/docs/crate-halo-helm.html">halo-helm</a>
-<a href="/docs/crate-halo-landing.html">halo-landing</a>
-<a href="/docs/crate-halo-lemonade.html">halo-lemonade</a>
-<a href="/docs/crate-halo-agents-watch.html">halo-agents-watch</a>
+<a href="/docs/crate-1bit-echo.html">1bit-echo</a>
+<a href="/docs/crate-1bit-helm.html">1bit-helm</a>
+<a href="/docs/crate-1bit-landing.html">1bit-landing</a>
+<a href="/docs/crate-1bit-lemonade.html">1bit-lemonade</a>
+<a href="/docs/crate-1bit-agents-watch.html">1bit-agents-watch</a>
 <h4>amd scans</h4>
 <a href="/docs/amd-ai-ml-tools-scan.html">AI/ML tools</a>
 <a href="/docs/amd-compilers-analyzers-scan.html">Compilers</a>
@@ -108,7 +108,7 @@
 <p>selector (v1/v2 → halo, v3 → sherry, v4 → tq1-halo)</p>
 <ul>
 <li><code>rocm-cpp/tools/bench_sherry.cpp</code> — cross-bench harness</li>
-<li><code>halo-ai/models/halo-1bit-2b.sherry.h1b</code>,</li>
+<li><code>1bit systems/models/halo-1bit-2b.sherry.h1b</code>,</li>
 </ul>
 <p><code>halo-1bit-2b.sherry-proper.h1b</code>, <code>halo-1bit-2b.sherry-ft.h1b</code> — three candidate model files, 1.65 GB each</p>
 <p>Nothing to rip out. The kernel is paid-for infrastructure.</p>
@@ -132,29 +132,29 @@
  --- a/strixhalo/systemd/halo-bitnet.service
  +++ b/strixhalo/systemd/halo-bitnet.service
  @@ -7,1 +7,1 @@
--ExecStart=/usr/local/bin/bitnet_decode __HOME__/halo-ai/models/halo-1bit-2b.h1b --server 8080
-+ExecStart=/usr/local/bin/bitnet_decode __HOME__/halo-ai/models/halo-1bit-2b.sherry-ft.h1b --server 8080
+-ExecStart=/usr/local/bin/bitnet_decode __HOME__/1bit systems/models/halo-1bit-2b.h1b --server 8080
++ExecStart=/usr/local/bin/bitnet_decode __HOME__/1bit systems/models/halo-1bit-2b.sherry-ft.h1b --server 8080
 
  diff --git a/strixhalo/systemd/strix-server.service b/strixhalo/systemd/strix-server.service
  --- a/strixhalo/systemd/strix-server.service
  +++ b/strixhalo/systemd/strix-server.service
  @@ -8,1 +8,1 @@
--ExecStart=__HOME__/.local/bin/halo-server-real --bind 127.0.0.1:8180 --model __HOME__/halo-ai/models/halo-1bit-2b.h1b
-+ExecStart=__HOME__/.local/bin/halo-server-real --bind 127.0.0.1:8180 --model __HOME__/halo-ai/models/halo-1bit-2b.sherry-ft.h1b
+-ExecStart=__HOME__/.local/bin/1bit-server-real --bind 127.0.0.1:8180 --model __HOME__/1bit systems/models/halo-1bit-2b.h1b
++ExecStart=__HOME__/.local/bin/1bit-server-real --bind 127.0.0.1:8180 --model __HOME__/1bit systems/models/halo-1bit-2b.sherry-ft.h1b
 
- diff --git a/strixhalo/bin/halo-anvil.sh b/strixhalo/bin/halo-anvil.sh
- --- a/strixhalo/bin/halo-anvil.sh
- +++ b/strixhalo/bin/halo-anvil.sh
+ diff --git a/strixhalo/bin/1bit-anvil.sh b/strixhalo/bin/1bit-anvil.sh
+ --- a/strixhalo/bin/1bit-anvil.sh
+ +++ b/strixhalo/bin/1bit-anvil.sh
 @@ -60,1 +60,1 @@
--MODEL=&quot;$HOME/halo-ai/models/halo-1bit-2b.h1b&quot;
-+MODEL=&quot;$HOME/halo-ai/models/halo-1bit-2b.sherry-ft.h1b&quot;
+-MODEL=&quot;$HOME/1bit systems/models/halo-1bit-2b.h1b&quot;
++MODEL=&quot;$HOME/1bit systems/models/halo-1bit-2b.sherry-ft.h1b&quot;
 
- diff --git a/crates/halo-server/src/routes.rs b/crates/halo-server/src/routes.rs
- --- a/crates/halo-server/src/routes.rs
- +++ b/crates/halo-server/src/routes.rs
+ diff --git a/crates/1bit-server/src/routes.rs b/crates/1bit-server/src/routes.rs
+ --- a/crates/1bit-server/src/routes.rs
+ +++ b/crates/1bit-server/src/routes.rs
 @@ -909,1 +909,1 @@
--            .unwrap_or_else(|_| PathBuf::from(format!(&quot;{home}/halo-ai/models/halo-1bit-2b.h1b&quot;)));
-+            .unwrap_or_else(|_| PathBuf::from(format!(&quot;{home}/halo-ai/models/halo-1bit-2b.sherry-ft.h1b&quot;)));
+-            .unwrap_or_else(|_| PathBuf::from(format!(&quot;{home}/1bit systems/models/halo-1bit-2b.h1b&quot;)));
++            .unwrap_or_else(|_| PathBuf::from(format!(&quot;{home}/1bit systems/models/halo-1bit-2b.sherry-ft.h1b&quot;)));
 </code></pre>
 <p>Alternative (cleaner): publish the accepted Sherry file as the canonical <code>halo-1bit-2b.h1b</code> release artifact and leave all paths alone. The loader auto-detects v3 by magic + version field. This is the recommended form of promotion when the gates eventually pass.</p>
 <h2 id="linked">Linked</h2>

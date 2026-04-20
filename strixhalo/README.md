@@ -17,10 +17,10 @@ strixhalo/
 
 ## What's **not** here
 
-- `/etc/halo-ai/*` — bearer tokens, Reddit session cookies, Discord webhook
+- `/etc/1bit systems/*` — bearer tokens, Reddit session cookies, Discord webhook
   secrets. Never commit.
 - `~/.ssh/*` — private keys.
-- Model files `~/halo-ai/models/*.h1b` — multi-GB binaries; fetched separately.
+- Model files `~/1bit systems/models/*.h1b` — multi-GB binaries; fetched separately.
 - `~/.cache/*`, `~/.cargo/*`, `target/` — build artifacts and caches.
 
 ## Deploy on a fresh box

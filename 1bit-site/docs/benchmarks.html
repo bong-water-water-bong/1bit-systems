@@ -28,7 +28,7 @@
 <a href="/docs/why-shadow-burnin.html">Why Shadow-Burnin</a>
 <a href="/docs/why-h1b-format.html">Why H1b Format</a>
 <a href="/docs/why-caddy-systemd.html">Why Caddy + Systemd</a>
-<a href="/docs/why-halo-agents.html">Why halo-agents</a>
+<a href="/docs/why-1bit-agents.html">Why 1bit-agents</a>
 <a href="/docs/why-no-python.html">Why No Python</a>
 <a href="/docs/why-parity-gates.html">Why Parity Gates</a>
 <a href="/docs/why-no-npu-yet.html">Why No NPU Yet</a>
@@ -39,7 +39,7 @@
 <a href="/docs/amd-gaia-integration.html">AMD GAIA</a>
 <a href="/docs/medusa-integration-plan.html">Medusa plan</a>
 <a href="/docs/rotorquant-default-decision.html">Rotorquant</a>
-<a href="/docs/halo-whisper-streaming-plan.html">Whisper streaming</a>
+<a href="/docs/1bit-whisper-streaming-plan.html">Whisper streaming</a>
 <a href="/docs/npu-kernel-design.html">NPU kernel</a>
 <a href="/docs/ternary-on-aie-pack-plan.html">Ternary on AIE</a>
 <a href="/docs/peak-performance-projection.html">Peak projection</a>
@@ -49,11 +49,11 @@
 <a href="/docs/beta-10-day-ttl.html">Beta 10-day TTL</a>
 <a href="/docs/sdd-workflow.html">SDD workflow</a>
 <h4>crates</h4>
-<a href="/docs/crate-halo-echo.html">halo-echo</a>
-<a href="/docs/crate-halo-helm.html">halo-helm</a>
-<a href="/docs/crate-halo-landing.html">halo-landing</a>
-<a href="/docs/crate-halo-lemonade.html">halo-lemonade</a>
-<a href="/docs/crate-halo-agents-watch.html">halo-agents-watch</a>
+<a href="/docs/crate-1bit-echo.html">1bit-echo</a>
+<a href="/docs/crate-1bit-helm.html">1bit-helm</a>
+<a href="/docs/crate-1bit-landing.html">1bit-landing</a>
+<a href="/docs/crate-1bit-lemonade.html">1bit-lemonade</a>
+<a href="/docs/crate-1bit-agents-watch.html">1bit-agents-watch</a>
 <h4>amd scans</h4>
 <a href="/docs/amd-ai-ml-tools-scan.html">AI/ML tools</a>
 <a href="/docs/amd-compilers-analyzers-scan.html">Compilers</a>
@@ -82,8 +82,8 @@
 <tr><td>Split-KV Flash-Decoding attn</td><td><strong>6.78× vs prior</strong> @ L=2048</td><td><code>benchmarks/attn_fd.sh</code></td><td>Bit-exact speedup over single-block attention. Default since 2026-04-19.</td></tr>
 <tr><td>Voice mouth-to-ear first audio</td><td><strong>1.23 s</strong></td><td><code>benchmarks/voice.sh</code></td><td>End-to-end: STT + LLM + TTS first chunk. 3-5× faster than naive serial loop.</td></tr>
 <tr><td>Tests across 13 crates</td><td><strong>201 passing, 0 failing</strong></td><td><code>cargo test --workspace --release</code></td><td>Workspace-wide green. CI gate.</td></tr>
-<tr><td><code>halo-server</code> binary, stripped</td><td><strong>2.4 MB</strong></td><td><code>size target/release/halo-server</code></td><td>Static-friendly Rust binary; ships without a runtime.</td></tr>
-<tr><td>Landing live tok/s</td><td><strong>pulled from <code>/metrics</code> via <code>/_live/stats</code> SSE</strong></td><td><code>crates/halo-landing/src/telemetry.rs</code></td><td>The number you see in the hero on <code>https://strixhalo.local/</code> is no longer a static guess — it's the same <code>tokps_recent</code> the Prom scraper sees, pushed over SSE every 1.5 s.</td></tr>
+<tr><td><code>1bit-server</code> binary, stripped</td><td><strong>2.4 MB</strong></td><td><code>size target/release/1bit-server</code></td><td>Static-friendly Rust binary; ships without a runtime.</td></tr>
+<tr><td>Landing live tok/s</td><td><strong>pulled from <code>/metrics</code> via <code>/_live/stats</code> SSE</strong></td><td><code>crates/1bit-landing/src/telemetry.rs</code></td><td>The number you see in the hero on <code>https://strixhalo.local/</code> is no longer a static guess — it's the same <code>tokps_recent</code> the Prom scraper sees, pushed over SSE every 1.5 s.</td></tr>
 </tbody></table>
 <h2 id="one-liners-per-number">One-liners per number</h2>
 <ul>

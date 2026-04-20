@@ -7,14 +7,14 @@
 | Profile     | stapm | fast | slow | tctl  | When to switch to it                                  |
 | ----------- | ----- | ---- | ---- | ----- | ----------------------------------------------------- |
 | `inference` |  65 W | 80 W | 75 W | 95 °C | Long bitnet decode, batch PPL runs, burn-in sweeps.   |
-| `chat`      |  45 W | 65 W | 55 W | 90 °C | Default — interactive `halo chat`, halo-helm traffic. |
+| `chat`      |  45 W | 65 W | 55 W | 90 °C | Default — interactive `halo chat`, 1bit-helm traffic. |
 | `idle`      |  20 W | 35 W | 25 W | 80 °C | Closet-quiet after >60 s of zero traffic.             |
 
 Values come from `docs/halo-power-design.md`; they're a starting point pending a decode-bench sweep.
 
 ## Why these three and not more?
 
-We drive profile by *traffic pattern*, not by per-process rules (the RyzenZPilot model). Our process set is small and our HTTP surface is one server — three envelopes cover every realistic halo-ai workload and every extra knob is just another thing to forget about.
+We drive profile by *traffic pattern*, not by per-process rules (the RyzenZPilot model). Our process set is small and our HTTP surface is one server — three envelopes cover every realistic 1bit systems workload and every extra knob is just another thing to forget about.
 
 ## How it works under the hood
 

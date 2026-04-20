@@ -1,5 +1,5 @@
 [Unit]
-Description=halo-ai whisper-server (STT) — echo_ear backend
+Description=1bit systems whisper-server (STT) — echo_ear backend
 After=network.target
 Wants=network.target
 

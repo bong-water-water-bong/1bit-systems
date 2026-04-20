@@ -7,7 +7,7 @@
 #   1. Refuses to run on anything that isn't "AMD Ryzen AI MAX+ 395" (Strix Halo).
 #   2. Installs CachyOS AMDXDNA + XRT packages (cachyos-extra-znver4 repo).
 #   3. Raises memlock so HIP can pin big buffers.
-#   4. Clones bong-water-water-bong/halo-ai-rs to ~/src/halo-ai-rs.
+#   4. Clones bong-water-water-bong/1bit-systems to ~/src/1bit-systems.
 #   5. Hands off to the repo's own install.sh for the real build + systemd wiring.
 #
 # Idempotent — safe to re-run to repair or upgrade.
@@ -96,10 +96,10 @@ fi
 
 # ── memlock limits ───────────────────────────────────────────
 step "raising memlock limits for HIP"
-LIMITS_FILE=/etc/security/limits.d/99-halo-ai.conf
-if [ ! -f "$LIMITS_FILE" ] || ! grep -q halo-ai "$LIMITS_FILE"; then
+LIMITS_FILE=/etc/security/limits.d/99-1bit systems.conf
+if [ ! -f "$LIMITS_FILE" ] || ! grep -q 1bit systems "$LIMITS_FILE"; then
   sudo tee "$LIMITS_FILE" >/dev/null <<EOF
-# 1bit.systems / halo-ai — HIP needs to pin large contiguous buffers.
+# 1bit.systems / 1bit systems — HIP needs to pin large contiguous buffers.
 *       soft    memlock     unlimited
 *       hard    memlock     unlimited
 EOF
@@ -109,11 +109,11 @@ else
 fi
 
 # ── clone + hand off ─────────────────────────────────────────
-step "cloning halo-ai-rs"
-SRC="${HOME}/src/halo-ai-rs"
+step "cloning 1bit-systems"
+SRC="${HOME}/src/1bit-systems"
 mkdir -p "${HOME}/src"
 if [ ! -d "$SRC/.git" ]; then
-  git clone --depth 1 https://github.com/bong-water-water-bong/halo-ai-rs.git "$SRC"
+  git clone --depth 1 https://github.com/bong-water-water-bong/1bit-systems.git "$SRC"
   ok "cloned into $SRC"
 else
   info "repo already present — pulling latest"
@@ -121,7 +121,7 @@ else
   ok "$SRC up-to-date"
 fi
 
-step "handing off to halo-ai-rs install.sh"
+step "handing off to 1bit-systems install.sh"
 if [ -x "$SRC/install.sh" ]; then
   cd "$SRC"
   exec bash "$SRC/install.sh" "$@"

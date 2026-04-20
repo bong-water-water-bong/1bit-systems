@@ -1,6 +1,6 @@
 # FAQ
 
-## What is halo-ai?
+## What is 1bit systems?
 
 The 1-bit inference engine. A Rust orchestration stack running Microsoft's BitNet-b1.58-2B-4T on an AMD Strix Halo mini-PC with native HIP kernels. OpenAI-compatible API, MCP server, 17 specialist agents, live landing page. Bring any OpenAI-compat client, plug it in, the agents keep the stack running while you work.
 
@@ -18,8 +18,8 @@ AMD Ryzen AI MAX+ 395 (Strix Halo) mini-PC, $2-3k. 128 GB LPDDR5 unified memory,
 ## How do I install it?
 
 ```
-git clone git@github.com:bong-water-water-bong/halo-ai-core.git
-cd halo-ai-core
+git clone git@github.com:bong-water-water-bong/1bit systems-core.git
+cd 1bit systems-core
 ./install-strixhalo.sh
 ```
 
@@ -30,9 +30,9 @@ One script, ~5 minutes on a fresh CachyOS box. After: `halo doctor`, `halo chat`
 Anything that accepts an OpenAI-compatible `base_url`:
 - **Open WebUI** — polished desktop-style chat, full RAG + MCP
 - **LibreChat** — yaml-configured OpenAI alternative
-- **DSPy** (Stanford) — compile declarative LM programs against halo-server
-- **Claude Code** — halo-mcp registers as MCP server; 17 specialists appear as tools
-- **halo-helm** — our own native-Rust egui desktop client (renamed from halo-gaia 2026-04-20)
+- **DSPy** (Stanford) — compile declarative LM programs against 1bit-server
+- **Claude Code** — 1bit-mcp registers as MCP server; 17 specialists appear as tools
+- **1bit-helm** — our own native-Rust egui desktop client (renamed from halo-gaia 2026-04-20)
 - **lemonade-python-sdk** via the Lemonade-compat shim on `:8200`
 
 ## Why 1.58-bit and not 1-bit?
@@ -58,13 +58,13 @@ Not today. Our kernels are HIP. A future CUDA port is technically doable (HIP �
 ## Can I use my own model?
 
 Partially:
-- Any BitNet GGUF with IQ2_S weights should load through our `halo-core::gguf` path (commit `2d1ec89`). Currently parse-only; the IQ2_S → `.h1b` bit-unpack lands next sprint.
+- Any BitNet GGUF with IQ2_S weights should load through our `1bit-core::gguf` path (commit `2d1ec89`). Currently parse-only; the IQ2_S → `.h1b` bit-unpack lands next sprint.
 - Microsoft's `bitnet-b1.58-2B-4T` works today via our `.h1b` format + requantizer.
 - Non-BitNet architectures (Llama, Mistral, Qwen) don't run on the ternary kernels. Those models use their own non-1.58-bit formats.
 
-## What's halo-agents?
+## What's 1bit-agents?
 
-17 specialist agents running in the background — anvil rebuilds kernels on commit, librarian keeps the changelog, quartermaster triages issues, magistrate scans PRs for secrets + commit-msg compliance. See the `halo-agents` crate. Exposed via MCP so Claude Code and DSPy can call them as tools.
+17 specialist agents running in the background — anvil rebuilds kernels on commit, librarian keeps the changelog, quartermaster triages issues, magistrate scans PRs for secrets + commit-msg compliance. See the `1bit-agents` crate. Exposed via MCP so Claude Code and DSPy can call them as tools.
 
 ## What's shadow-burnin?
 
@@ -76,12 +76,12 @@ See [`Why-Shadow-Burnin.md`](./Why-Shadow-Burnin.md). Continuous parity check be
 - **LM Studio** — GUI-only, closed-source. Can't drive it from automation.
 - **vLLM** — NVIDIA-first, CUDA-only. No AMD iGPU path today.
 
-Also: none of them ship an MCP server, self-maintaining agents, Lemonade-compat gateway, or a recording-ready landing page. halo-ai is the batteries-included bundle, not just the kernel.
+Also: none of them ship an MCP server, self-maintaining agents, Lemonade-compat gateway, or a recording-ready landing page. 1bit systems is the batteries-included bundle, not just the kernel.
 
 ## Is it open source?
 
 - Kernels (`bong-water-water-bong/rocm-cpp`) — MIT, public.
-- Rust monorepo (`halo-ai-rs`) — private until launch. Collaborator invites available.
+- Rust monorepo (`1bit-systems`) — private until launch. Collaborator invites available.
 - Everything we fork or borrow is credited in [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md).
 
 ## Who's behind it?

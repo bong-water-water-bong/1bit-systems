@@ -1,5 +1,5 @@
 [Unit]
-Description=halo-ai kokoro-server (TTS) — echo_mouth backend
+Description=1bit systems kokoro-server (TTS) — echo_mouth backend
 After=network.target
 Wants=network.target
 

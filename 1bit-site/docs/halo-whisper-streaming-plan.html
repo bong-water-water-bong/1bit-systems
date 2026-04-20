@@ -28,7 +28,7 @@
 <a href="/docs/why-shadow-burnin.html">Why Shadow-Burnin</a>
 <a href="/docs/why-h1b-format.html">Why H1b Format</a>
 <a href="/docs/why-caddy-systemd.html">Why Caddy + Systemd</a>
-<a href="/docs/why-halo-agents.html">Why halo-agents</a>
+<a href="/docs/why-1bit-agents.html">Why 1bit-agents</a>
 <a href="/docs/why-no-python.html">Why No Python</a>
 <a href="/docs/why-parity-gates.html">Why Parity Gates</a>
 <a href="/docs/why-no-npu-yet.html">Why No NPU Yet</a>
@@ -39,7 +39,7 @@
 <a href="/docs/amd-gaia-integration.html">AMD GAIA</a>
 <a href="/docs/medusa-integration-plan.html">Medusa plan</a>
 <a href="/docs/rotorquant-default-decision.html">Rotorquant</a>
-<a href="/docs/halo-whisper-streaming-plan.html">Whisper streaming</a>
+<a href="/docs/1bit-whisper-streaming-plan.html">Whisper streaming</a>
 <a href="/docs/npu-kernel-design.html">NPU kernel</a>
 <a href="/docs/ternary-on-aie-pack-plan.html">Ternary on AIE</a>
 <a href="/docs/peak-performance-projection.html">Peak projection</a>
@@ -49,11 +49,11 @@
 <a href="/docs/beta-10-day-ttl.html">Beta 10-day TTL</a>
 <a href="/docs/sdd-workflow.html">SDD workflow</a>
 <h4>crates</h4>
-<a href="/docs/crate-halo-echo.html">halo-echo</a>
-<a href="/docs/crate-halo-helm.html">halo-helm</a>
-<a href="/docs/crate-halo-landing.html">halo-landing</a>
-<a href="/docs/crate-halo-lemonade.html">halo-lemonade</a>
-<a href="/docs/crate-halo-agents-watch.html">halo-agents-watch</a>
+<a href="/docs/crate-1bit-echo.html">1bit-echo</a>
+<a href="/docs/crate-1bit-helm.html">1bit-helm</a>
+<a href="/docs/crate-1bit-landing.html">1bit-landing</a>
+<a href="/docs/crate-1bit-lemonade.html">1bit-lemonade</a>
+<a href="/docs/crate-1bit-agents-watch.html">1bit-agents-watch</a>
 <h4>amd scans</h4>
 <a href="/docs/amd-ai-ml-tools-scan.html">AI/ML tools</a>
 <a href="/docs/amd-compilers-analyzers-scan.html">Compilers</a>
@@ -68,7 +68,7 @@
 </aside>
 <main class="docs-body">
 <h1>Halo-Whisper Streaming Plan</h1>
-<p>Status: research + planning, 2026-04-20. No crate <code>halo-whisper</code> exists yet; voice input is currently batch-POST whole-file transcription (outside this workspace). This doc is the design for the streaming rewrite that will let <code>halo-voice</code> start reacting before the user stops talking.</p>
+<p>Status: research + planning, 2026-04-20. No crate <code>1bit-whisper</code> exists yet; voice input is currently batch-POST whole-file transcription (outside this workspace). This doc is the design for the streaming rewrite that will let <code>1bit-voice</code> start reacting before the user stops talking.</p>
 <p>Companion notes:</p>
 <ul>
 <li><code>project_halo_kokoro.md</code> — TTS side (kokoro, echo_mouth)</li>
@@ -126,7 +126,7 @@
 <ul>
 <li><strong>Good for</strong>: Echo's &quot;start reacting while user is mid-sentence&quot;</li>
 </ul>
-<p>use case — we want the partial even if it's noisy, halo-voice can gate on confidence.</p>
+<p>use case — we want the partial even if it's noisy, 1bit-voice can gate on confidence.</p>
 <h3 id="vad-triggered-one-phrase-at-a-time">VAD-triggered (one phrase at a time)</h3>
 <ul>
 <li><strong>Latency</strong>: only emits after trailing silence ≥ threshold (e.g.</li>
@@ -138,7 +138,7 @@
 <p>lower total CPU.</p>
 <ul>
 <li><strong>Accuracy</strong>: highest — the model sees the whole phrase end-to-end.</li>
-<li><strong>Good for</strong>: halo-mcp voice tool invocations, dictation mode.</li>
+<li><strong>Good for</strong>: 1bit-mcp voice tool invocations, dictation mode.</li>
 <li><strong>Bad for</strong>: barge-in / duplex conversation — we lose the pre-end</li>
 </ul>
 <p>partial we need to start warming the LLM.</p>
@@ -154,9 +154,9 @@
 </ul>
 <p>The encoder does <strong>not</strong> have a way to &quot;extend&quot; mel; you must hand it the full window again. So the re-hypothesis cost is real and non-negotiable until upstream lands a streaming encoder. The Jun 2025 arXiv paper <em>&quot;Adapting Whisper for Streaming Speech Recognition via Two-Pass Decoding&quot;</em> (2506.12154) is a research lead on a real streaming head; not in upstream whisper.cpp as of 2026-04-20.</p>
 <h3 id="our-pick">Our pick</h3>
-<p><strong>Fixed window + VAD-on-tail hybrid.</strong> Run the sliding window for partials while speech is active, then on trailing silence do one <strong>committed</strong> <code>whisper_full</code> over the whole utterance to replace the streamed partials with the final hypothesis. halo-voice treats partials as &quot;draft&quot; and the committed result as &quot;final&quot;. This mirrors what Google / Deepgram APIs expose (<code>is_final: bool</code>) and keeps halo-voice's state machine simple.</p>
+<p><strong>Fixed window + VAD-on-tail hybrid.</strong> Run the sliding window for partials while speech is active, then on trailing silence do one <strong>committed</strong> <code>whisper_full</code> over the whole utterance to replace the streamed partials with the final hypothesis. 1bit-voice treats partials as &quot;draft&quot; and the committed result as &quot;final&quot;. This mirrors what Google / Deepgram APIs expose (<code>is_final: bool</code>) and keeps 1bit-voice's state machine simple.</p>
 <h2 id="3-rust-side-ffi-shape">3. Rust-side FFI shape</h2>
-<p><code>crates/halo-whisper</code> (pending — <strong>does not exist on disk today</strong>, verified 2026-04-20) will own the FFI boundary. <code>halo-bitnet-hip</code> provides the pattern: thin <code>-sys</code> module + safe wrapper, no kernel reimplementation. whisper.cpp is CPU-only in our use (the mel + encoder + decoder are tiny relative to BitNet); no HIP port needed.</p>
+<p><code>crates/1bit-whisper</code> (pending — <strong>does not exist on disk today</strong>, verified 2026-04-20) will own the FFI boundary. <code>1bit-hip</code> provides the pattern: thin <code>-sys</code> module + safe wrapper, no kernel reimplementation. whisper.cpp is CPU-only in our use (the mel + encoder + decoder are tiny relative to BitNet); no HIP port needed.</p>
 <p>Proposed core trait:</p>
 <pre><code class="lang-rust">pub struct Partial {
     pub text: String,      // UTF-8
@@ -216,13 +216,13 @@ pub trait WhisperStream {
 <ul>
 <li>Word-level timestamps (<code>whisper_full_get_token_t0</code>) — dictation-only</li>
 </ul>
-<p>feature; halo-voice doesn't need them.</p>
+<p>feature; 1bit-voice doesn't need them.</p>
 <ul>
 <li>Language auto-detect streaming (<code>whisper_lang_auto_detect</code>) — we</li>
 </ul>
 <p>pin <code>en</code> at init. Multilingual is a later knob.</p>
-<h2 id="4-halo-voice-integration">4. halo-voice integration</h2>
-<p>Today (<code>crates/halo-voice/src/pipeline.rs</code>): the pipeline is <strong>output only</strong>. It takes a prompt string, fans out SSE from halo-server, runs <code>SentenceSplitter</code>, and POSTs sentences at halo-kokoro. There is no input side in this crate yet. <code>halo-echo</code> is an empty <code>lib.rs</code> scaffold.</p>
+<h2 id="4-1bit-voice-integration">4. 1bit-voice integration</h2>
+<p>Today (<code>crates/1bit-voice/src/pipeline.rs</code>): the pipeline is <strong>output only</strong>. It takes a prompt string, fans out SSE from 1bit-server, runs <code>SentenceSplitter</code>, and POSTs sentences at halo-kokoro. There is no input side in this crate yet. <code>1bit-echo</code> is an empty <code>lib.rs</code> scaffold.</p>
 <p>Migration shape:</p>
 <ol>
 <li><strong>New input type on <code>VoicePipeline</code>.</strong> Add a <code>speak_from_stream</code></li>
@@ -234,7 +234,7 @@ pub trait WhisperStream {
 <ul>
 <li><strong>Eager</strong> (recommended v1): every time a new <code>Partial</code> arrives</li>
 </ul>
-<p>with <code>is_final=false</code> and changes the prefix, <strong>cancel</strong> the in-flight LLM SSE request and start a new one with the fresh partial. halo-server must learn <code>POST /v1/chat/completions</code> with <code>X-Halo-Cancel-Prev: &lt;session&gt;</code> or we accept wasted tokens. Ship the wasted-tokens version first; <code>halo-server</code> cancel path is follow-up.</p>
+<p>with <code>is_final=false</code> and changes the prefix, <strong>cancel</strong> the in-flight LLM SSE request and start a new one with the fresh partial. 1bit-server must learn <code>POST /v1/chat/completions</code> with <code>X-Halo-Cancel-Prev: &lt;session&gt;</code> or we accept wasted tokens. Ship the wasted-tokens version first; <code>1bit-server</code> cancel path is follow-up.</p>
 <ul>
 <li><strong>Gated</strong>: only fire the LLM once <code>is_final=true</code> arrives. This is</li>
 </ul>
@@ -246,25 +246,25 @@ pub trait WhisperStream {
 <ol>
 <li><strong>End of turn detection.</strong> Barge-in: if a new <code>Partial</code> arrives</li>
 </ol>
-<p>while halo-kokoro is still speaking, halo-voice should <strong>stop the current TTS playback</strong> (caller-side; we already don't own playback) and emit a signal. Put a <code>VoiceEvent::BargeIn</code> variant on the output stream.</p>
+<p>while halo-kokoro is still speaking, 1bit-voice should <strong>stop the current TTS playback</strong> (caller-side; we already don't own playback) and emit a signal. Put a <code>VoiceEvent::BargeIn</code> variant on the output stream.</p>
 <ol>
 <li><strong>Wire order.</strong></li>
 </ol>
 <ul>
-<li><code>halo-whisper</code> crate + 3 tests (ctx load, one-shot tiny WAV,</li>
+<li><code>1bit-whisper</code> crate + 3 tests (ctx load, one-shot tiny WAV,</li>
 </ul>
 <p>partial emission from synthetic PCM).</p>
 <ul>
-<li><code>halo-voice::input</code> module with <code>MicSource</code> (cpal) →</li>
+<li><code>1bit-voice::input</code> module with <code>MicSource</code> (cpal) →</li>
 </ul>
 <p><code>WhisperStream</code> → <code>mpsc&lt;Partial&gt;</code>.</p>
 <ul>
-<li><code>halo-voice::pipeline::speak_from_stream</code>.</li>
-<li>halo-server cancel endpoint.</li>
-<li>halo-echo WS frames for browser peer (Opus in → Partial out, via</li>
+<li><code>1bit-voice::pipeline::speak_from_stream</code>.</li>
+<li>1bit-server cancel endpoint.</li>
+<li>1bit-echo WS frames for browser peer (Opus in → Partial out, via</li>
 </ul>
 <p>the same trait).</p>
-<p>Estimated effort: ~3–4 sit-down days end-to-end, of which 1 is the FFI crate, 1 is the cancel path on halo-server, and 1–2 is polishing barge-in + dedup on overlap.</p>
+<p>Estimated effort: ~3–4 sit-down days end-to-end, of which 1 is the FFI crate, 1 is the cancel path on 1bit-server, and 1–2 is polishing barge-in + dedup on overlap.</p>
 <h2 id="5-rank-vs-medusabitnet">5. Rank vs MedusaBitNet</h2>
 <p><strong>MedusaBitNet ships first.</strong> Reasoning:</p>
 <ul>
@@ -282,8 +282,8 @@ pub trait WhisperStream {
 <ul>
 <li>Streaming whisper can ship behind Medusa without blocking anyone —</li>
 </ul>
-<p>halo-voice works today with batch STT. Medusa is a no-op until it lands.</p>
-<p>Order: <strong>Medusa → streaming-whisper → halo-echo WS → barge-in.</strong> Revisit if Medusa's timeline slips past one calendar month; at that point streaming-whisper becomes a cheap morale-win ship.</p>
+<p>1bit-voice works today with batch STT. Medusa is a no-op until it lands.</p>
+<p>Order: <strong>Medusa → streaming-whisper → 1bit-echo WS → barge-in.</strong> Revisit if Medusa's timeline slips past one calendar month; at that point streaming-whisper becomes a cheap morale-win ship.</p>
 <h2 id="references">References</h2>
 <ul>
 <li>Upstream stream example:</li>
@@ -318,7 +318,7 @@ pub trait WhisperStream {
 <a href="#3-rust-side-ffi-shape">3. Rust-side FFI shape</a>
 <a href="#method-c-function-mapping" style="padding-left:.8rem">Method → C function mapping</a>
 <a href="#out-of-scope-for-v1" style="padding-left:.8rem">Out of scope for v1</a>
-<a href="#4-halo-voice-integration">4. halo-voice integration</a>
+<a href="#4-1bit-voice-integration">4. 1bit-voice integration</a>
 <a href="#5-rank-vs-medusabitnet">5. Rank vs MedusaBitNet</a>
 <a href="#references">References</a>
 

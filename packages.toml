@@ -8,15 +8,15 @@
 #   check       — optional HTTP healthcheck; 2xx = installed OK
 
 [component.core]
-description = "halo-ai core — halo CLI + halo-server + halo-lemonade gateway + halo-helm desktop + landing page + voice/echo/mcp + npu userspace"
+description = "1bit systems core — halo CLI + 1bit-server + 1bit-lemonade gateway + 1bit-helm desktop + landing page + voice/echo/mcp + npu userspace"
 deps        = ["voice", "echo", "mcp", "npu"]
 build = [
-    ["cargo", "install", "--path", "crates/halo-cli",      "--force", "--quiet"],
-    ["cargo", "install", "--path", "crates/halo-server",   "--force", "--quiet",
+    ["cargo", "install", "--path", "crates/1bit-cli",      "--force", "--quiet"],
+    ["cargo", "install", "--path", "crates/1bit-server",   "--force", "--quiet",
      "--features", "real-backend"],
-    ["cargo", "install", "--path", "crates/halo-lemonade", "--force", "--quiet"],
-    ["cargo", "install", "--path", "crates/halo-helm",     "--force", "--quiet"],
-    ["cargo", "install", "--path", "crates/halo-landing",  "--force", "--quiet"],
+    ["cargo", "install", "--path", "crates/1bit-lemonade", "--force", "--quiet"],
+    ["cargo", "install", "--path", "crates/1bit-helm",     "--force", "--quiet"],
+    ["cargo", "install", "--path", "crates/1bit-landing",  "--force", "--quiet"],
 ]
 units = [
     "strix-server.service",
@@ -32,36 +32,36 @@ build       = []
 units       = []
 check       = ""
 
-# halo-voice — sentence-boundary TTS streaming CLI. Installs the binary to
+# 1bit-voice — sentence-boundary TTS streaming CLI. Installs the binary to
 # ~/.cargo/bin (via `cargo install`). No systemd unit; the binary is invoked
-# on demand by `halo say`, `halo-echo`, and ad-hoc shell pipelines.
+# on demand by `halo say`, `1bit-echo`, and ad-hoc shell pipelines.
 [component.voice]
-description = "halo-voice CLI — LLM SSE → TTS streaming pipeline (binary only, no unit)"
+description = "1bit-voice CLI — LLM SSE → TTS streaming pipeline (binary only, no unit)"
 deps        = []
 build = [
-    ["cargo", "install", "--path", "crates/halo-voice", "--force", "--quiet"],
+    ["cargo", "install", "--path", "crates/1bit-voice", "--force", "--quiet"],
 ]
 units = []
 check = ""
 
-# halo-echo — persistent WebSocket voice server on 127.0.0.1:8085. Wraps
-# halo-voice and ships Opus frames to browser clients.
+# 1bit-echo — persistent WebSocket voice server on 127.0.0.1:8085. Wraps
+# 1bit-voice and ships Opus frames to browser clients.
 [component.echo]
-description = "halo-echo — WebSocket voice server on :8085 (Opus frames, wraps halo-voice)"
+description = "1bit-echo — WebSocket voice server on :8085 (Opus frames, wraps 1bit-voice)"
 deps        = ["voice"]
 build = [
-    ["cargo", "install", "--path", "crates/halo-echo", "--force", "--quiet"],
+    ["cargo", "install", "--path", "crates/1bit-echo", "--force", "--quiet"],
 ]
 units = ["strix-echo.service"]
 check = ""
 
-# halo-mcp — stdio JSON-RPC MCP bridge. Installed as a binary only; Claude
+# 1bit-mcp — stdio JSON-RPC MCP bridge. Installed as a binary only; Claude
 # Code / external MCP clients launch it on demand, no systemd unit.
 [component.mcp]
-description = "halo-mcp — stdio MCP bridge over halo-agents registry (binary only, no unit)"
+description = "1bit-mcp — stdio MCP bridge over 1bit-agents registry (binary only, no unit)"
 deps        = []
 build = [
-    ["cargo", "install", "--path", "crates/halo-mcp", "--force", "--quiet"],
+    ["cargo", "install", "--path", "crates/1bit-mcp", "--force", "--quiet"],
 ]
 units = []
 check = ""
@@ -83,13 +83,13 @@ files = [
 ]
 check = ""
 
-# strix-cloudflared — Cloudflare Tunnel to api.halo-ai.studio.
+# strix-cloudflared — Cloudflare Tunnel to api.1bit.systems.
 # NOTE: installing this component ONLY copies the systemd unit + config
 # template into place. The operator MUST run `cloudflared tunnel login` +
 # `cloudflared tunnel create` + edit ~/.cloudflared/config.yml BEFORE
 # enabling the unit. See strixhalo/cloudflared/config.yml.template header.
 [component.tunnel]
-description = "cloudflared tunnel for api.halo-ai.studio (copies unit + template; operator must auth first)"
+description = "cloudflared tunnel for api.1bit.systems (copies unit + template; operator must auth first)"
 deps        = []
 build       = []
 units       = []
@@ -103,7 +103,7 @@ check       = ""
 description = "Whisper STT + Kokoro TTS (external repos, systemd only)"
 deps        = []
 build       = []
-units       = ["halo-whisper.service", "halo-kokoro.service"]
+units       = ["1bit-whisper.service", "halo-kokoro.service"]
 check       = "http://127.0.0.1:8083/health"
 
 [component.sd]
@@ -117,11 +117,11 @@ check       = "http://127.0.0.1:8081/health"
 description = "lemonade-server — Python reference, OpenAI-compat frontend (legacy)"
 deps        = []
 build       = []
-units       = ["halo-lemonade.service"]
+units       = ["1bit-lemonade.service"]
 check       = "http://127.0.0.1:8000/api/v0/models"
 
 [component.lemonade-rs]
-description = "halo-lemonade — OpenAI + Lemonade-SDK compat gateway on :8200 (bundled in core)"
+description = "1bit-lemonade — OpenAI + Lemonade-SDK compat gateway on :8200 (bundled in core)"
 deps        = ["core"]
 build       = []
 units       = []
@@ -135,24 +135,24 @@ units       = ["halo-bitnet.service"]
 check       = "http://127.0.0.1:8080/v1/models"
 
 [component.landing]
-description = "halo-ai landing page on :8190 (bundled in core — alias for back-compat)"
+description = "1bit systems landing page on :8190 (bundled in core — alias for back-compat)"
 deps        = ["core"]
 build       = []
 units       = []
 check       = "http://127.0.0.1:8190/_health"
 
 [component.helm]
-description = "halo-helm egui desktop client (bundled in core — alias for back-compat)"
+description = "1bit-helm egui desktop client (bundled in core — alias for back-compat)"
 deps        = ["core"]
 build       = []
 units       = []
 check       = ""
 
 # Alias: `halo install gaia` still works, points at the renamed helm component.
-# The crate rename (halo-gaia → halo-helm, 2026-04-20) was a rebrand only;
+# The crate rename (halo-gaia → 1bit-helm, 2026-04-20) was a rebrand only;
 # the component name survives as an alias for anyone with old shell history.
 [component.gaia]
-description = "alias for halo-helm (renamed 2026-04-20; was halo-gaia)"
+description = "alias for 1bit-helm (renamed 2026-04-20; was halo-gaia)"
 deps        = ["helm"]
 build       = []
 units       = []

@@ -1,6 +1,6 @@
 # AMD Compilers, Analyzers, Debuggers — 2026-04-20 scan
 
-Lens: what improves halo-ai's AIE kernel authoring, HIP perf, or ROCm profiling beyond our current stack (gcc 14, clang 20, hipcc, Peano/llvm-aie, rocprof, rocgdb, bindgen). Landing page: https://www.amd.com/en/developer/browse-by-resource-type/software-tools.html (fetch blocked; table from GPUOpen + ROCm docs).
+Lens: what improves 1bit systems's AIE kernel authoring, HIP perf, or ROCm profiling beyond our current stack (gcc 14, clang 20, hipcc, Peano/llvm-aie, rocprof, rocgdb, bindgen). Landing page: https://www.amd.com/en/developer/browse-by-resource-type/software-tools.html (fetch blocked; table from GPUOpen + ROCm docs).
 
 ## Catalog
 

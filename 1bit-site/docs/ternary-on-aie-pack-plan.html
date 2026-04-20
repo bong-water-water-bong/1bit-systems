@@ -28,7 +28,7 @@
 <a href="/docs/why-shadow-burnin.html">Why Shadow-Burnin</a>
 <a href="/docs/why-h1b-format.html">Why H1b Format</a>
 <a href="/docs/why-caddy-systemd.html">Why Caddy + Systemd</a>
-<a href="/docs/why-halo-agents.html">Why halo-agents</a>
+<a href="/docs/why-1bit-agents.html">Why 1bit-agents</a>
 <a href="/docs/why-no-python.html">Why No Python</a>
 <a href="/docs/why-parity-gates.html">Why Parity Gates</a>
 <a href="/docs/why-no-npu-yet.html">Why No NPU Yet</a>
@@ -39,7 +39,7 @@
 <a href="/docs/amd-gaia-integration.html">AMD GAIA</a>
 <a href="/docs/medusa-integration-plan.html">Medusa plan</a>
 <a href="/docs/rotorquant-default-decision.html">Rotorquant</a>
-<a href="/docs/halo-whisper-streaming-plan.html">Whisper streaming</a>
+<a href="/docs/1bit-whisper-streaming-plan.html">Whisper streaming</a>
 <a href="/docs/npu-kernel-design.html">NPU kernel</a>
 <a href="/docs/ternary-on-aie-pack-plan.html">Ternary on AIE</a>
 <a href="/docs/peak-performance-projection.html">Peak projection</a>
@@ -49,11 +49,11 @@
 <a href="/docs/beta-10-day-ttl.html">Beta 10-day TTL</a>
 <a href="/docs/sdd-workflow.html">SDD workflow</a>
 <h4>crates</h4>
-<a href="/docs/crate-halo-echo.html">halo-echo</a>
-<a href="/docs/crate-halo-helm.html">halo-helm</a>
-<a href="/docs/crate-halo-landing.html">halo-landing</a>
-<a href="/docs/crate-halo-lemonade.html">halo-lemonade</a>
-<a href="/docs/crate-halo-agents-watch.html">halo-agents-watch</a>
+<a href="/docs/crate-1bit-echo.html">1bit-echo</a>
+<a href="/docs/crate-1bit-helm.html">1bit-helm</a>
+<a href="/docs/crate-1bit-landing.html">1bit-landing</a>
+<a href="/docs/crate-1bit-lemonade.html">1bit-lemonade</a>
+<a href="/docs/crate-1bit-agents-watch.html">1bit-agents-watch</a>
 <h4>amd scans</h4>
 <a href="/docs/amd-ai-ml-tools-scan.html">AI/ML tools</a>
 <a href="/docs/amd-compilers-analyzers-scan.html">Compilers</a>
@@ -79,7 +79,7 @@
 <p>Output of step 1 → a per-layer <code>weights.bin</code> consumed by step 2.</p>
 <h2 id="unpack-on-the-tile-peano-c">Unpack on the tile (Peano C++)</h2>
 <p>On AIE2P the int8 MAC pipeline wants int8 inputs for both A and B. We unpack 2-bit ternary to int8 <strong>inside the tile core</strong>, amortising over the MAC latency.</p>
-<pre><code class="lang-cpp">// inside aie_kernels/halo_ternary_mm.cpp
+<pre><code class="lang-cpp">// inside aie_kernels/onebit_ternary_mm.cpp
 // Lane = 32-wide vector; we run 4 lanes in parallel.
 aie::vector&lt;int8, 32&gt; unpack_ternary(uint64_t packed) {
     aie::vector&lt;int8, 32&gt; out;
@@ -114,7 +114,7 @@ aie::vector&lt;int8, 32&gt; unpack_ternary(uint64_t packed) {
 </ul>
 <p>Crossover: compute-bound at all prefill lengths we'll see. Bandwidth is not the ceiling for NPU prefill — compute is. This is why NPU is the correct prefill surface: iGPU is bandwidth-limited on the same problem, NPU is compute-limited, and we care about compute throughput at large M.</p>
 <h2 id="activation-path">Activation path</h2>
-<p>Activations flow in as int8 from a stage upstream (CPU-side quantiser or the previous layer's output). Today's halo-server has bf16 activations end-to-end; for NPU prefill we add:</p>
+<p>Activations flow in as int8 from a stage upstream (CPU-side quantiser or the previous layer's output). Today's 1bit-server has bf16 activations end-to-end; for NPU prefill we add:</p>
 <ul>
 <li><code>activation_quantise_int8(bf16 in, i8 out, bf16 scale)</code> — one pass before tile dispatch.</li>
 <li><code>activation_dequantise_bf16(i32 in, bf16 out, bf16 scale)</code> — one pass after tile drain.</li>
@@ -128,7 +128,7 @@ aie::vector&lt;int8, 32&gt; unpack_ternary(uint64_t packed) {
 <li>Shim DMA bindings: 4 A-lanes (broadcast across rows), 8 B-lanes (broadcast across cols), 8 C-drain.</li>
 <li>Alternating shim placement on NPU2 (8 cols).</li>
 <li>Host-side: quantise bf16 activations → int8 + scale on iGPU, drain int32 → dequantise to bf16.</li>
-<li>xclbin produced by Peano, loaded via <code>halo-bitnet-xdna::XdnaDevice::load_xclbin</code>.</li>
+<li>xclbin produced by Peano, loaded via <code>1bit-xdna::XdnaDevice::load_xclbin</code>.</li>
 <li>Test: bit-exact match against the iGPU HIP reference kernel on a fixed prompt.</li>
 </ol>
 <h2 id="sources">Sources</h2>

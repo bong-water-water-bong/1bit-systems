@@ -1,14 +1,14 @@
 [Unit]
-Description=strix-ai-rs halo-landing (marketing page + live status on :8190)
+Description=strix-ai-rs 1bit-landing (marketing page + live status on :8190)
 After=network.target
 Wants=network.target
 
 [Service]
 Type=simple
-ExecStart=__HOME__/.cargo/bin/halo-landing
+ExecStart=__HOME__/.cargo/bin/1bit-landing
 Restart=on-failure
 RestartSec=5
-Environment=RUST_LOG=halo_landing=info
+Environment=RUST_LOG=onebit_landing=info
 Nice=15
 
 [Install]

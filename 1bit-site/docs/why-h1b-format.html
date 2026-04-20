@@ -28,7 +28,7 @@
 <a href="/docs/why-shadow-burnin.html">Why Shadow-Burnin</a>
 <a href="/docs/why-h1b-format.html">Why H1b Format</a>
 <a href="/docs/why-caddy-systemd.html">Why Caddy + Systemd</a>
-<a href="/docs/why-halo-agents.html">Why halo-agents</a>
+<a href="/docs/why-1bit-agents.html">Why 1bit-agents</a>
 <a href="/docs/why-no-python.html">Why No Python</a>
 <a href="/docs/why-parity-gates.html">Why Parity Gates</a>
 <a href="/docs/why-no-npu-yet.html">Why No NPU Yet</a>
@@ -39,7 +39,7 @@
 <a href="/docs/amd-gaia-integration.html">AMD GAIA</a>
 <a href="/docs/medusa-integration-plan.html">Medusa plan</a>
 <a href="/docs/rotorquant-default-decision.html">Rotorquant</a>
-<a href="/docs/halo-whisper-streaming-plan.html">Whisper streaming</a>
+<a href="/docs/1bit-whisper-streaming-plan.html">Whisper streaming</a>
 <a href="/docs/npu-kernel-design.html">NPU kernel</a>
 <a href="/docs/ternary-on-aie-pack-plan.html">Ternary on AIE</a>
 <a href="/docs/peak-performance-projection.html">Peak projection</a>
@@ -49,11 +49,11 @@
 <a href="/docs/beta-10-day-ttl.html">Beta 10-day TTL</a>
 <a href="/docs/sdd-workflow.html">SDD workflow</a>
 <h4>crates</h4>
-<a href="/docs/crate-halo-echo.html">halo-echo</a>
-<a href="/docs/crate-halo-helm.html">halo-helm</a>
-<a href="/docs/crate-halo-landing.html">halo-landing</a>
-<a href="/docs/crate-halo-lemonade.html">halo-lemonade</a>
-<a href="/docs/crate-halo-agents-watch.html">halo-agents-watch</a>
+<a href="/docs/crate-1bit-echo.html">1bit-echo</a>
+<a href="/docs/crate-1bit-helm.html">1bit-helm</a>
+<a href="/docs/crate-1bit-landing.html">1bit-landing</a>
+<a href="/docs/crate-1bit-lemonade.html">1bit-lemonade</a>
+<a href="/docs/crate-1bit-agents-watch.html">1bit-agents-watch</a>
 <h4>amd scans</h4>
 <a href="/docs/amd-ai-ml-tools-scan.html">AI/ML tools</a>
 <a href="/docs/amd-compilers-analyzers-scan.html">Compilers</a>
@@ -88,7 +88,7 @@ for layer in 0..header.layers {
     layer_views.push(slice_layer(&amp;mmap, layer, &amp;header));
 }
 </code></pre>
-<p>No allocator on the hot path. The OS page cache is our weight cache. Code: <a href="../../crates/halo-core/src/h1b.rs"><code>crates/halo-core/src/h1b.rs</code></a>.</p>
+<p>No allocator on the hot path. The OS page cache is our weight cache. Code: <a href="../../crates/1bit-core/src/h1b.rs"><code>crates/1bit-core/src/h1b.rs</code></a>.</p>
 <h2 id="why-not-gguf-directly">Why not GGUF directly</h2>
 <ul>
 <li><strong>GGUF's Q2_K / Q4_K blocks assume K-major tiling</strong>; our ternary GEMV wants row-major with per-row scales. Converting at load time means the kernel waits on CPU-side reshape.</li>
@@ -102,13 +102,13 @@ for layer in 0..header.layers {
 <p>Every format invention is a tax. We pay it because:</p>
 <ol>
 <li>The <strong>requantizer runs once per model release</strong> on a dev box. It's Python + PyTorch, reads safetensors, writes <code>.h1b</code>. Never shipped, never on the serving path — Rule A-safe (see <a href="why-no-python.html">Why no Python?</a>).</li>
-<li>The <strong>loader has no malloc</strong> on the hot path. <code>halo-server</code> boots in ~200 ms because weight setup is <code>mmap</code> + pointer arithmetic.</li>
+<li>The <strong>loader has no malloc</strong> on the hot path. <code>1bit-server</code> boots in ~200 ms because weight setup is <code>mmap</code> + pointer arithmetic.</li>
 <li>Kernel tile layouts ship <strong>pre-tiled</strong>. The first token out the door doesn't pay a one-time reshape penalty.</li>
 </ol>
 <p>If GGUF ever adds a first-class ternary type with per-row scales and 3:4 sparsity, we'll import it directly. Until then, <code>.h1b</code> is the simplest thing that gives the kernel exactly what it wants.</p>
 <h2 id="pointers">Pointers</h2>
 <ul>
-<li>Reader struct: <a href="../../crates/halo-core/src/h1b.rs"><code>crates/halo-core/src/h1b.rs</code></a></li>
+<li>Reader struct: <a href="../../crates/1bit-core/src/h1b.rs"><code>crates/1bit-core/src/h1b.rs</code></a></li>
 <li>Exporter (one-shot Python): <code>requantize-h1b.py</code> in the dev-tools folder</li>
 <li>Related: <a href="why-ternary.html">Why ternary?</a>, <a href="why-no-python.html">Why no Python?</a></li>
 </ul>

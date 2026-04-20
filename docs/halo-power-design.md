@@ -7,7 +7,7 @@ Author: Claude (Opus 4.7, 1M), with `stampby` steering.
 
 ## Problem statement
 
-halo-ai runs on an AMD Ryzen AI MAX+ 395 (Strix Halo) APU with the GPU and
+1bit systems runs on an AMD Ryzen AI MAX+ 395 (Strix Halo) APU with the GPU and
 CPU sharing a single LPDDR5 memory controller. During sustained bitnet
 decode (80 tok/s × 1024 tokens) we hit thermal throttle long before we hit
 compute limits — the ternary GEMV is already at 92 % of LPDDR5 peak (see
@@ -19,7 +19,7 @@ operating envelopes (decode-heavy, chat-interactive, idle) without shelling
 out to `ryzenadj` one-liners by hand every time. A `halo power` subcommand
 is the cheapest way to expose that knob to the rest of the stack (the
 idle-watchdog daemon, the install doctor check, a future
-`halo-helm`-driven "dim the box" gesture).
+`1bit-helm`-driven "dim the box" gesture).
 
 ---
 
@@ -60,7 +60,7 @@ What the README + landing page (`docs/index.html`) actually claim:
   AUR). Manual zip download only. Some AV vendors flag it as a false-positive
   (see landing page note).
 
-**Implication for halo-ai:** RyzenZPilot itself is unusable on our Linux
+**Implication for 1bit systems:** RyzenZPilot itself is unusable on our Linux
 strixhalo box. The *library underneath it* (RyzenAdj) is usable. Any
 integration story below is really about wrapping **RyzenAdj**, not
 RyzenZPilot. We keep the design-doc name because the user task framed it
@@ -74,10 +74,10 @@ approach.
 ### (a) Zero-integration — document it, don't ship it
 
 - Add a paragraph to `README.md` explaining that Windows users can run
-  RyzenZPilot alongside halo-ai for thermal tuning.
+  RyzenZPilot alongside 1bit systems for thermal tuning.
 - Add a soft probe to `halo doctor`: if `ryzenadj` is not on `PATH`,
   warn "consider installing `ryzenadj` for thermal tuning during decode".
-- halo-cli stays stock.
+- 1bit-cli stays stock.
 
 Cost: ~10 lines of doc + one doctor check. Risk: zero.
 Benefit: zero on our actual Linux box.
@@ -94,7 +94,7 @@ Because RyzenZPilot has no Linux build and no CLI, the shell-out target is
 4. Writes `/run/user/$UID/halo-power/current-profile` so subsequent
    `halo power` (no args) shows state without re-probing hardware.
 
-Cost: ~150 lines of Rust in `crates/halo-cli/src/power.rs` + one
+Cost: ~150 lines of Rust in `crates/1bit-cli/src/power.rs` + one
 `Cmd::Power` enum variant in `main.rs`. Three unit tests (argv builder,
 state-file round-trip, profile-name parse).
 Dependency: `ryzenadj` binary on `PATH`, a passwordless sudoers rule for
@@ -104,7 +104,7 @@ Risk: if AMD changes the Family 19h MSR layout in a future Strix Halo
 stepping, RyzenAdj catches the breakage upstream and we inherit the fix
 for free. We carry zero kernel-level code.
 
-### (c) Port — rewrite MSR logic in Rust inside halo-cli
+### (c) Port — rewrite MSR logic in Rust inside 1bit-cli
 
 Reimplement the subset of RyzenAdj we care about directly in Rust, opening
 `/dev/cpu/0/msr` and issuing the PCI SMU mailbox writes by hand. No
@@ -127,7 +127,7 @@ maintainers of a second RyzenAdj fork.
 
 Benefit: no external process, no sudo-elevated subprocess, no AUR
 dependency. Also satisfies Rule A's spirit (ryzenadj is C, not Python, so
-Rule A isn't actually in play here — but a pure-Rust halo-cli is a nicer
+Rule A isn't actually in play here — but a pure-Rust 1bit-cli is a nicer
 artifact).
 
 ---
@@ -148,14 +148,14 @@ Reasoning:
 4. **Rule A compliant.** `ryzenadj` is a C binary, no Python in the
    runtime path.
 5. **Reversible.** If we later want to port (option c), the `halo power`
-   CLI surface stays identical; only `crates/halo-cli/src/power.rs`
+   CLI surface stays identical; only `crates/1bit-cli/src/power.rs`
    changes. Users don't notice.
 
 User's prior was (b); recommendation confirms.
 
 ---
 
-## Profile mapping — halo-ai semantics → ryzenadj knobs
+## Profile mapping — 1bit systems semantics → ryzenadj knobs
 
 ryzenadj flags we rely on (all present on current AUR build; verified
 from `ryzenadj --help`):
@@ -172,10 +172,10 @@ stapm 55 W, fast 65 W, slow 60 W, tctl 95 °C. The mapping below is a
 before we ship them as defaults (tracked as follow-up work, NOT in scope
 of this doc).
 
-| halo-ai profile | Intent                                     | stapm | fast | slow | tctl | Notes                                              |
+| 1bit systems profile | Intent                                     | stapm | fast | slow | tctl | Notes                                              |
 | --------------- | ------------------------------------------ | ----- | ---- | ---- | ---- | -------------------------------------------------- |
 | `inference`     | Max sustained decode tok/s                 |  65 W | 80 W | 75 W | 95 °C | All headroom to package; CPU cores park on demand. |
-| `chat`          | Interactive, balanced, low fan             |  45 W | 65 W | 55 W | 90 °C | Default after boot. Matches halo-helm chat load.   |
+| `chat`          | Interactive, balanced, low fan             |  45 W | 65 W | 55 W | 90 °C | Default after boot. Matches 1bit-helm chat load.   |
 | `idle`          | No active requests for N seconds (>= 60 s) |  20 W | 35 W | 25 W | 80 °C | Watchdog-triggered. Quiet closet mode.             |
 
 Open questions (NOT blockers for this doc, tracked as follow-ups):
@@ -191,7 +191,7 @@ Open questions (NOT blockers for this doc, tracked as follow-ups):
 
 ## CLI surface
 
-Added to `crates/halo-cli/src/main.rs` as a new `Cmd::Power` variant.
+Added to `crates/1bit-cli/src/main.rs` as a new `Cmd::Power` variant.
 Shape follows existing halo subcommands (`status`, `logs`, `doctor`,
 `install`) — short subcommand word, flags on the right.
 
@@ -233,9 +233,9 @@ so we don't paint ourselves into a corner):
 ## Safety notes
 
 **sudo handling.** ryzenadj needs root for `/dev/cpu/*/msr`. We do NOT
-run halo-cli itself as root. The crate shells out via `sudo -n ryzenadj
+run 1bit-cli itself as root. The crate shells out via `sudo -n ryzenadj
 ...`; the `-n` means "fail if a password would be required" — we never
-want halo-cli to hang waiting for an interactive password prompt from a
+want 1bit-cli to hang waiting for an interactive password prompt from a
 systemd-triggered context. On first run, `halo doctor` checks whether
 passwordless ryzenadj sudo is configured and, if not, prints the exact
 `/etc/sudoers.d/halo-power` snippet to drop in:
@@ -317,5 +317,5 @@ EC-controlled on this chassis and we have no hook).
   Presence of flags (`--stapm-limit`, `--fast-limit`, `--slow-limit`,
   `--tctl-temp`, `--gfx-clk`, `--dump-table`) based on the project's
   current AUR package (`ryzenadj-git`, installed on strixhalo).
-- halo-ai internal: `project_bitnet_live_bench`, `project_bitnet_rocprof_plan`
+- 1bit systems internal: `project_bitnet_live_bench`, `project_bitnet_rocprof_plan`
   (for the 92 % LPDDR5-peak and decode-tok/s numbers that motivate this).

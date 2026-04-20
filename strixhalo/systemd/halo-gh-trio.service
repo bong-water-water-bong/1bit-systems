@@ -1,11 +1,11 @@
 [Unit]
-Description=halo-ai GitHub automation runner — walks issues, PRs, commits
+Description=1bit systems GitHub automation runner — walks issues, PRs, commits
 
 [Service]
 Type=oneshot
-ExecStart=__HOME__/bin/halo-quartermaster.sh
-ExecStart=__HOME__/bin/halo-magistrate.sh
-ExecStart=__HOME__/bin/halo-librarian.sh
+ExecStart=__HOME__/bin/1bit-quartermaster.sh
+ExecStart=__HOME__/bin/1bit-magistrate.sh
+ExecStart=__HOME__/bin/1bit-librarian.sh
 Nice=10
 IOSchedulingClass=idle
 StandardOutput=journal

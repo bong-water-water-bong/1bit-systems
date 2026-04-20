@@ -13,11 +13,11 @@
 
 ## What we tried first
 
-Gen-1 of halo-ai was Python (AMD Lemonade + transformers + a custom FastAPI layer). It was the natural starting point — Microsoft's reference is Python, MLX is Python, lemonade is Python, every BitNet community project is Python.
+Gen-1 of 1bit systems was Python (AMD Lemonade + transformers + a custom FastAPI layer). It was the natural starting point — Microsoft's reference is Python, MLX is Python, lemonade is Python, every BitNet community project is Python.
 
 What we hit:
 
-1. **Cold-start latency** — 4-12 seconds to import torch + transformers + numpy before the first inference. On a service meant to serve LAN requests, that's a restart outage. Rust `halo-server` cold-start is ~200 ms.
+1. **Cold-start latency** — 4-12 seconds to import torch + transformers + numpy before the first inference. On a service meant to serve LAN requests, that's a restart outage. Rust `1bit-server` cold-start is ~200 ms.
 2. **Dependency churn** — `pip install` resolvers pick different versions day to day. One morning the Lemonade server wouldn't start because a transitive dep bumped past a compatible minor. Rust cargo's lockfile prevents this class of bug.
 3. **Silent failure modes** — Python typing is advisory. JSON parsing fails at the first bad field, which may be six levels deep in an error the user sees as a 500. Rust serde fails at deserialization with a precise path.
 4. **Multiple Pythons** — the dev box had `python3.12`, the install script pulled `python3.11`, the AUR package expected `python3.13`. Three stacks. Three venv roots. Three reasons the service won't start on a fresh box.
@@ -28,7 +28,7 @@ What we hit:
 
 - Install time: `./install-strixhalo.sh` is 5 minutes end-to-end, most of it spent compiling kernels.
 - First-request latency: under 250 ms cold, effectively 0 warm.
-- Memory footprint at idle: ~80 MB for halo-server vs ~350 MB for the gen-1 Python process.
+- Memory footprint at idle: ~80 MB for 1bit-server vs ~350 MB for the gen-1 Python process.
 - Error messages: deserializer-level "expected u32 at `.usage.prompt_tokens`, got string" vs Python's "`KeyError: 'usage'`" with no line number.
 
 ## But what about speed of development?
@@ -52,7 +52,7 @@ If we ever needed a *runtime* requantize (which we don't — the output is cache
 
 - `halo-install-strixhalo.sh` checks for any stray `python` in systemd unit `ExecStart` lines and warns.
 - `halo doctor` flags any Python process consuming >100 MB on the box at runtime.
-- The halo-mcp MCP server is Rust; the DSPy / Claude Code plugin examples are Python — that's a caller, not a service.
+- The 1bit-mcp MCP server is Rust; the DSPy / Claude Code plugin examples are Python — that's a caller, not a service.
 
 ## Citations
 

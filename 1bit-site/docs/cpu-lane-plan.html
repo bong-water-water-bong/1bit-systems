@@ -28,7 +28,7 @@
 <a href="/docs/why-shadow-burnin.html">Why Shadow-Burnin</a>
 <a href="/docs/why-h1b-format.html">Why H1b Format</a>
 <a href="/docs/why-caddy-systemd.html">Why Caddy + Systemd</a>
-<a href="/docs/why-halo-agents.html">Why halo-agents</a>
+<a href="/docs/why-1bit-agents.html">Why 1bit-agents</a>
 <a href="/docs/why-no-python.html">Why No Python</a>
 <a href="/docs/why-parity-gates.html">Why Parity Gates</a>
 <a href="/docs/why-no-npu-yet.html">Why No NPU Yet</a>
@@ -39,7 +39,7 @@
 <a href="/docs/amd-gaia-integration.html">AMD GAIA</a>
 <a href="/docs/medusa-integration-plan.html">Medusa plan</a>
 <a href="/docs/rotorquant-default-decision.html">Rotorquant</a>
-<a href="/docs/halo-whisper-streaming-plan.html">Whisper streaming</a>
+<a href="/docs/1bit-whisper-streaming-plan.html">Whisper streaming</a>
 <a href="/docs/npu-kernel-design.html">NPU kernel</a>
 <a href="/docs/ternary-on-aie-pack-plan.html">Ternary on AIE</a>
 <a href="/docs/peak-performance-projection.html">Peak projection</a>
@@ -49,11 +49,11 @@
 <a href="/docs/beta-10-day-ttl.html">Beta 10-day TTL</a>
 <a href="/docs/sdd-workflow.html">SDD workflow</a>
 <h4>crates</h4>
-<a href="/docs/crate-halo-echo.html">halo-echo</a>
-<a href="/docs/crate-halo-helm.html">halo-helm</a>
-<a href="/docs/crate-halo-landing.html">halo-landing</a>
-<a href="/docs/crate-halo-lemonade.html">halo-lemonade</a>
-<a href="/docs/crate-halo-agents-watch.html">halo-agents-watch</a>
+<a href="/docs/crate-1bit-echo.html">1bit-echo</a>
+<a href="/docs/crate-1bit-helm.html">1bit-helm</a>
+<a href="/docs/crate-1bit-landing.html">1bit-landing</a>
+<a href="/docs/crate-1bit-lemonade.html">1bit-lemonade</a>
+<a href="/docs/crate-1bit-agents-watch.html">1bit-agents-watch</a>
 <h4>amd scans</h4>
 <a href="/docs/amd-ai-ml-tools-scan.html">AI/ML tools</a>
 <a href="/docs/amd-compilers-analyzers-scan.html">Compilers</a>
@@ -68,7 +68,7 @@
 </aside>
 <main class="docs-body">
 <h1>CPU Lane Plan</h1>
-<p>The 7th surface of halo-ai's APU stack: the 16 Zen5 cores on Strix Halo, running the sampler + tokenizer + dispatcher in parallel with the iGPU's next-token grind.</p>
+<p>The 7th surface of 1bit systems's APU stack: the 16 Zen5 cores on Strix Halo, running the sampler + tokenizer + dispatcher in parallel with the iGPU's next-token grind.</p>
 <p>This page covers what we scaffolded today (2026-04-20), why the CPU is a peer lane (not a fallback), and the three concrete steps that turn the scaffold into a measured win.</p>
 <h2 id="what-the-lane-is">What the lane is</h2>
 <p>The CPU lane is <strong>host-side orchestration in parallel with GPU compute</strong>. On a live decode:</p>
@@ -90,7 +90,7 @@
 <li>Each rayon thread named <code>halo-cpu-&lt;idx&gt;</code> so <code>rocprof</code> / <code>perf top</code></li>
 </ul>
 <p>attribute it cleanly.</p>
-<p>Surface entry point: [<code>halo_router::cpu_lane::CpuLane</code>] in <code>crates/halo-router/src/cpu_lane.rs</code>.</p>
+<p>Surface entry point: [<code>onebit_router::cpu_lane::CpuLane</code>] in <code>crates/1bit-router/src/cpu_lane.rs</code>.</p>
 <h2 id="why-cpu-is-a-peer-lane-not-a-fallback">Why CPU is a peer lane, not a fallback</h2>
 <p><code>project_apu_thesis.md</code> is the longer form; the short version:</p>
 <ul>
@@ -108,15 +108,15 @@
 <h2 id="what-we-scaffolded-today">What we scaffolded today</h2>
 <p>2026-04-20:</p>
 <ul>
-<li><code>crates/halo-router/src/cpu_lane.rs</code> — new module. <code>CpuLane</code> struct</li>
+<li><code>crates/1bit-router/src/cpu_lane.rs</code> — new module. <code>CpuLane</code> struct</li>
 </ul>
 <p>holds a <code>rayon::ThreadPool</code>; <code>parallel_sample(&amp;self, logits, top_k, top_p, temp)</code> demonstrates the rayon parallel-reduction pattern (argmax at <code>temp=0</code>, chunked top-k fallback at <code>temp&gt;0</code>).</p>
 <ul>
-<li><code>Backend::Cpu</code> in <code>halo-router</code>'s routing guard now returns</li>
+<li><code>Backend::Cpu</code> in <code>1bit-router</code>'s routing guard now returns</li>
 </ul>
 <p><code>BackendError::CpuLaneStub(&quot;CPU sampler lane scaffolded, not yet on critical path; see docs/wiki/CPU-Lane-Plan.md&quot;)</code> instead of <code>unimplemented!()</code>. Distinct error kind from <code>NotYetWired</code> so ops tooling can count them separately.</p>
 <ul>
-<li><code>rayon = &quot;1&quot;</code> added to <code>crates/halo-router/Cargo.toml</code>. Rayon 1.12 is</li>
+<li><code>rayon = &quot;1&quot;</code> added to <code>crates/1bit-router/Cargo.toml</code>. Rayon 1.12 is</li>
 </ul>
 <p>already in the workspace Cargo.lock transitively (via tokenizers); adding it directly doesn't grow the build graph.</p>
 <ul>
@@ -125,11 +125,11 @@
 <p>argmax at <code>temp=0</code> is deterministic on a 32k-element vector, <code>HALO_CPU_THREADS=4</code> is respected. Env-var test takes a module-local mutex so it can't race with the <code>HALO_BACKEND</code> test in <code>backend_config_tests</code>.</p>
 <p>What we did <strong>not</strong> do today, on purpose:</p>
 <ul>
-<li>Wire <code>CpuLane</code> into halo-server's SSE handler. The hotspot analysis</li>
+<li>Wire <code>CpuLane</code> into 1bit-server's SSE handler. The hotspot analysis</li>
 </ul>
 <p>comes first — see step (a) below.</p>
 <ul>
-<li>Replace the existing <code>halo_core::sampler::Sampler</code> (full top-k + top-p</li>
+<li>Replace the existing <code>onebit_core::sampler::Sampler</code> (full top-k + top-p</li>
 <li>temperature + repetition penalty). <code>parallel_sample</code> today is</li>
 </ul>
 <p>scaffolding — it proves the rayon pattern, not a drop-in replacement.</p>
@@ -138,12 +138,12 @@
 </ul>
 <p>keeps orchestration in Rust; kernels stay in rocm-cpp.</p>
 <h2 id="what-s-next-three-concrete-steps">What's next (three concrete steps)</h2>
-<h3 id="a-wire-cpulane-parallel-sample-into-halo-server-s-sse-handler">(a) Wire <code>CpuLane::parallel_sample</code> into halo-server's SSE handler</h3>
-<p><code>halo-server</code> runs the sampler inline on the main axum task today. The wire-up:</p>
+<h3 id="a-wire-cpulane-parallel-sample-into-1bit-server-s-sse-handler">(a) Wire <code>CpuLane::parallel_sample</code> into 1bit-server's SSE handler</h3>
+<p><code>1bit-server</code> runs the sampler inline on the main axum task today. The wire-up:</p>
 <ol>
-<li>Construct a process-global <code>CpuLane</code> in <code>halo-server</code>'s <code>main</code> via</li>
+<li>Construct a process-global <code>CpuLane</code> in <code>1bit-server</code>'s <code>main</code> via</li>
 </ol>
-<p><code>halo_router::cpu_lane::global_lane()</code>.</p>
+<p><code>onebit_router::cpu_lane::global_lane()</code>.</p>
 <ol>
 <li>In the <code>/v1/chat/completions</code> streaming handler, replace</li>
 </ol>
@@ -153,13 +153,13 @@
 </ol>
 <p>the scan, tokio owns the socket.</p>
 <h3 id="b-microbenchmark-single-threaded-vs-rayon-parallel-sampler">(b) Microbenchmark single-threaded vs rayon-parallel sampler</h3>
-<p>Not wired = no measurement. Target: <code>criterion</code> bench in <code>crates/halo-router/benches/cpu_lane.rs</code>:</p>
+<p>Not wired = no measurement. Target: <code>criterion</code> bench in <code>crates/1bit-router/benches/cpu_lane.rs</code>:</p>
 <ul>
 <li>Input: a synthetic 32k-element logit vector (BitNet's vocab size,</li>
 </ul>
 <p>128256 rounded down for easier chunking).</p>
 <ul>
-<li>Harness: compare <code>halo_core::sampler::Sampler::sample</code> (single-threaded)</li>
+<li>Harness: compare <code>onebit_core::sampler::Sampler::sample</code> (single-threaded)</li>
 </ul>
 <p>against <code>CpuLane::parallel_sample</code> at pool sizes 1, 4, 8, 14.</p>
 <ul>
@@ -189,7 +189,7 @@
 <p>target; the CPU lane closes surface #7.</p>
 <ul>
 <li><code>docs/wiki/AMD-AI-ML-Tools-Scan.md</code> — ZenDNN 5.2 notes for step (c).</li>
-<li><code>crates/halo-router/src/cpu_lane.rs</code> — the module this page describes.</li>
+<li><code>crates/1bit-router/src/cpu_lane.rs</code> — the module this page describes.</li>
 </ul>
 
 </main>
@@ -199,7 +199,7 @@
 <a href="#why-cpu-is-a-peer-lane-not-a-fallback">Why CPU is a peer lane, not a fallback</a>
 <a href="#what-we-scaffolded-today">What we scaffolded today</a>
 <a href="#what-s-next-three-concrete-steps">What's next (three concrete steps)</a>
-<a href="#a-wire-cpulane-parallel-sample-into-halo-server-s-sse-handler" style="padding-left:.8rem">(a) Wire `CpuLane::parallel_sample` into halo-server's SSE handler</a>
+<a href="#a-wire-cpulane-parallel-sample-into-1bit-server-s-sse-handler" style="padding-left:.8rem">(a) Wire `CpuLane::parallel_sample` into 1bit-server's SSE handler</a>
 <a href="#b-microbenchmark-single-threaded-vs-rayon-parallel-sampler" style="padding-left:.8rem">(b) Microbenchmark single-threaded vs rayon-parallel sampler</a>
 <a href="#c-decide-whether-zendnn-ffi-is-worth-the-dep-weight" style="padding-left:.8rem">(c) Decide whether ZenDNN FFI is worth the dep weight</a>
 <a href="#cross-references">Cross-references</a>

@@ -1,9 +1,9 @@
 # Halo-Whisper Streaming Plan
 
-Status: research + planning, 2026-04-20. No crate `halo-whisper` exists
+Status: research + planning, 2026-04-20. No crate `1bit-whisper` exists
 yet; voice input is currently batch-POST whole-file transcription
 (outside this workspace). This doc is the design for the streaming
-rewrite that will let `halo-voice` start reacting before the user
+rewrite that will let `1bit-voice` start reacting before the user
 stops talking.
 
 Companion notes:
@@ -70,7 +70,7 @@ example are a shortcut that only works for a single global session.
   `params.prompt_tokens` from the last segment mitigate this but do
   not eliminate it.
 - **Good for**: Echo's "start reacting while user is mid-sentence"
-  use case — we want the partial even if it's noisy, halo-voice can
+  use case — we want the partial even if it's noisy, 1bit-voice can
   gate on confidence.
 
 ### VAD-triggered (one phrase at a time)
@@ -80,7 +80,7 @@ example are a shortcut that only works for a single global session.
 - **Cost per emission**: single `whisper_full` per utterance, so much
   lower total CPU.
 - **Accuracy**: highest — the model sees the whole phrase end-to-end.
-- **Good for**: halo-mcp voice tool invocations, dictation mode.
+- **Good for**: 1bit-mcp voice tool invocations, dictation mode.
 - **Bad for**: barge-in / duplex conversation — we lose the pre-end
   partial we need to start warming the LLM.
 
@@ -105,15 +105,15 @@ streaming head; not in upstream whisper.cpp as of 2026-04-20.
 **Fixed window + VAD-on-tail hybrid.** Run the sliding window for
 partials while speech is active, then on trailing silence do one
 **committed** `whisper_full` over the whole utterance to replace the
-streamed partials with the final hypothesis. halo-voice treats
+streamed partials with the final hypothesis. 1bit-voice treats
 partials as "draft" and the committed result as "final". This mirrors
 what Google / Deepgram APIs expose (`is_final: bool`) and keeps
-halo-voice's state machine simple.
+1bit-voice's state machine simple.
 
 ## 3. Rust-side FFI shape
 
-`crates/halo-whisper` (pending — **does not exist on disk today**,
-verified 2026-04-20) will own the FFI boundary. `halo-bitnet-hip`
+`crates/1bit-whisper` (pending — **does not exist on disk today**,
+verified 2026-04-20) will own the FFI boundary. `1bit-hip`
 provides the pattern: thin `-sys` module + safe wrapper, no kernel
 reimplementation. whisper.cpp is CPU-only in our use (the mel +
 encoder + decoder are tiny relative to BitNet); no HIP port needed.
@@ -180,16 +180,16 @@ Notes:
 - GPU backend for whisper encoder (Vulkan / Metal exist upstream;
   we stay CPU; CPU cost is dominated by BitNet anyway).
 - Word-level timestamps (`whisper_full_get_token_t0`) — dictation-only
-  feature; halo-voice doesn't need them.
+  feature; 1bit-voice doesn't need them.
 - Language auto-detect streaming (`whisper_lang_auto_detect`) — we
   pin `en` at init. Multilingual is a later knob.
 
-## 4. halo-voice integration
+## 4. 1bit-voice integration
 
-Today (`crates/halo-voice/src/pipeline.rs`): the pipeline is **output
-only**. It takes a prompt string, fans out SSE from halo-server, runs
+Today (`crates/1bit-voice/src/pipeline.rs`): the pipeline is **output
+only**. It takes a prompt string, fans out SSE from 1bit-server, runs
 `SentenceSplitter`, and POSTs sentences at halo-kokoro. There is no
-input side in this crate yet. `halo-echo` is an empty `lib.rs`
+input side in this crate yet. `1bit-echo` is an empty `lib.rs`
 scaffold.
 
 Migration shape:
@@ -201,9 +201,9 @@ Migration shape:
    - **Eager** (recommended v1): every time a new `Partial` arrives
      with `is_final=false` and changes the prefix, **cancel** the
      in-flight LLM SSE request and start a new one with the fresh
-     partial. halo-server must learn `POST /v1/chat/completions` with
+     partial. 1bit-server must learn `POST /v1/chat/completions` with
      `X-Halo-Cancel-Prev: <session>` or we accept wasted tokens. Ship
-     the wasted-tokens version first; `halo-server` cancel path is
+     the wasted-tokens version first; `1bit-server` cancel path is
      follow-up.
    - **Gated**: only fire the LLM once `is_final=true` arrives. This is
      just a 200–500 ms speedup over today (mic-stop → final partial)
@@ -211,22 +211,22 @@ Migration shape:
 3. **halo-kokoro side unchanged.** Sentence-splitter streaming TTS
    already works the moment the LLM starts emitting tokens.
 4. **End of turn detection.** Barge-in: if a new `Partial` arrives
-   while halo-kokoro is still speaking, halo-voice should **stop the
+   while halo-kokoro is still speaking, 1bit-voice should **stop the
    current TTS playback** (caller-side; we already don't own
    playback) and emit a signal. Put a `VoiceEvent::BargeIn` variant
    on the output stream.
 5. **Wire order.**
-   - `halo-whisper` crate + 3 tests (ctx load, one-shot tiny WAV,
+   - `1bit-whisper` crate + 3 tests (ctx load, one-shot tiny WAV,
      partial emission from synthetic PCM).
-   - `halo-voice::input` module with `MicSource` (cpal) →
+   - `1bit-voice::input` module with `MicSource` (cpal) →
      `WhisperStream` → `mpsc<Partial>`.
-   - `halo-voice::pipeline::speak_from_stream`.
-   - halo-server cancel endpoint.
-   - halo-echo WS frames for browser peer (Opus in → Partial out, via
+   - `1bit-voice::pipeline::speak_from_stream`.
+   - 1bit-server cancel endpoint.
+   - 1bit-echo WS frames for browser peer (Opus in → Partial out, via
      the same trait).
 
 Estimated effort: ~3–4 sit-down days end-to-end, of which 1 is the
-FFI crate, 1 is the cancel path on halo-server, and 1–2 is polishing
+FFI crate, 1 is the cancel path on 1bit-server, and 1–2 is polishing
 barge-in + dedup on overlap.
 
 ## 5. Rank vs MedusaBitNet
@@ -247,10 +247,10 @@ barge-in + dedup on overlap.
   do. Streaming whisper is a commoditized capability: the stream
   example already runs; we are just wrapping it.
 - Streaming whisper can ship behind Medusa without blocking anyone —
-  halo-voice works today with batch STT. Medusa is a no-op until it
+  1bit-voice works today with batch STT. Medusa is a no-op until it
   lands.
 
-Order: **Medusa → streaming-whisper → halo-echo WS → barge-in.**
+Order: **Medusa → streaming-whisper → 1bit-echo WS → barge-in.**
 Revisit if Medusa's timeline slips past one calendar month; at that
 point streaming-whisper becomes a cheap morale-win ship.
 

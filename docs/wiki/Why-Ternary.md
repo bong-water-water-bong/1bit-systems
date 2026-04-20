@@ -32,7 +32,7 @@ Binary ({-1, +1}) = 1 bit per weight, 50% more memory savings on paper. In pract
 
 Sub-1.58-bit formats (LittleBit 0.1 bpw, NanoQuant sub-binary) exist and are watched — see [`../../.claude/projects/-home-bcloud/memory/project_bitnet_frontier_2026_04.md`](memory-only). Not production-ready for our scale today.
 
-## Why this matters for halo-ai
+## Why this matters for 1bit systems
 
 On a $3 000 Strix Halo mini-PC with 128 GB unified LPDDR5 at 256 GB/s, ternary BitNet gets us:
 

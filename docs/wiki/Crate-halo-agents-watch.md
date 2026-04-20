@@ -1,4 +1,4 @@
-# halo-agents watch binaries
+# 1bit-agents watch binaries
 
 Two opt-in binaries that keep the 17-specialist registry aware of activity
 outside the local machine:
@@ -6,7 +6,7 @@ outside the local machine:
 - `halo-watch-discord` — Discord gateway client.
 - `halo-watch-github`  — GitHub issue/PR poller (read-only).
 
-Both live in the `halo-agents` crate so they share the registry type and
+Both live in the `1bit-agents` crate so they share the registry type and
 don't need an IPC boundary to dispatch to a specialist.
 
 ## What the Discord bot does
@@ -52,8 +52,8 @@ message like "why is this panicking?" is a bug, not a question.
 | ----------------------- | -------- | --------------------------- | --------------------------------------------------------- |
 | `DISCORD_BOT_TOKEN`     | yes      | —                           | Raw Discord bot token (no `Bot ` prefix).                 |
 | `HALO_DISCORD_CHANNELS` | yes      | —                           | Comma-separated channel IDs (u64) to observe.             |
-| `HALO_SERVER_URL`       | no       | `http://127.0.0.1:8180`     | halo-server base URL for `status` reply (`/v1/models`).   |
-| `HALO_LANDING_URL`      | no       | `http://127.0.0.1:8190`     | halo-landing base URL for `status` reply (`/metrics`).    |
+| `HALO_SERVER_URL`       | no       | `http://127.0.0.1:8180`     | 1bit-server base URL for `status` reply (`/v1/models`).   |
+| `HALO_LANDING_URL`      | no       | `http://127.0.0.1:8190`     | 1bit-landing base URL for `status` reply (`/metrics`).    |
 | `RUST_LOG`              | no       | `halo_watch_discord=info`   | Standard tracing filter.                                  |
 
 If `DISCORD_BOT_TOKEN` is unset or empty, the binary prints the help
@@ -96,8 +96,8 @@ reaching for any of these, stop.
   the bot, the message is classified + dispatched silently; no reply.
 - **No bearer-token handling.** Do not add code that reads
   `Authorization:` headers out of message content, and do not paste
-  halo-server tokens into any channel the bot watches.
-- **No outbound network except halo-server / halo-landing.** The
+  1bit-server tokens into any channel the bot watches.
+- **No outbound network except 1bit-server / 1bit-landing.** The
   `status` command probes those two only; don't bolt on arbitrary
   web requests.
 - **No writes to disk.** The bot has no on-disk state. If you need
@@ -123,8 +123,8 @@ Specialists must tolerate unknown fields — we'll add more context
 
 ## Testing
 
-Classifier + env-parser tests live in `halo_agents::watch::tests` and run
-under `cargo test -p halo-agents`. The startup-without-token contract is
+Classifier + env-parser tests live in `onebit_agents::watch::tests` and run
+under `cargo test -p 1bit-agents`. The startup-without-token contract is
 exercised by the integration test at `tests/watch_discord_startup.rs`,
 which spawns the compiled binary with the token env cleared and asserts
 exit 0 + help banner on stdout.
@@ -177,7 +177,7 @@ Rationale:
 | Var                     | Required | Default                                                                             | Purpose                                                             |
 | ----------------------- | -------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
 | `GITHUB_TOKEN`          | no       | —                                                                                   | PAT (read-only `public_repo`) or installation token. Unset → skip.  |
-| `HALO_GH_REPOS`         | no       | `bong-water-water-bong/halo-ai-rs,bong-water-water-bong/bitnet-mlx.rs,strix-ai-rs/halo-workspace` | Comma-separated `owner/repo` list.                                  |
+| `HALO_GH_REPOS`         | no       | `bong-water-water-bong/1bit-systems,bong-water-water-bong/bitnet-mlx.rs,strix-ai-rs/halo-workspace` | Comma-separated `owner/repo` list.                                  |
 | `HALO_GH_POLL_SECONDS`  | no       | `300`                                                                               | Poll interval in seconds. Lookback is `2×` this.                    |
 | `RUST_LOG`              | no       | `info`                                                                              | Standard tracing filter.                                            |
 
@@ -235,8 +235,8 @@ iterations.
 
 ## GitHub testing
 
-Classifier + env-parser tests live in `halo_agents::watch::github::tests`
-and run under `cargo test -p halo-agents --release`. The token-absent
+Classifier + env-parser tests live in `onebit_agents::watch::github::tests`
+and run under `cargo test -p 1bit-agents --release`. The token-absent
 short-circuit is not covered by a binary integration test because
 `Registry::default_stubs()` is exercised elsewhere and the branch is
 trivially `info!(); return Ok(())`.

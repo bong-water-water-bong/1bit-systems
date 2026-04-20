@@ -11,7 +11,7 @@ Type=oneshot
 Nice=15
 IOSchedulingClass=idle
 # Apply mode: the timer is the scheduled enforcer, not a preview.
-ExecStart=%h/repos/halo-workspace/strixhalo/bin/halo-beta-expire.sh --apply
+ExecStart=%h/repos/halo-workspace/strixhalo/bin/1bit-beta-expire.sh --apply
 # A partial failure (one handle fails to revoke) exits 1. We log that and
 # let the timer retry next fire; no retry-now storm.
 SuccessExitStatus=0

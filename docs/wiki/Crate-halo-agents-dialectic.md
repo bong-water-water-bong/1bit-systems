@@ -1,11 +1,11 @@
-# Crate: halo-agents / dialectic
+# Crate: 1bit-agents / dialectic
 
 **Phase:** analysis  
 **Status:** scaffold landed 2026-04-20, LLM derivation pass TODO  
 **Upstream reference:** [plastic-labs/honcho][honcho] (MIT, Python + Postgres)
 
 Rust reimplementation of Honcho's dialectic user-modeling surface as a
-module in `halo-agents`. No Python FFI, no Postgres — SQLite via the
+module in `1bit-agents`. No Python FFI, no Postgres — SQLite via the
 `rusqlite` (`bundled`) dep we already pull in for `sessions`.
 
 [honcho]: https://github.com/plastic-labs/honcho
@@ -28,15 +28,15 @@ call as a clearly marked `TODO`.
 ## Rust surface
 
 ```
-crates/halo-agents/src/dialectic/
+crates/1bit-agents/src/dialectic/
     mod.rs        — public types + observe() / infer() functions + tests
     store.rs      — DialecticStore trait + SqliteDialecticStore impl + DDL
 ```
 
-Re-exports live at `halo_agents::{UserModel, Observation, Inference,
+Re-exports live at `onebit_agents::{UserModel, Observation, Inference,
 ObservationKind, DialecticStore, SqliteDialecticStore, observe, infer}`.
 
-## SQL schema (SQLite, halo-agents/dialectic)
+## SQL schema (SQLite, 1bit-agents/dialectic)
 
 ```sql
 CREATE TABLE dialectic_observations (
@@ -71,24 +71,24 @@ colocation is safe — object names are prefixed `dialectic_`.
 
 ## Deviation from Honcho upstream
 
-| Honcho upstream                              | halo-agents/dialectic                          | Reason                                                                 |
+| Honcho upstream                              | 1bit-agents/dialectic                          | Reason                                                                 |
 | -------------------------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------- |
 | Postgres + pgvector + HNSW                   | SQLite (rusqlite bundled)                      | Zero-dep beyond what `sessions` already pulls; Rule A (no Python) holds. |
-| `Workspace` multi-tenant                     | Single-tenant (dropped)                        | One operator, one box; revisit if halo-server ever hosts 3rd parties.  |
-| `Peer` row with config/metadata              | Peer referenced by string id                   | Peer registry is `halo-agents::sessions::sessions.user_id`; no need to dup. |
+| `Workspace` multi-tenant                     | Single-tenant (dropped)                        | One operator, one box; revisit if 1bit-server ever hosts 3rd parties.  |
+| `Peer` row with config/metadata              | Peer referenced by string id                   | Peer registry is `1bit-agents::sessions::sessions.user_id`; no need to dup. |
 | `Messages` at session scope                  | `dialectic_observations`                       | Separation lets FTS5 session search keep its own row layout.           |
 | LLM "derivation task" distills claims        | Scaffold: claim := observation text verbatim   | Prompt templates + hooks land after routing is wired end-to-end.       |
 | LLM "dialectic chat" synthesizes answers     | Case-insensitive keyword overlap ranker        | Drop-in ranker swap once the specialist prompt lands (Librarian).       |
-| pgvector cosine similarity over embeddings   | (deferred)                                     | Wait for halo-core embedder; keyword ranker is fine for the scaffold.   |
+| pgvector cosine similarity over embeddings   | (deferred)                                     | Wait for 1bit-core embedder; keyword ranker is fine for the scaffold.   |
 | `Document.level` (explicit / derived / …)    | `ObservationKind::{Explicit, Derived}`         | Enum present, only `Explicit` produced today. `Derived` reserved for LLM pass. |
 | Async task queue (`queue`, `dream`, reconciler) | — (not in scaffold)                         | Derivation is synchronous today. Revisit when LLM pass lands.          |
 | Webhooks                                     | —                                              | Not needed for local single-operator deploy.                           |
-| Collections of vector-embedded documents (RAG) | —                                            | `halo-agents::memory` + `sessions` FTS5 cover our RAG story today.     |
+| Collections of vector-embedded documents (RAG) | —                                            | `1bit-agents::memory` + `sessions` FTS5 cover our RAG story today.     |
 
 ## Top-level API (Rust)
 
 ```rust
-use halo_agents::{observe, infer, Observation, ObservationKind, SqliteDialecticStore};
+use onebit_agents::{observe, infer, Observation, ObservationKind, SqliteDialecticStore};
 
 let store = SqliteDialecticStore::open_default()?;       // ~/.halo/dialectic.db
 let obs = Observation {
@@ -104,7 +104,7 @@ let claims = infer(&store, "alice", "bob", "CLI style")?; // ranked recall
 
 ## Endpoints we'd need to mirror (future; not wired today)
 
-Reference list for when we expose this to halo-mcp / halo-server:
+Reference list for when we expose this to 1bit-mcp / 1bit-server:
 
 - `POST /dialectic/observe` → `observe()`
 - `GET  /dialectic/infer?observer=&observed=&q=` → `infer()`
@@ -134,9 +134,9 @@ Total crate tests after port: **67 unit + 1 integration** (was 62 + 1).
    `observe()` with a prompt-backed distillation step. Target specialist:
    `Librarian` (it already owns memory synthesis).
 2. **Embedding-based ranker.** Swap keyword overlap for cosine similarity
-   once `halo-core` ships an embedder. DDL already reserves the `claim`
+   once `1bit-core` ships an embedder. DDL already reserves the `claim`
    column layout; only `list_inferences` query changes.
-3. **halo-mcp surface.** Expose the four endpoints above through the MCP
+3. **1bit-mcp surface.** Expose the four endpoints above through the MCP
    bridge.
-4. **halo-server HTTP surface.** Route to `/v1/dialectic/*` behind the
-   same bearer guard the rest of halo-server uses.
+4. **1bit-server HTTP surface.** Route to `/v1/dialectic/*` behind the
+   same bearer guard the rest of 1bit-server uses.

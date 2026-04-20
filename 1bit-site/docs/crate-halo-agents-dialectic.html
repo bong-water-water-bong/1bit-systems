@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0d1117">
-<title>Crate: halo-agents / dialectic · 1bit.systems docs</title>
+<title>Crate: 1bit-agents / dialectic · 1bit.systems docs</title>
 <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
 <link rel="stylesheet" href="/assets/style.css">
 </head>
@@ -28,7 +28,7 @@
 <a href="/docs/why-shadow-burnin.html">Why Shadow-Burnin</a>
 <a href="/docs/why-h1b-format.html">Why H1b Format</a>
 <a href="/docs/why-caddy-systemd.html">Why Caddy + Systemd</a>
-<a href="/docs/why-halo-agents.html">Why halo-agents</a>
+<a href="/docs/why-1bit-agents.html">Why 1bit-agents</a>
 <a href="/docs/why-no-python.html">Why No Python</a>
 <a href="/docs/why-parity-gates.html">Why Parity Gates</a>
 <a href="/docs/why-no-npu-yet.html">Why No NPU Yet</a>
@@ -39,7 +39,7 @@
 <a href="/docs/amd-gaia-integration.html">AMD GAIA</a>
 <a href="/docs/medusa-integration-plan.html">Medusa plan</a>
 <a href="/docs/rotorquant-default-decision.html">Rotorquant</a>
-<a href="/docs/halo-whisper-streaming-plan.html">Whisper streaming</a>
+<a href="/docs/1bit-whisper-streaming-plan.html">Whisper streaming</a>
 <a href="/docs/npu-kernel-design.html">NPU kernel</a>
 <a href="/docs/ternary-on-aie-pack-plan.html">Ternary on AIE</a>
 <a href="/docs/peak-performance-projection.html">Peak projection</a>
@@ -49,11 +49,11 @@
 <a href="/docs/beta-10-day-ttl.html">Beta 10-day TTL</a>
 <a href="/docs/sdd-workflow.html">SDD workflow</a>
 <h4>crates</h4>
-<a href="/docs/crate-halo-echo.html">halo-echo</a>
-<a href="/docs/crate-halo-helm.html">halo-helm</a>
-<a href="/docs/crate-halo-landing.html">halo-landing</a>
-<a href="/docs/crate-halo-lemonade.html">halo-lemonade</a>
-<a href="/docs/crate-halo-agents-watch.html">halo-agents-watch</a>
+<a href="/docs/crate-1bit-echo.html">1bit-echo</a>
+<a href="/docs/crate-1bit-helm.html">1bit-helm</a>
+<a href="/docs/crate-1bit-landing.html">1bit-landing</a>
+<a href="/docs/crate-1bit-lemonade.html">1bit-lemonade</a>
+<a href="/docs/crate-1bit-agents-watch.html">1bit-agents-watch</a>
 <h4>amd scans</h4>
 <a href="/docs/amd-ai-ml-tools-scan.html">AI/ML tools</a>
 <a href="/docs/amd-compilers-analyzers-scan.html">Compilers</a>
@@ -67,19 +67,19 @@
 
 </aside>
 <main class="docs-body">
-<h1>Crate: halo-agents / dialectic</h1>
+<h1>Crate: 1bit-agents / dialectic</h1>
 <p><strong>Phase:</strong> analysis <strong>Status:</strong> scaffold landed 2026-04-20, LLM derivation pass TODO <strong>Upstream reference:</strong> [plastic-labs/honcho][honcho] (MIT, Python + Postgres)</p>
-<p>Rust reimplementation of Honcho's dialectic user-modeling surface as a module in <code>halo-agents</code>. No Python FFI, no Postgres — SQLite via the <code>rusqlite</code> (<code>bundled</code>) dep we already pull in for <code>sessions</code>.</p>
+<p>Rust reimplementation of Honcho's dialectic user-modeling surface as a module in <code>1bit-agents</code>. No Python FFI, no Postgres — SQLite via the <code>rusqlite</code> (<code>bundled</code>) dep we already pull in for <code>sessions</code>.</p>
 <p>[honcho]: https://github.com/plastic-labs/honcho</p>
 <h2 id="what-is-dialectic-user-modeling">What is dialectic user modeling</h2>
 <p>For every incoming <strong>Observation</strong> (a labelled chunk of a peer's utterance inside a session), a dialectic pipeline derives structured <strong>Inferences</strong> — claims about the peer — citing the observations that support them. Claims are accumulated across sessions keyed by <code>(observer_peer, observed_peer)</code>, so peer A's model of peer B is distinct from peer B's self-model. On query, claims tagged against the observed peer are filtered by relevance and returned ranked. Honcho's production pipeline uses an LLM to distill raw messages into claims (&quot;derivation task&quot;) and a second LLM call at query time (&quot;dialectic chat&quot;) to synthesize an answer over the top; the Rust port stubs both today (ingestion stores the observation verbatim as a claim, query is case-insensitive keyword overlap) and leaves the LLM call as a clearly marked <code>TODO</code>.</p>
 <h2 id="rust-surface">Rust surface</h2>
-<pre><code>crates/halo-agents/src/dialectic/
+<pre><code>crates/1bit-agents/src/dialectic/
     mod.rs        — public types + observe() / infer() functions + tests
     store.rs      — DialecticStore trait + SqliteDialecticStore impl + DDL
 </code></pre>
-<p>Re-exports live at <code>halo_agents::{UserModel, Observation, Inference, ObservationKind, DialecticStore, SqliteDialecticStore, observe, infer}</code>.</p>
-<h2 id="sql-schema-sqlite-halo-agents-dialectic">SQL schema (SQLite, halo-agents/dialectic)</h2>
+<p>Re-exports live at <code>onebit_agents::{UserModel, Observation, Inference, ObservationKind, DialecticStore, SqliteDialecticStore, observe, infer}</code>.</p>
+<h2 id="sql-schema-sqlite-1bit-agents-dialectic">SQL schema (SQLite, 1bit-agents/dialectic)</h2>
 <pre><code class="lang-sql">CREATE TABLE dialectic_observations (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id  TEXT NOT NULL,
@@ -108,22 +108,22 @@ CREATE TABLE dialectic_supports (
 <p>DB lives at <code>~/.halo/dialectic.db</code>. Separate file from <code>~/.halo/state.db</code> so FTS5 session reads don't contend with dialectic writes. Same-file colocation is safe — object names are prefixed <code>dialectic_</code>.</p>
 <h2 id="deviation-from-honcho-upstream">Deviation from Honcho upstream</h2>
 <table>
-<thead><tr><th>Honcho upstream</th><th>halo-agents/dialectic</th><th>Reason</th></tr></thead>
+<thead><tr><th>Honcho upstream</th><th>1bit-agents/dialectic</th><th>Reason</th></tr></thead>
 <tbody>
 <tr><td>Postgres + pgvector + HNSW</td><td>SQLite (rusqlite bundled)</td><td>Zero-dep beyond what <code>sessions</code> already pulls; Rule A (no Python) holds.</td></tr>
-<tr><td><code>Workspace</code> multi-tenant</td><td>Single-tenant (dropped)</td><td>One operator, one box; revisit if halo-server ever hosts 3rd parties.</td></tr>
-<tr><td><code>Peer</code> row with config/metadata</td><td>Peer referenced by string id</td><td>Peer registry is <code>halo-agents::sessions::sessions.user_id</code>; no need to dup.</td></tr>
+<tr><td><code>Workspace</code> multi-tenant</td><td>Single-tenant (dropped)</td><td>One operator, one box; revisit if 1bit-server ever hosts 3rd parties.</td></tr>
+<tr><td><code>Peer</code> row with config/metadata</td><td>Peer referenced by string id</td><td>Peer registry is <code>1bit-agents::sessions::sessions.user_id</code>; no need to dup.</td></tr>
 <tr><td><code>Messages</code> at session scope</td><td><code>dialectic_observations</code></td><td>Separation lets FTS5 session search keep its own row layout.</td></tr>
 <tr><td>LLM &quot;derivation task&quot; distills claims</td><td>Scaffold: claim := observation text verbatim</td><td>Prompt templates + hooks land after routing is wired end-to-end.</td></tr>
 <tr><td>LLM &quot;dialectic chat&quot; synthesizes answers</td><td>Case-insensitive keyword overlap ranker</td><td>Drop-in ranker swap once the specialist prompt lands (Librarian).</td></tr>
-<tr><td>pgvector cosine similarity over embeddings</td><td>(deferred)</td><td>Wait for halo-core embedder; keyword ranker is fine for the scaffold.</td></tr>
+<tr><td>pgvector cosine similarity over embeddings</td><td>(deferred)</td><td>Wait for 1bit-core embedder; keyword ranker is fine for the scaffold.</td></tr>
 <tr><td><code>Document.level</code> (explicit / derived / …)</td><td><code>ObservationKind::{Explicit, Derived}</code></td><td>Enum present, only <code>Explicit</code> produced today. <code>Derived</code> reserved for LLM pass.</td></tr>
 <tr><td>Async task queue (<code>queue</code>, <code>dream</code>, reconciler)</td><td>— (not in scaffold)</td><td>Derivation is synchronous today. Revisit when LLM pass lands.</td></tr>
 <tr><td>Webhooks</td><td>—</td><td>Not needed for local single-operator deploy.</td></tr>
-<tr><td>Collections of vector-embedded documents (RAG)</td><td>—</td><td><code>halo-agents::memory</code> + <code>sessions</code> FTS5 cover our RAG story today.</td></tr>
+<tr><td>Collections of vector-embedded documents (RAG)</td><td>—</td><td><code>1bit-agents::memory</code> + <code>sessions</code> FTS5 cover our RAG story today.</td></tr>
 </tbody></table>
 <h2 id="top-level-api-rust">Top-level API (Rust)</h2>
-<pre><code class="lang-rust">use halo_agents::{observe, infer, Observation, ObservationKind, SqliteDialecticStore};
+<pre><code class="lang-rust">use onebit_agents::{observe, infer, Observation, ObservationKind, SqliteDialecticStore};
 
 let store = SqliteDialecticStore::open_default()?;       // ~/.halo/dialectic.db
 let obs = Observation {
@@ -137,7 +137,7 @@ observe(&amp;store, &quot;alice&quot;, obs)?;                          // writes
 let claims = infer(&amp;store, &quot;alice&quot;, &quot;bob&quot;, &quot;CLI style&quot;)?; // ranked recall
 </code></pre>
 <h2 id="endpoints-we-d-need-to-mirror-future-not-wired-today">Endpoints we'd need to mirror (future; not wired today)</h2>
-<p>Reference list for when we expose this to halo-mcp / halo-server:</p>
+<p>Reference list for when we expose this to 1bit-mcp / 1bit-server:</p>
 <ul>
 <li><code>POST /dialectic/observe</code> → <code>observe()</code></li>
 <li><code>GET  /dialectic/infer?observer=&amp;observed=&amp;q=</code> → <code>infer()</code></li>
@@ -163,22 +163,22 @@ let claims = infer(&amp;store, &quot;alice&quot;, &quot;bob&quot;, &quot;CLI sty
 <ol>
 <li><strong>Embedding-based ranker.</strong> Swap keyword overlap for cosine similarity</li>
 </ol>
-<p>once <code>halo-core</code> ships an embedder. DDL already reserves the <code>claim</code> column layout; only <code>list_inferences</code> query changes.</p>
+<p>once <code>1bit-core</code> ships an embedder. DDL already reserves the <code>claim</code> column layout; only <code>list_inferences</code> query changes.</p>
 <ol>
-<li><strong>halo-mcp surface.</strong> Expose the four endpoints above through the MCP</li>
+<li><strong>1bit-mcp surface.</strong> Expose the four endpoints above through the MCP</li>
 </ol>
 <p>bridge.</p>
 <ol>
-<li><strong>halo-server HTTP surface.</strong> Route to <code>/v1/dialectic/*</code> behind the</li>
+<li><strong>1bit-server HTTP surface.</strong> Route to <code>/v1/dialectic/*</code> behind the</li>
 </ol>
-<p>same bearer guard the rest of halo-server uses.</p>
+<p>same bearer guard the rest of 1bit-server uses.</p>
 
 </main>
 <aside class="docs-toc">
 <h4>on this page</h4>
 <a href="#what-is-dialectic-user-modeling">What is dialectic user modeling</a>
 <a href="#rust-surface">Rust surface</a>
-<a href="#sql-schema-sqlite-halo-agents-dialectic">SQL schema (SQLite, halo-agents/dialectic)</a>
+<a href="#sql-schema-sqlite-1bit-agents-dialectic">SQL schema (SQLite, 1bit-agents/dialectic)</a>
 <a href="#deviation-from-honcho-upstream">Deviation from Honcho upstream</a>
 <a href="#top-level-api-rust">Top-level API (Rust)</a>
 <a href="#endpoints-we-d-need-to-mirror-future-not-wired-today">Endpoints we'd need to mirror (future; not wired today)</a>

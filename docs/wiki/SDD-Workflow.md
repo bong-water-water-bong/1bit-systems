@@ -3,9 +3,9 @@ phase: verified
 owner: cartograph
 ---
 
-# Spec-driven development workflow (halo-ai)
+# Spec-driven development workflow (1bit systems)
 
-halo-ai runs on a spec-first loop. Every crate / kernel / service integration lands with a `docs/wiki/Crate-*.md` (or `docs/wiki/Why-*.md`) spec BEFORE code. Code implements the spec. Tests verify the spec. Agents are briefed against the spec, not ad-hoc prose.
+1bit systems runs on a spec-first loop. Every crate / kernel / service integration lands with a `docs/wiki/Crate-*.md` (or `docs/wiki/Why-*.md`) spec BEFORE code. Code implements the spec. Tests verify the spec. Agents are briefed against the spec, not ad-hoc prose.
 
 Inspired by BMAD-Method (`docs.bmad-method.org`) phase gates + Kiro / Spec-Kit specification patterns. **We skip the frameworks** (Rule A — no extra runtime deps). The markdown-plus-clangd-plus-tests workflow already gives spec → code → verification; we borrow only the phase tags + agent routing.
 
@@ -37,8 +37,8 @@ spec(<crate>): promote from <old> → <new> — <reason>
 ```
 
 Examples:
-- `spec(halo-helm): promote from analysis → solutioning — API signatures reviewed by cartograph 2026-04-20` (crate renamed from halo-gaia on the same day)
-- `spec(halo-bitnet-xdna): promote from implementation → verified — 201 tests green, bit-exact parity vs Hip on 10k prompts`
+- `spec(1bit-helm): promote from analysis → solutioning — API signatures reviewed by cartograph 2026-04-20` (crate renamed from halo-gaia on the same day)
+- `spec(1bit-xdna): promote from implementation → verified — 201 tests green, bit-exact parity vs Hip on 10k prompts`
 
 If a spec needs to go BACK a phase (discovered-constraint rewrites the design), commit message says `spec(<crate>): demote from <old> → <new> — <reason>`. Demotions are normal; they're a sign the spec is learning.
 
@@ -65,16 +65,16 @@ If a spec needs to go BACK a phase (discovered-constraint rewrites the design), 
 
 When I spawn a background agent (research or build), the prompt points at the spec file rather than re-describing the problem. Agents diff their output against the spec sections. Example prompt framing:
 
-> Implement `crates/halo-helm/src/view/mod.rs` per `docs/wiki/Crate-halo-helm.md` § Interface. Keep invariants §2 + §3 green. Non-goals in §5 are out of scope.
+> Implement `crates/1bit-helm/src/view/mod.rs` per `docs/wiki/Crate-1bit-helm.md` § Interface. Keep invariants §2 + §3 green. Non-goals in §5 are out of scope.
 
 ## Retroactive application
 
 Modules already in tree without a matching spec file get one **the next time they're touched**. Currently unspec'd (as of 2026-04-20):
 
-- halo-echo — `phase: implementation` already (Opus path, 10 tests). Needs a retrospective spec.
-- halo-lemonade — `phase: implementation` already. Retrospective spec needed.
-- halo-helm — renamed from halo-gaia on 2026-04-20 (AMD GAIA clash). Spec promoted analysis → solutioning alongside first egui/eframe scaffold.
-- halo-landing — `phase: implementation` already. Retrospective spec needed.
+- 1bit-echo — `phase: implementation` already (Opus path, 10 tests). Needs a retrospective spec.
+- 1bit-lemonade — `phase: implementation` already. Retrospective spec needed.
+- 1bit-helm — renamed from halo-gaia on 2026-04-20 (AMD GAIA clash). Spec promoted analysis → solutioning alongside first egui/eframe scaffold.
+- 1bit-landing — `phase: implementation` already. Retrospective spec needed.
 
 Well-spec'd (templates for the above):
 - `docs/wiki/Why-Ternary.md`
@@ -99,4 +99,4 @@ Well-spec'd (templates for the above):
 
 - `feedback_spec_driven_dev.md` in memory — policy pointer.
 - CLAUDE.md § Hard rules — Rule A / B / C / D / E frame every spec.
-- `crates/halo-agents/src/lib.rs` — the 17 specialists that own phase reviews.
+- `crates/1bit-agents/src/lib.rs` — the 17 specialists that own phase reviews.

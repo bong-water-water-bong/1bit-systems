@@ -27,7 +27,7 @@ for layer in 0..header.layers {
 }
 ```
 
-No allocator on the hot path. The OS page cache is our weight cache. Code: [`crates/halo-core/src/h1b.rs`](../../crates/halo-core/src/h1b.rs).
+No allocator on the hot path. The OS page cache is our weight cache. Code: [`crates/1bit-core/src/h1b.rs`](../../crates/1bit-core/src/h1b.rs).
 
 ## Why not GGUF directly
 
@@ -45,13 +45,13 @@ No allocator on the hot path. The OS page cache is our weight cache. Code: [`cra
 Every format invention is a tax. We pay it because:
 
 1. The **requantizer runs once per model release** on a dev box. It's Python + PyTorch, reads safetensors, writes `.h1b`. Never shipped, never on the serving path — Rule A-safe (see [Why no Python?](./Why-No-Python.md)).
-2. The **loader has no malloc** on the hot path. `halo-server` boots in ~200 ms because weight setup is `mmap` + pointer arithmetic.
+2. The **loader has no malloc** on the hot path. `1bit-server` boots in ~200 ms because weight setup is `mmap` + pointer arithmetic.
 3. Kernel tile layouts ship **pre-tiled**. The first token out the door doesn't pay a one-time reshape penalty.
 
 If GGUF ever adds a first-class ternary type with per-row scales and 3:4 sparsity, we'll import it directly. Until then, `.h1b` is the simplest thing that gives the kernel exactly what it wants.
 
 ## Pointers
 
-- Reader struct: [`crates/halo-core/src/h1b.rs`](../../crates/halo-core/src/h1b.rs)
+- Reader struct: [`crates/1bit-core/src/h1b.rs`](../../crates/1bit-core/src/h1b.rs)
 - Exporter (one-shot Python): `requantize-h1b.py` in the dev-tools folder
 - Related: [Why ternary?](./Why-Ternary.md), [Why no Python?](./Why-No-Python.md)

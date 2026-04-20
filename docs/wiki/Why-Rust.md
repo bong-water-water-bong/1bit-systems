@@ -7,11 +7,11 @@
 ```
  ┌────────────────────────────────────────────────────────┐
  │  Rust (halo-workspace, 11 crates, 121+ tests)          │
- │  halo-cli · halo-server · halo-router · halo-mcp       │
- │  halo-agents · halo-lemonade · halo-helm · halo-landing│
- │  halo-core (mmap + tokenizer + sampler) · halo-bitnet-*│
+ │  1bit-cli · 1bit-server · 1bit-router · 1bit-mcp       │
+ │  1bit-agents · 1bit-lemonade · 1bit-helm · 1bit-landing│
+ │  1bit-core (mmap + tokenizer + sampler) · halo-bitnet-*│
  └──────────────────────────┬─────────────────────────────┘
-                            │ extern "C" FFI via halo-bitnet-hip
+                            │ extern "C" FFI via 1bit-hip
  ┌──────────────────────────▼─────────────────────────────┐
  │  C++ / HIP (rocm-cpp, bong-water-water-bong canonical)             │
  │  ternary_gemv_halo · ternary_gemv_sherry · ternary_tq1 │
@@ -30,10 +30,10 @@
 ## Why everything else in Rust
 
 - **Memory safety** — the orchestration layer manages HTTP request lifecycles, SSE streams, model weight mmaps, tokenizer tables, KV cache ownership, systemd journal pipes. A Python `KeyError` or C++ use-after-free at that layer takes down the serving process. `Result<T, E>` + ownership prevents that class of bug entirely.
-- **`tokio` + `axum`** — proven async HTTP/SSE stack. The halo-server implements OpenAI chat completions, SSE streaming, and per-request sharded metrics in ~1 500 LOC.
+- **`tokio` + `axum`** — proven async HTTP/SSE stack. The 1bit-server implements OpenAI chat completions, SSE streaming, and per-request sharded metrics in ~1 500 LOC.
 - **`serde` + `schemars`** — typed JSON-RPC, MCP tool schemas, config loading. Each specialist declares `#[derive(JsonSchema)]` on its input/output struct and the MCP `tools/list` output falls out for free.
 - **`cargo` as build + package manager** — one command (`cargo build --workspace`) builds all 11 crates. CI runs `cargo test --workspace`. No `make`, no `cmake` at this layer.
-- **Binary distribution** — Rust produces static-link-friendly binaries with no runtime dep. `halo-server` is 2.4 MB and needs only `libamdhip64.so` + `librocm_cpp.so` from the system.
+- **Binary distribution** — Rust produces static-link-friendly binaries with no runtime dep. `1bit-server` is 2.4 MB and needs only `libamdhip64.so` + `librocm_cpp.so` from the system.
 
 ## Why not pure Rust end-to-end?
 
@@ -41,7 +41,7 @@ Tried considering it. Vetoed because:
 
 - **Rust-HIP bindings aren't production** — `hip-sys`, `rocm-rs` exist but each is one person + a partial surface. Writing a HIP kernel in pure Rust today means giving up on intrinsics.
 - **Rust-GPU (wgpu / Vulkan) doesn't map to ROCm's kernel model** — Metal/Vulkan compute shaders are a different abstraction than HIP's CUDA-style kernels. Porting rocm-cpp's ternary GEMV to wgpu would mean a complete rewrite that loses 30-50% perf.
-- **The FFI boundary is stable** — `halo-bitnet-hip` exposes 30+ extern "C" functions. Over a year of development, this boundary has changed <5 times. FFI cost is low.
+- **The FFI boundary is stable** — `1bit-hip` exposes 30+ extern "C" functions. Over a year of development, this boundary has changed <5 times. FFI cost is low.
 
 ## Why not pure C++ end-to-end?
 
@@ -50,7 +50,7 @@ Rejected for the orchestration layer. Reasons:
 - **Concurrency** — `tokio` gives us structured async for free. In C++ we'd pull `asio` + write equivalent plumbing for 3× the code.
 - **Serde + typed JSON** — `nlohmann::json` works but loses type safety at every touchpoint. `serde_json::from_value` + `#[derive(Deserialize)]` catches shape errors at compile.
 - **Ecosystem** — `clap` for CLIs, `tracing` for logs, `reqwest` for HTTP clients, `axum` for HTTP servers. Each equivalent in C++ is a one-person github project.
-- **Distribution** — `halo-server` binary is 2.4 MB static-ish. A C++ equivalent with openssl + asio + nlohmann + stdlib is 15-30 MB or dynamic-link hell.
+- **Distribution** — `1bit-server` binary is 2.4 MB static-ish. A C++ equivalent with openssl + asio + nlohmann + stdlib is 15-30 MB or dynamic-link hell.
 
 ## Not Python (ever, at runtime)
 
@@ -61,7 +61,7 @@ Callers are free to use Python — DSPy, lemonade-python-sdk, jupyter. That's th
 ## The inherited trade-off
 
 We pay:
-- One FFI boundary (halo-bitnet-hip) that needs manual memory + lifetime care across `extern "C"`.
+- One FFI boundary (1bit-hip) that needs manual memory + lifetime care across `extern "C"`.
 - Two build systems (cargo + cmake).
 - Two languages for contributors to read.
 

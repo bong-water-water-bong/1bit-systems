@@ -1,4 +1,4 @@
-# halo-ai-rs wiki
+# 1bit-systems wiki
 
 Plain-English explanations of the architectural calls we made — one page per decision, citations where they exist.
 
@@ -10,7 +10,7 @@ Plain-English explanations of the architectural calls we made — one page per d
 - [Why shadow-burnin?](./Why-Shadow-Burnin.md) — the cutover discipline
 - [Why our own `.h1b` format?](./Why-H1b-Format.md) — vs GGUF
 - [Why Caddy + systemd?](./Why-Caddy-Systemd.md) — the ops layer
-- [Why halo-agents?](./Why-Halo-Agents.md) — the self-maintaining mesh
+- [Why 1bit-agents?](./Why-Halo-Agents.md) — the self-maintaining mesh
 - [Why no Python at runtime?](./Why-No-Python.md) — Rule A
 - [Why shadow-traffic parity gates?](./Why-Parity-Gates.md) — cutover criteria
 - [Why no NPU yet?](./Why-No-NPU-Yet.md) — XDNA 2 status + ONNX/FastFlowLM/IREE evaluation
@@ -18,7 +18,7 @@ Plain-English explanations of the architectural calls we made — one page per d
 
 ## Integrations
 
-- [Hermes Agent integration](./Hermes-Integration.md) — Nous Research's agent as external client on halo-server; feature-port list for halo-agents
+- [Hermes Agent integration](./Hermes-Integration.md) — Nous Research's agent as external client on 1bit-server; feature-port list for 1bit-agents
 
 ## Benchmarks + proof
 

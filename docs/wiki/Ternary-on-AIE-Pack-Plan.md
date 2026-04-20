@@ -16,7 +16,7 @@ Output of step 1 → a per-layer `weights.bin` consumed by step 2.
 On AIE2P the int8 MAC pipeline wants int8 inputs for both A and B. We unpack 2-bit ternary to int8 **inside the tile core**, amortising over the MAC latency.
 
 ```cpp
-// inside aie_kernels/halo_ternary_mm.cpp
+// inside aie_kernels/onebit_ternary_mm.cpp
 // Lane = 32-wide vector; we run 4 lanes in parallel.
 aie::vector<int8, 32> unpack_ternary(uint64_t packed) {
     aie::vector<int8, 32> out;
@@ -57,7 +57,7 @@ Crossover: compute-bound at all prefill lengths we'll see. Bandwidth is not the 
 
 ## Activation path
 
-Activations flow in as int8 from a stage upstream (CPU-side quantiser or the previous layer's output). Today's halo-server has bf16 activations end-to-end; for NPU prefill we add:
+Activations flow in as int8 from a stage upstream (CPU-side quantiser or the previous layer's output). Today's 1bit-server has bf16 activations end-to-end; for NPU prefill we add:
 
 - `activation_quantise_int8(bf16 in, i8 out, bf16 scale)` — one pass before tile dispatch.
 - `activation_dequantise_bf16(i32 in, bf16 out, bf16 scale)` — one pass after tile drain.
@@ -72,7 +72,7 @@ Both run on the iGPU (HIP), not the NPU. Overhead: ~0.3 ms per layer at 2B. Abso
 4. Shim DMA bindings: 4 A-lanes (broadcast across rows), 8 B-lanes (broadcast across cols), 8 C-drain.
 5. Alternating shim placement on NPU2 (8 cols).
 6. Host-side: quantise bf16 activations → int8 + scale on iGPU, drain int32 → dequantise to bf16.
-7. xclbin produced by Peano, loaded via `halo-bitnet-xdna::XdnaDevice::load_xclbin`.
+7. xclbin produced by Peano, loaded via `1bit-xdna::XdnaDevice::load_xclbin`.
 8. Test: bit-exact match against the iGPU HIP reference kernel on a fixed prompt.
 
 ## Sources

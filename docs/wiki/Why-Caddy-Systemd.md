@@ -1,6 +1,6 @@
 # Why Caddy + user-scope systemd?
 
-**One-line answer**: Caddy handles TLS, HTTP/3, reverse-proxy, and reload semantics with a 20-line config. systemd --user lets every halo-ai process restart without root. Snapper catches any mistake. No Docker, no k8s, no YAML jungle.
+**One-line answer**: Caddy handles TLS, HTTP/3, reverse-proxy, and reload semantics with a 20-line config. systemd --user lets every 1bit systems process restart without root. Snapper catches any mistake. No Docker, no k8s, no YAML jungle.
 
 ## Why Caddy, not nginx
 
@@ -13,7 +13,7 @@ We run one `Caddyfile` at `/etc/caddy/Caddyfile` (root-owned because Caddy binds
 
 ## Why `tls internal` on LAN
 
-All halo-ai traffic rides Headscale (100.64.0.0/10). No public DNS, no public cert to manage. Caddy's `tls internal` spins up a tiny CA, mints certs for `strixhalo.local`, `landing.strixhalo.local`, etc. Clients trust the Headscale-pinned CA. Zero LetsEncrypt rate-limit risk.
+All 1bit systems traffic rides Headscale (100.64.0.0/10). No public DNS, no public cert to manage. Caddy's `tls internal` spins up a tiny CA, mints certs for `strixhalo.local`, `landing.strixhalo.local`, etc. Clients trust the Headscale-pinned CA. Zero LetsEncrypt rate-limit risk.
 
 ```caddyfile
 landing.strixhalo.local {
@@ -28,7 +28,7 @@ If we ever expose a public endpoint, Caddy flips from `tls internal` to ACME aut
 
 - **No root for restart.** `systemctl --user restart strix-server` is a regular-user op. Scripts in `~/.local/bin` don't need `sudo`.
 - **All state under `$HOME`.** Snapper's rootfs snapshot catches every service change. Rollback to snapshot `#6` undoes a bad unit install without touching `/etc`.
-- **Isolation.** halo-server runs as `bcloud`, not `root`. A serve bug can't touch `/etc`.
+- **Isolation.** 1bit-server runs as `bcloud`, not `root`. A serve bug can't touch `/etc`.
 - **Per-user tuning.** `~/.config/systemd/user/*.service` is editable without a config manager.
 
 Units live at [`strixhalo/systemd/`](../../strixhalo/systemd/) in git. `install.sh` copies them to `~/.config/systemd/user/` and runs `systemctl --user daemon-reload`.
@@ -41,7 +41,7 @@ Without it, user services stop on logout. One command, done forever:
 loginctl enable-linger bcloud
 ```
 
-Now halo-server + strix-landing + halo-mcp survive SSH disconnect, reboot, TTY switch. The box is headless in a closet — lingering is non-negotiable.
+Now 1bit-server + strix-landing + 1bit-mcp survive SSH disconnect, reboot, TTY switch. The box is headless in a closet — lingering is non-negotiable.
 
 ## Why we do NOT use Docker
 
@@ -50,10 +50,10 @@ Rule A (bare-metal-first, see [`feedback_bare_metal_first.md`](memory-only)) for
 1. **Cold start.** Container boot adds 300-800 ms on top of process start. For a service called by voice pipelines that target <2 s end-to-end, that's a third of the budget.
 2. **Storage driver churn.** Overlay2 + Btrfs = unpredictable layer timing under snapper.
 3. **Attack surface.** Every daemon (`dockerd`, `containerd`) is another root-owned service to patch. On a home box, we'd rather patch zero.
-4. **GPU passthrough.** HIP in a container needs `--device=/dev/kfd` + `--device=/dev/dri` + group mapping. Works, but is a chore. Bare-metal `halo-server` sees the GPU directly.
+4. **GPU passthrough.** HIP in a container needs `--device=/dev/kfd` + `--device=/dev/dri` + group mapping. Works, but is a chore. Bare-metal `1bit-server` sees the GPU directly.
 5. **Debugging.** `strace` on bare-metal is grep-able; in a container you're layering namespaces.
 
-Caller-side is different — if you want to run halo-cli inside Docker on your laptop, fine. The service side stays bare.
+Caller-side is different — if you want to run 1bit-cli inside Docker on your laptop, fine. The service side stays bare.
 
 ## Pointers
 

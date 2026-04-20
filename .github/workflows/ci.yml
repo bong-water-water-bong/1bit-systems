@@ -49,16 +49,16 @@ jobs:
         with:
           cache-on-failure: true
 
-      # halo-bitnet-hip requires ROCm headers (no ROCm on ubuntu-latest).
-      # halo-bitnet-mlx is Apple Silicon only.
+      # 1bit-hip requires ROCm headers (no ROCm on ubuntu-latest).
+      # 1bit-mlx is Apple Silicon only.
       # uninlined-format-args stays a warning — bulk-fixing it is disruptive
       # and not load-bearing for correctness.
       - name: cargo clippy (-D warnings)
         run: >
           cargo clippy
           --workspace
-          --exclude halo-bitnet-hip
-          --exclude halo-bitnet-mlx
+          --exclude 1bit-hip
+          --exclude 1bit-mlx
           --release
           --all-targets
           --no-deps

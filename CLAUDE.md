@@ -1,4 +1,4 @@
-# CLAUDE.md — conventions for halo-ai-rs
+# CLAUDE.md — conventions for 1bit-systems
 
 Conventions for any Claude (or human) agent working inside this repo.
 Keep terse; when in doubt, follow `ARCHITECTURE.md`.
@@ -11,7 +11,7 @@ Keep terse; when in doubt, follow `ARCHITECTURE.md`.
   write it in Rust.
 - **Rule B — C++20 only for kernels.** All HIP kernels stay in
   `bong-water-water-bong/rocm-cpp`. Do NOT reimplement kernels in Rust.
-  FFI through `halo-bitnet-hip`. (Old `stampby/rocm-cpp` is archived,
+  FFI through `1bit-hip`. (Old `stampby/rocm-cpp` is archived,
   `stampby` handle retired.)
 - **Rule C — hipBLAS is banned** in the runtime path. Native Tensile kernels
   only. If you find yourself reaching for hipBLAS, step back and port the
@@ -23,8 +23,8 @@ Keep terse; when in doubt, follow `ARCHITECTURE.md`.
   `libxrt` C++ (`xrt::kernel`, `xrt::bo`). Tile driver: `Xilinx/aie-rt`
   where we need bare-metal control. IRON is reference-only; we read its
   MLIR-generated tile layouts + DMA descriptors then reimplement in
-  Peano-compiled C++. FFI through `halo-bitnet-xdna` (new crate
-  2026-04-20). Same discipline as `halo-bitnet-hip` → `rocm-cpp`.
+  Peano-compiled C++. FFI through `1bit-xdna` (new crate
+  2026-04-20). Same discipline as `1bit-hip` → `rocm-cpp`.
 - **Target: aspirational 7/7 lanes, ~280 tok/s decode, NPU-prefill
   crossover at L ≥ 33.** Projected in `docs/wiki/Peak-Performance-Projection.md`.
   We do not settle for the conservative tier.
@@ -33,17 +33,17 @@ Keep terse; when in doubt, follow `ARCHITECTURE.md`.
 
 ```
 crates/
-  halo-cli           unified operator CLI (halo status/logs/doctor/...)
-  halo-core          model + tokenizer parsers (pure, no I/O beyond mmap)
-  halo-router        backend dispatcher + forward pass driver
-  halo-server        axum HTTP, OpenAI-compat, /ppl, /metrics
-  halo-agents        17-specialist async registry (one file, one source of truth)
-  halo-mcp           tokio stdio JSON-RPC bridge → halo-agents registry
-  halo-landing       marketing page on :8190, live /metrics probe
-  halo-lemonade      OpenAI-compat model gateway (/v1/models on :8200)
-  halo-helm          desktop client (egui/eframe) — formerly halo-gaia, renamed 2026-04-20
-  halo-bitnet-hip    FFI into rocm-cpp
-  halo-bitnet-mlx    Apple Silicon backend (feature-gated)
+  1bit-cli           unified operator CLI (halo status/logs/doctor/...)
+  1bit-core          model + tokenizer parsers (pure, no I/O beyond mmap)
+  1bit-router        backend dispatcher + forward pass driver
+  1bit-server        axum HTTP, OpenAI-compat, /ppl, /metrics
+  1bit-agents        17-specialist async registry (one file, one source of truth)
+  1bit-mcp           tokio stdio JSON-RPC bridge → 1bit-agents registry
+  1bit-landing       marketing page on :8190, live /metrics probe
+  1bit-lemonade      OpenAI-compat model gateway (/v1/models on :8200)
+  1bit-helm          desktop client (egui/eframe) — formerly halo-gaia, renamed 2026-04-20
+  1bit-hip    FFI into rocm-cpp
+  1bit-mlx    Apple Silicon backend (feature-gated)
 strixhalo/           dotfiles (systemd, caddy, bin, fish) — see strixhalo/README.md
 packages.toml        pkg manifest consumed by `halo install`
 install.sh           fresh-box bootstrap
@@ -62,7 +62,7 @@ install.sh           fresh-box bootstrap
     gen-2 currently 9.1805 (delta +0.02, within ±0.05 tolerance). PASS.
   - `benchmarks/shadow-burnin.sh` — continuous /v1 vs /v2 argmax compare.
     Current rate: ~90% byte-exact after special-token fix. Logs to
-    `~/claude output/shadow-burnin.jsonl`, state in `~/.local/share/halo-ai/`.
+    `~/claude output/shadow-burnin.jsonl`, state in `~/.local/share/1bit systems/`.
 
 ## Commit conventions
 
@@ -95,9 +95,9 @@ After changes that need a live restart:
 
 ```bash
 cargo build --release --workspace                      # or -p <crate>
-# halo-server: binary is held open by the running unit → stop first
+# 1bit-server: binary is held open by the running unit → stop first
 systemctl --user stop strix-server
-cp target/release/halo-server ~/.local/bin/halo-server-real
+cp target/release/1bit-server ~/.local/bin/1bit-server-real
 systemctl --user start strix-server
 # other binaries install via cargo install --path crates/<name>
 ```

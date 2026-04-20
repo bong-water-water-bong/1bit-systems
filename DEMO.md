@@ -1,4 +1,4 @@
-# DEMO.md — 3-minute halo-ai cold open
+# DEMO.md — 3-minute 1bit systems cold open
 
 Recording script for a screencast / walkthrough. Times are target, not hard.
 
@@ -11,7 +11,7 @@ halo status
 ```
 
 Expected: 7 green dots (bitnet · strix · sd · whisper · kokoro · lemonade · agent).
-Voice-over: "halo-ai runs on this single Strix Halo mini-PC — AMD Radeon 8060S, 128 GB unified memory. Everything on that list is a service running locally, no cloud."
+Voice-over: "1bit systems runs on this single Strix Halo mini-PC — AMD Radeon 8060S, 128 GB unified memory. Everything on that list is a service running locally, no cloud."
 
 ## 00:15 — the page (20s)
 
@@ -29,18 +29,18 @@ Back to terminal:
 ```bash
 curl -s http://127.0.0.1:8180/v1/chat/completions \
   -H 'Content-Type: application/json' \
-  -d '{"model":"halo-1bit-2b","messages":[{"role":"user","content":"Explain ternary weights in one sentence."}],"max_tokens":64,"temperature":0,"stream":false}' \
+  -d '{"model":"1bit-monster-2b","messages":[{"role":"user","content":"Explain ternary weights in one sentence."}],"max_tokens":64,"temperature":0,"stream":false}' \
   | jq -r .choices[0].message.content
 ```
 
 Expected: a coherent one-sentence answer in <1s. Voice-over during: "This
-is the gen-2 Rust halo-server on port 8180, hitting real 2-bit BitNet
+is the gen-2 Rust 1bit-server on port 8180, hitting real 2-bit BitNet
 kernels on the GPU."
 
 ## 01:05 — parity proof (30s)
 
 ```bash
-/home/bcloud/halo-ai-core/benchmarks/shadow-burnin.sh --summary
+/home/bcloud/1bit systems-core/benchmarks/shadow-burnin.sh --summary
 ```
 
 Point at the numbers: rounds (≥1000), exact-match rate (≥96%), p95 latency
@@ -56,8 +56,8 @@ byte-for-byte 96 percent of the time at temperature zero. The remaining
 Open a second terminal. Fake a fresh box:
 
 ```bash
-cd /tmp && git clone git@github-bong:bong-water-water-bong/halo-ai-rs.git
-cd halo-ai-rs
+cd /tmp && git clone git@github-bong:bong-water-water-bong/1bit-systems.git
+cd 1bit-systems
 ./install.sh            # or: CI=1 ./install.sh for the syntax-only version
 ```
 
@@ -82,7 +82,7 @@ Voice-over: "Four private repos on GitHub, 93 workspace tests green, CI on
 every push. Source is not public yet; launch happens after the 72-hour
 shadow burn-in completes. Ping me for a read-only collaborator invite."
 
-End card: halo-ai wordmark + "strix-ai-rs — built on Strix Halo".
+End card: 1bit systems wordmark + "strix-ai-rs — built on Strix Halo".
 
 ## Pre-roll checklist
 
@@ -92,7 +92,7 @@ End card: halo-ai wordmark + "strix-ai-rs — built on Strix Halo".
   browser profile you record with).
 - [ ] No `~/.cache/`, `target/`, or build noise visible — pinned tmux pane
   with a clean fish prompt.
-- [ ] Model file present at `~/halo-ai/models/halo-1bit-2b.h1b`.
+- [ ] Model file present at `~/1bit systems/models/halo-1bit-2b.h1b`.
 - [ ] Second Chrome profile (halo-browser) closed during recording so the
   default profile's bookmarks / tabs aren't in frame.
 

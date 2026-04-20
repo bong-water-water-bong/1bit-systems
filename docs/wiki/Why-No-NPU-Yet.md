@@ -12,7 +12,7 @@ Production path when we start:
 | Build orchestration | CMake + Peano | not IRON's Python `build.py` |
 | Runtime dispatch | [libxrt](https://github.com/Xilinx/XRT) C++ (`xrt::kernel`, `xrt::bo`) | loads xclbin, manages DMA, no Python |
 | Kernel driver | [amdxdna](https://github.com/amd/xdna-driver) | upstreamed Linux 6.10+, already works |
-| Rust FFI | new `halo-bitnet-xdna` crate | mirrors `halo-bitnet-hip` shape |
+| Rust FFI | new `1bit-xdna` crate | mirrors `1bit-hip` shape |
 
 Same discipline as `rocm-cpp` today: C++ kernels, Rust above, no interpreters anywhere. The IRON examples at `programming_examples/basic/matrix_multiplication/` and `ml/bert/` are maps, not tools.
 
@@ -122,7 +122,7 @@ Research concluded — see `project_npu_path_analysis.md` memory. **Defer until 
 - **Format**: `Q4NX` (GGUF Q4_0 / Q4_1 derivatives). **Not ternary.** BitNet not in their 22-model catalog.
 - **Kernels**: proprietary, non-redistributable under their EULA ($10M ARR commercial cap).
 - **Rule A**: acceptable (Lemonade is the runtime, our systemd unit calls it).
-- **Status**: wrong model format, closed kernels. No path for halo-ai today.
+- **Status**: wrong model format, closed kernels. No path for 1bit systems today.
 
 ### Stack C — IREE AMD-AIE (`nod-ai/iree-amd-aie`)
 

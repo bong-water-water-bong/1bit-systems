@@ -28,7 +28,7 @@
 <a href="/docs/why-shadow-burnin.html">Why Shadow-Burnin</a>
 <a href="/docs/why-h1b-format.html">Why H1b Format</a>
 <a href="/docs/why-caddy-systemd.html">Why Caddy + Systemd</a>
-<a href="/docs/why-halo-agents.html">Why halo-agents</a>
+<a href="/docs/why-1bit-agents.html">Why 1bit-agents</a>
 <a href="/docs/why-no-python.html">Why No Python</a>
 <a href="/docs/why-parity-gates.html">Why Parity Gates</a>
 <a href="/docs/why-no-npu-yet.html">Why No NPU Yet</a>
@@ -39,7 +39,7 @@
 <a href="/docs/amd-gaia-integration.html">AMD GAIA</a>
 <a href="/docs/medusa-integration-plan.html">Medusa plan</a>
 <a href="/docs/rotorquant-default-decision.html">Rotorquant</a>
-<a href="/docs/halo-whisper-streaming-plan.html">Whisper streaming</a>
+<a href="/docs/1bit-whisper-streaming-plan.html">Whisper streaming</a>
 <a href="/docs/npu-kernel-design.html">NPU kernel</a>
 <a href="/docs/ternary-on-aie-pack-plan.html">Ternary on AIE</a>
 <a href="/docs/peak-performance-projection.html">Peak projection</a>
@@ -49,11 +49,11 @@
 <a href="/docs/beta-10-day-ttl.html">Beta 10-day TTL</a>
 <a href="/docs/sdd-workflow.html">SDD workflow</a>
 <h4>crates</h4>
-<a href="/docs/crate-halo-echo.html">halo-echo</a>
-<a href="/docs/crate-halo-helm.html">halo-helm</a>
-<a href="/docs/crate-halo-landing.html">halo-landing</a>
-<a href="/docs/crate-halo-lemonade.html">halo-lemonade</a>
-<a href="/docs/crate-halo-agents-watch.html">halo-agents-watch</a>
+<a href="/docs/crate-1bit-echo.html">1bit-echo</a>
+<a href="/docs/crate-1bit-helm.html">1bit-helm</a>
+<a href="/docs/crate-1bit-landing.html">1bit-landing</a>
+<a href="/docs/crate-1bit-lemonade.html">1bit-lemonade</a>
+<a href="/docs/crate-1bit-agents-watch.html">1bit-agents-watch</a>
 <h4>amd scans</h4>
 <a href="/docs/amd-ai-ml-tools-scan.html">AI/ML tools</a>
 <a href="/docs/amd-compilers-analyzers-scan.html">Compilers</a>
@@ -91,7 +91,7 @@
 <li><strong>Hardware efficiency</strong> — ternary maps to <code>xnor</code> + <code>popcount</code> + sign-flip on GPU. Binary loses the sign-flip branch.</li>
 </ul>
 <p>Sub-1.58-bit formats (LittleBit 0.1 bpw, NanoQuant sub-binary) exist and are watched — see <a href="memory-only"><code>../../.claude/projects/-home-bcloud/memory/project_bitnet_frontier_2026_04.md</code></a>. Not production-ready for our scale today.</p>
-<h2 id="why-this-matters-for-halo-ai">Why this matters for halo-ai</h2>
+<h2 id="why-this-matters-for-1bit systems">Why this matters for 1bit systems</h2>
 <p>On a $3 000 Strix Halo mini-PC with 128 GB unified LPDDR5 at 256 GB/s, ternary BitNet gets us:</p>
 <ul>
 <li><strong>Model fits in 4 GB, leaving 124 GB for KV cache + activations</strong> — no OOM on long contexts.</li>
@@ -113,7 +113,7 @@
 <a href="#the-accuracy-story">The accuracy story</a>
 <a href="#where-1-58-comes-from">Where &quot;1.58&quot; comes from</a>
 <a href="#why-ternary-and-not-binary">Why ternary and not binary?</a>
-<a href="#why-this-matters-for-halo-ai">Why this matters for halo-ai</a>
+<a href="#why-this-matters-for-1bit systems">Why this matters for 1bit systems</a>
 <a href="#citations">Citations</a>
 
 </aside>

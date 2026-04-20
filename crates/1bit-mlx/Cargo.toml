@@ -1,0 +1,29 @@
+[package]
+name         = "onebit-mlx"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+authors.workspace      = true
+description  = "1bit systems ternary inference via MLX on Apple Silicon (wraps bong-water-water-bong/bitnet-mlx-rs, mirror of leizerowicz/bitnet-mlx.rs)"
+
+[lib]
+name = "onebit_mlx"
+path = "src/lib.rs"
+
+[features]
+# Build with `--features mlx-apple` on Apple Silicon to pull the real engine.
+# Default: stub API that compiles everywhere (including AMD gfx1151 hosts).
+default   = []
+mlx-apple = ["bitnet-inference"]
+
+[dependencies]
+anyhow  = { workspace = true }
+tracing = { workspace = true }
+
+# Git-pinned against our private mirror of leizerowicz/bitnet-mlx.rs
+# (canonical upstream is Wavegoodvybe2929/bitnet-rust, the mirror is the
+# stable handle we control). mlx-rs requires macOS + Xcode toolchain —
+# cargo won't try to build this unless the `mlx-apple` feature is enabled.
+bitnet-inference = { git = "https://github.com/leizerowicz/bitnet-mlx.rs.git", optional = true }

@@ -28,7 +28,7 @@
 <a href="/docs/why-shadow-burnin.html">Why Shadow-Burnin</a>
 <a href="/docs/why-h1b-format.html">Why H1b Format</a>
 <a href="/docs/why-caddy-systemd.html">Why Caddy + Systemd</a>
-<a href="/docs/why-halo-agents.html">Why halo-agents</a>
+<a href="/docs/why-1bit-agents.html">Why 1bit-agents</a>
 <a href="/docs/why-no-python.html">Why No Python</a>
 <a href="/docs/why-parity-gates.html">Why Parity Gates</a>
 <a href="/docs/why-no-npu-yet.html">Why No NPU Yet</a>
@@ -39,7 +39,7 @@
 <a href="/docs/amd-gaia-integration.html">AMD GAIA</a>
 <a href="/docs/medusa-integration-plan.html">Medusa plan</a>
 <a href="/docs/rotorquant-default-decision.html">Rotorquant</a>
-<a href="/docs/halo-whisper-streaming-plan.html">Whisper streaming</a>
+<a href="/docs/1bit-whisper-streaming-plan.html">Whisper streaming</a>
 <a href="/docs/npu-kernel-design.html">NPU kernel</a>
 <a href="/docs/ternary-on-aie-pack-plan.html">Ternary on AIE</a>
 <a href="/docs/peak-performance-projection.html">Peak projection</a>
@@ -49,11 +49,11 @@
 <a href="/docs/beta-10-day-ttl.html">Beta 10-day TTL</a>
 <a href="/docs/sdd-workflow.html">SDD workflow</a>
 <h4>crates</h4>
-<a href="/docs/crate-halo-echo.html">halo-echo</a>
-<a href="/docs/crate-halo-helm.html">halo-helm</a>
-<a href="/docs/crate-halo-landing.html">halo-landing</a>
-<a href="/docs/crate-halo-lemonade.html">halo-lemonade</a>
-<a href="/docs/crate-halo-agents-watch.html">halo-agents-watch</a>
+<a href="/docs/crate-1bit-echo.html">1bit-echo</a>
+<a href="/docs/crate-1bit-helm.html">1bit-helm</a>
+<a href="/docs/crate-1bit-landing.html">1bit-landing</a>
+<a href="/docs/crate-1bit-lemonade.html">1bit-lemonade</a>
+<a href="/docs/crate-1bit-agents-watch.html">1bit-agents-watch</a>
 <h4>amd scans</h4>
 <a href="/docs/amd-ai-ml-tools-scan.html">AI/ML tools</a>
 <a href="/docs/amd-compilers-analyzers-scan.html">Compilers</a>
@@ -132,7 +132,7 @@
 <p>from <code>/home/bcloud/repos/rocm-cpp</code>. If this is clean, add the source to <code>CMakeLists.txt</code> line 74-78 (alongside the other ternary kernels). Until compile is verified, the file is <strong>not</strong> in the CMake target.</p>
 <hr>
 <h2 id="3-tree-attention-how-kv-cache-extends">3. Tree attention — how KV cache extends</h2>
-<p>Today our attention kernel is <code>src/kv_cache_attn_fd.hip</code> (Flash-Decoding, one query per head, split-KV). It's called from <code>crates/halo-router/src/backend_impl.rs</code> in the <code>forward_token</code> hot path:</p>
+<p>Today our attention kernel is <code>src/kv_cache_attn_fd.hip</code> (Flash-Decoding, one query per head, split-KV). It's called from <code>crates/1bit-router/src/backend_impl.rs</code> in the <code>forward_token</code> hot path:</p>
 <ul>
 <li><code>backend_impl.rs:463</code> — <code>forward_token</code> entry (one token in, one out).</li>
 <li><code>backend_impl.rs:595-614</code> — <code>hipMemcpyAsync</code> writes K/V into the</li>
@@ -169,7 +169,7 @@
 <ul>
 <li>[ ] C API entry points in <code>include/rocm_cpp/</code> for both.</li>
 </ul>
-<h3 id="pr-2-halo-bitnet-hip-ffi-bindings">PR-2: <code>halo-bitnet-hip</code> — FFI bindings</h3>
+<h3 id="pr-2-1bit-hip-ffi-bindings">PR-2: <code>1bit-hip</code> — FFI bindings</h3>
 <ul>
 <li>[ ] <code>src/ffi.rs</code> — add <code>extern &quot;C&quot;</code> prototypes mirroring</li>
 </ul>
@@ -179,7 +179,7 @@
 <li>[ ] Three in-crate tests (per CLAUDE.md): mock-device happy path,</li>
 </ul>
 <p>mask-bounds check, M-range bounds check.</p>
-<h3 id="pr-3-halo-router-forward-tree-gated-behind-config">PR-3: <code>halo-router</code> — <code>forward_tree</code>, gated behind config</h3>
+<h3 id="pr-3-1bit-router-forward-tree-gated-behind-config">PR-3: <code>1bit-router</code> — <code>forward_tree</code>, gated behind config</h3>
 <ul>
 <li>[ ] <code>backend_impl.rs</code> — add `forward_tree(&amp;mut self, accepted: &amp;[i32],</li>
 </ul>
@@ -193,16 +193,16 @@
 </ul>
 <p>use <code>forward_token</code>; else <code>forward_tree</code>.</p>
 <ul>
-<li>[ ] <code>halo-core::sampler::Sampler</code> — add <code>argmax_batched</code> for the</li>
+<li>[ ] <code>1bit-core::sampler::Sampler</code> — add <code>argmax_batched</code> for the</li>
 </ul>
 <p>batched verify. Rep-penalty only applied to accepted prefix.</p>
 <h3 id="pr-4-heads-loader-cli-switch">PR-4: heads loader + CLI switch</h3>
 <ul>
-<li>[ ] <code>halo-core</code> — new <code>.medusa</code> file format (1 magic + 4 × safetensors</li>
+<li>[ ] <code>1bit-core</code> — new <code>.medusa</code> file format (1 magic + 4 × safetensors</li>
 </ul>
 <p>blob). Mmap, zero-copy. Same hard rule as <code>.h1b</code>.</p>
 <ul>
-<li>[ ] <code>halo-cli</code> — <code>halo gen --spec medusa</code> flag.</li>
+<li>[ ] <code>1bit-cli</code> — <code>halo gen --spec medusa</code> flag.</li>
 </ul>
 <h3 id="out-of-scope">Out of scope</h3>
 <ul>
@@ -217,7 +217,7 @@
 <ul>
 <li>parrishcorcoran's heads are <strong>Alpaca-only</strong>. Our actual traffic is</li>
 </ul>
-<p>mixed: Open WebUI chat, code completion via the lemonade gateway, long-context agentic workflows (halo-agents). Alpaca's loss curve (9.85 → 3.32) does not transfer cleanly to code or long-context acceptance. Head-1 at 63% on Alpaca does not mean 63% on our prompts.</p>
+<p>mixed: Open WebUI chat, code completion via the lemonade gateway, long-context agentic workflows (1bit-agents). Alpaca's loss curve (9.85 → 3.32) does not transfer cleanly to code or long-context acceptance. Head-1 at 63% on Alpaca does not mean 63% on our prompts.</p>
 <ul>
 <li>Training cost is cheap in absolute terms: 11 h on Strix Halo CPU per</li>
 </ul>
@@ -226,7 +226,7 @@
 <li>Accepting the public heads short-circuits our own acceptance-rate</li>
 </ul>
 <p>measurement, which is the single number that determines whether Medusa hits 1.4× or 1.8× on our silicon.</p>
-<p><strong>Cheaper interim step before a full retrain</strong>: run parrishcorcoran's heads against ~500 prompts from our actual workload (sample from halo-agents audit log) and measure head-1 acceptance. If it holds at ≥ 55% we can ship with upstream heads and retrain later. If it drops below 40%, retrain is non-negotiable.</p>
+<p><strong>Cheaper interim step before a full retrain</strong>: run parrishcorcoran's heads against ~500 prompts from our actual workload (sample from 1bit-agents audit log) and measure head-1 acceptance. If it holds at ≥ 55% we can ship with upstream heads and retrain later. If it drops below 40%, retrain is non-negotiable.</p>
 <p>That eval harness is itself ~half a day of work — smaller than the kernel work above, so do it first as a go/no-go gate.</p>
 <hr>
 <h2 id="6-memory-touch">6. Memory touch</h2>
@@ -240,8 +240,8 @@
 <a href="#3-tree-attention-how-kv-cache-extends">3. Tree attention — how KV cache extends</a>
 <a href="#4-integration-outline-pr-shaped-not-yet-applied">4. Integration outline — PR-shaped, not yet applied</a>
 <a href="#pr-1-rocm-cpp-kernels-only-no-ffi-wiring" style="padding-left:.8rem">PR-1: `rocm-cpp` — kernels only, no FFI wiring</a>
-<a href="#pr-2-halo-bitnet-hip-ffi-bindings" style="padding-left:.8rem">PR-2: `halo-bitnet-hip` — FFI bindings</a>
-<a href="#pr-3-halo-router-forward-tree-gated-behind-config" style="padding-left:.8rem">PR-3: `halo-router` — `forward_tree`, gated behind config</a>
+<a href="#pr-2-1bit-hip-ffi-bindings" style="padding-left:.8rem">PR-2: `1bit-hip` — FFI bindings</a>
+<a href="#pr-3-1bit-router-forward-tree-gated-behind-config" style="padding-left:.8rem">PR-3: `1bit-router` — `forward_tree`, gated behind config</a>
 <a href="#pr-4-heads-loader-cli-switch" style="padding-left:.8rem">PR-4: heads loader + CLI switch</a>
 <a href="#out-of-scope" style="padding-left:.8rem">Out of scope</a>
 <a href="#5-next-concrete-step-retrain-or-accept">5. Next concrete step — retrain or accept?</a>

@@ -28,7 +28,7 @@
 <a href="/docs/why-shadow-burnin.html">Why Shadow-Burnin</a>
 <a href="/docs/why-h1b-format.html">Why H1b Format</a>
 <a href="/docs/why-caddy-systemd.html">Why Caddy + Systemd</a>
-<a href="/docs/why-halo-agents.html">Why halo-agents</a>
+<a href="/docs/why-1bit-agents.html">Why 1bit-agents</a>
 <a href="/docs/why-no-python.html">Why No Python</a>
 <a href="/docs/why-parity-gates.html">Why Parity Gates</a>
 <a href="/docs/why-no-npu-yet.html">Why No NPU Yet</a>
@@ -39,7 +39,7 @@
 <a href="/docs/amd-gaia-integration.html">AMD GAIA</a>
 <a href="/docs/medusa-integration-plan.html">Medusa plan</a>
 <a href="/docs/rotorquant-default-decision.html">Rotorquant</a>
-<a href="/docs/halo-whisper-streaming-plan.html">Whisper streaming</a>
+<a href="/docs/1bit-whisper-streaming-plan.html">Whisper streaming</a>
 <a href="/docs/npu-kernel-design.html">NPU kernel</a>
 <a href="/docs/ternary-on-aie-pack-plan.html">Ternary on AIE</a>
 <a href="/docs/peak-performance-projection.html">Peak projection</a>
@@ -49,11 +49,11 @@
 <a href="/docs/beta-10-day-ttl.html">Beta 10-day TTL</a>
 <a href="/docs/sdd-workflow.html">SDD workflow</a>
 <h4>crates</h4>
-<a href="/docs/crate-halo-echo.html">halo-echo</a>
-<a href="/docs/crate-halo-helm.html">halo-helm</a>
-<a href="/docs/crate-halo-landing.html">halo-landing</a>
-<a href="/docs/crate-halo-lemonade.html">halo-lemonade</a>
-<a href="/docs/crate-halo-agents-watch.html">halo-agents-watch</a>
+<a href="/docs/crate-1bit-echo.html">1bit-echo</a>
+<a href="/docs/crate-1bit-helm.html">1bit-helm</a>
+<a href="/docs/crate-1bit-landing.html">1bit-landing</a>
+<a href="/docs/crate-1bit-lemonade.html">1bit-lemonade</a>
+<a href="/docs/crate-1bit-agents-watch.html">1bit-agents-watch</a>
 <h4>amd scans</h4>
 <a href="/docs/amd-ai-ml-tools-scan.html">AI/ML tools</a>
 <a href="/docs/amd-compilers-analyzers-scan.html">Compilers</a>
@@ -74,12 +74,12 @@
 <thead><tr><th>Profile</th><th>stapm</th><th>fast</th><th>slow</th><th>tctl</th><th>When to switch to it</th></tr></thead>
 <tbody>
 <tr><td><code>inference</code></td><td>65 W</td><td>80 W</td><td>75 W</td><td>95 °C</td><td>Long bitnet decode, batch PPL runs, burn-in sweeps.</td></tr>
-<tr><td><code>chat</code></td><td>45 W</td><td>65 W</td><td>55 W</td><td>90 °C</td><td>Default — interactive <code>halo chat</code>, halo-helm traffic.</td></tr>
+<tr><td><code>chat</code></td><td>45 W</td><td>65 W</td><td>55 W</td><td>90 °C</td><td>Default — interactive <code>halo chat</code>, 1bit-helm traffic.</td></tr>
 <tr><td><code>idle</code></td><td>20 W</td><td>35 W</td><td>25 W</td><td>80 °C</td><td>Closet-quiet after &gt;60 s of zero traffic.</td></tr>
 </tbody></table>
 <p>Values come from <code>docs/halo-power-design.md</code>; they're a starting point pending a decode-bench sweep.</p>
 <h2 id="why-these-three-and-not-more">Why these three and not more?</h2>
-<p>We drive profile by <em>traffic pattern</em>, not by per-process rules (the RyzenZPilot model). Our process set is small and our HTTP surface is one server — three envelopes cover every realistic halo-ai workload and every extra knob is just another thing to forget about.</p>
+<p>We drive profile by <em>traffic pattern</em>, not by per-process rules (the RyzenZPilot model). Our process set is small and our HTTP surface is one server — three envelopes cover every realistic 1bit systems workload and every extra knob is just another thing to forget about.</p>
 <h2 id="how-it-works-under-the-hood">How it works under the hood</h2>
 <ul>
 <li><code>halo power &lt;profile&gt;</code> → <code>sudo ryzenadj --tctl-temp=N --slow-limit=N --fast-limit=N --stapm-limit=N</code>.</li>

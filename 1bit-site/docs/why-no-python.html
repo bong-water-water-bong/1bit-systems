@@ -28,7 +28,7 @@
 <a href="/docs/why-shadow-burnin.html">Why Shadow-Burnin</a>
 <a href="/docs/why-h1b-format.html">Why H1b Format</a>
 <a href="/docs/why-caddy-systemd.html">Why Caddy + Systemd</a>
-<a href="/docs/why-halo-agents.html">Why halo-agents</a>
+<a href="/docs/why-1bit-agents.html">Why 1bit-agents</a>
 <a href="/docs/why-no-python.html">Why No Python</a>
 <a href="/docs/why-parity-gates.html">Why Parity Gates</a>
 <a href="/docs/why-no-npu-yet.html">Why No NPU Yet</a>
@@ -39,7 +39,7 @@
 <a href="/docs/amd-gaia-integration.html">AMD GAIA</a>
 <a href="/docs/medusa-integration-plan.html">Medusa plan</a>
 <a href="/docs/rotorquant-default-decision.html">Rotorquant</a>
-<a href="/docs/halo-whisper-streaming-plan.html">Whisper streaming</a>
+<a href="/docs/1bit-whisper-streaming-plan.html">Whisper streaming</a>
 <a href="/docs/npu-kernel-design.html">NPU kernel</a>
 <a href="/docs/ternary-on-aie-pack-plan.html">Ternary on AIE</a>
 <a href="/docs/peak-performance-projection.html">Peak projection</a>
@@ -49,11 +49,11 @@
 <a href="/docs/beta-10-day-ttl.html">Beta 10-day TTL</a>
 <a href="/docs/sdd-workflow.html">SDD workflow</a>
 <h4>crates</h4>
-<a href="/docs/crate-halo-echo.html">halo-echo</a>
-<a href="/docs/crate-halo-helm.html">halo-helm</a>
-<a href="/docs/crate-halo-landing.html">halo-landing</a>
-<a href="/docs/crate-halo-lemonade.html">halo-lemonade</a>
-<a href="/docs/crate-halo-agents-watch.html">halo-agents-watch</a>
+<a href="/docs/crate-1bit-echo.html">1bit-echo</a>
+<a href="/docs/crate-1bit-helm.html">1bit-helm</a>
+<a href="/docs/crate-1bit-landing.html">1bit-landing</a>
+<a href="/docs/crate-1bit-lemonade.html">1bit-lemonade</a>
+<a href="/docs/crate-1bit-agents-watch.html">1bit-agents-watch</a>
 <h4>amd scans</h4>
 <a href="/docs/amd-ai-ml-tools-scan.html">AI/ML tools</a>
 <a href="/docs/amd-compilers-analyzers-scan.html">Compilers</a>
@@ -78,10 +78,10 @@
 <li>Research notebooks — benchmark analysis, paper reproduction. Output is numbers or plots, not services.</li>
 </ul>
 <h2 id="what-we-tried-first">What we tried first</h2>
-<p>Gen-1 of halo-ai was Python (AMD Lemonade + transformers + a custom FastAPI layer). It was the natural starting point — Microsoft's reference is Python, MLX is Python, lemonade is Python, every BitNet community project is Python.</p>
+<p>Gen-1 of 1bit systems was Python (AMD Lemonade + transformers + a custom FastAPI layer). It was the natural starting point — Microsoft's reference is Python, MLX is Python, lemonade is Python, every BitNet community project is Python.</p>
 <p>What we hit:</p>
 <ol>
-<li><strong>Cold-start latency</strong> — 4-12 seconds to import torch + transformers + numpy before the first inference. On a service meant to serve LAN requests, that's a restart outage. Rust <code>halo-server</code> cold-start is ~200 ms.</li>
+<li><strong>Cold-start latency</strong> — 4-12 seconds to import torch + transformers + numpy before the first inference. On a service meant to serve LAN requests, that's a restart outage. Rust <code>1bit-server</code> cold-start is ~200 ms.</li>
 <li><strong>Dependency churn</strong> — <code>pip install</code> resolvers pick different versions day to day. One morning the Lemonade server wouldn't start because a transitive dep bumped past a compatible minor. Rust cargo's lockfile prevents this class of bug.</li>
 <li><strong>Silent failure modes</strong> — Python typing is advisory. JSON parsing fails at the first bad field, which may be six levels deep in an error the user sees as a 500. Rust serde fails at deserialization with a precise path.</li>
 <li><strong>Multiple Pythons</strong> — the dev box had <code>python3.12</code>, the install script pulled <code>python3.11</code>, the AUR package expected <code>python3.13</code>. Three stacks. Three venv roots. Three reasons the service won't start on a fresh box.</li>
@@ -92,7 +92,7 @@
 <ul>
 <li>Install time: <code>./install-strixhalo.sh</code> is 5 minutes end-to-end, most of it spent compiling kernels.</li>
 <li>First-request latency: under 250 ms cold, effectively 0 warm.</li>
-<li>Memory footprint at idle: ~80 MB for halo-server vs ~350 MB for the gen-1 Python process.</li>
+<li>Memory footprint at idle: ~80 MB for 1bit-server vs ~350 MB for the gen-1 Python process.</li>
 <li>Error messages: deserializer-level &quot;expected u32 at <code>.usage.prompt_tokens</code>, got string&quot; vs Python's &quot;<code>KeyError: 'usage'</code>&quot; with no line number.</li>
 </ul>
 <h2 id="but-what-about-speed-of-development">But what about speed of development?</h2>
@@ -111,7 +111,7 @@
 <ul>
 <li><code>halo-install-strixhalo.sh</code> checks for any stray <code>python</code> in systemd unit <code>ExecStart</code> lines and warns.</li>
 <li><code>halo doctor</code> flags any Python process consuming &gt;100 MB on the box at runtime.</li>
-<li>The halo-mcp MCP server is Rust; the DSPy / Claude Code plugin examples are Python — that's a caller, not a service.</li>
+<li>The 1bit-mcp MCP server is Rust; the DSPy / Claude Code plugin examples are Python — that's a caller, not a service.</li>
 </ul>
 <h2 id="citations">Citations</h2>
 <ul>

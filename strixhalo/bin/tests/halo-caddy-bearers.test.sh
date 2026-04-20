@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# halo-caddy-bearers.test.sh — unit tests for halo-caddy-bearers.sh.
+# halo-caddy-bearers.test.sh — unit tests for 1bit-caddy-bearers.sh.
 #
 # Runs entirely in a temp directory; never touches /etc/caddy. We
 # override BEARER_FILE + CONF_FILE via environment and skip the
@@ -10,7 +10,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SCRIPT="$HERE/../halo-caddy-bearers.sh"
+SCRIPT="$HERE/../1bit-caddy-bearers.sh"
 
 if [[ ! -f "$SCRIPT" ]]; then
     echo "FATAL: $SCRIPT not found"

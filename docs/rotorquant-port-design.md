@@ -1,7 +1,7 @@
 # RotorQuant / PlanarQuant / IsoQuant port feasibility vs rocm-cpp FD attention
 
 Status: design-only, 2026-04-19. No HIP code written this sprint.
-Reviewer: halo-ai core (gfx1151).
+Reviewer: 1bit systems core (gfx1151).
 Upstream artifacts consulted:
 - `scrya-com/rotorquant` README, CLAUDE.md, paper (`paper/rotorquant.pdf`), and `turboquant/csrc/*.cu` (8 files, 2050 LOC).
 - Our own `rocm-cpp/src/kv_cache_attn_fd.hip` (293 LOC), `kv_cache_attn_i8.hip` (352 LOC).

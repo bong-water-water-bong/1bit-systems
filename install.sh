@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# strix-ai-rs / halo-ai bootstrap. Clones + builds the gen-2 Rust stack and
+# strix-ai-rs / 1bit systems bootstrap. Clones + builds the gen-2 Rust stack and
 # its native-HIP kernel dependency (rocm-cpp), then hands off to the
 # in-tree `halo install` package manager for per-component wiring.
 #
@@ -21,7 +21,7 @@ STEP_START=0
 banner() {
     printf '\n'
     printf '%b╔══════════════════════════════════════════════════════════╗%b\n' "$CYAN" "$NC"
-    printf '%b║  %b halo-ai-rs · strix-halo bootstrap %b                      %b║%b\n' "$CYAN" "$BOLD" "$NC" "$CYAN" "$NC"
+    printf '%b║  %b 1bit-systems · strix-halo bootstrap %b                      %b║%b\n' "$CYAN" "$BOLD" "$NC" "$CYAN" "$NC"
     printf '%b║  %bgfx1151 · ternary BitNet · Rust orchestration%b             %b║%b\n' "$CYAN" "$DIM" "$NC" "$CYAN" "$NC"
     printf '%b╚══════════════════════════════════════════════════════════╝%b\n' "$CYAN" "$NC"
 }
@@ -122,7 +122,7 @@ fi
 ### XDNA 2 NPU userspace (optional)
 #
 # XRT + amdxdna driver + memlock limits. Required to drive the AIE
-# tiles from `halo-bitnet-xdna`. Skipped silently on boxes without an
+# tiles from `1bit-xdna`. Skipped silently on boxes without an
 # NPU device (lspci/accel0 probe). Package install intent only — we
 # don't actually run pacman here; the operator runs install.sh with
 # sudo or answers the one pacman prompt.
@@ -194,9 +194,9 @@ else
     ok "build clean"
 fi
 
-# ── step 5: halo-cli install ─────────────────────────────────
-step "installing halo-cli → \$HOME/.cargo/bin/halo"
-( cd "$WORKSPACE_DIR" && cargo install --path crates/halo-cli --force --quiet 2>&1 | progress_pipe "install" )
+# ── step 5: 1bit-cli install ─────────────────────────────────
+step "installing 1bit-cli → \$HOME/.cargo/bin/halo"
+( cd "$WORKSPACE_DIR" && cargo install --path crates/1bit-cli --force --quiet 2>&1 | progress_pipe "install" )
 if [[ -x "$HOME/.cargo/bin/halo" ]]; then
     ok "$($HOME/.cargo/bin/halo --version 2>&1 | head -1)"
 else
@@ -219,7 +219,7 @@ fi
 
 # ── banner ────────────────────────────────────────────────────
 printf '\n%b╔══════════════════════════════════════════════════════════╗%b\n' "$GREEN" "$NC"
-printf     '%b║  ✓ halo-ai-rs bootstrap complete                         ║%b\n' "$GREEN" "$NC"
+printf     '%b║  ✓ 1bit-systems bootstrap complete                         ║%b\n' "$GREEN" "$NC"
 printf     '%b╚══════════════════════════════════════════════════════════╝%b\n\n' "$GREEN" "$NC"
 
 cat <<EOF

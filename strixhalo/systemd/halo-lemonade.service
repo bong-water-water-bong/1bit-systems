@@ -1,5 +1,5 @@
 [Unit]
-Description=halo-ai lemonade-server (lemond daemon) on :8000
+Description=1bit systems lemonade-server (lemond daemon) on :8000
 After=network.target
 Wants=network.target
 

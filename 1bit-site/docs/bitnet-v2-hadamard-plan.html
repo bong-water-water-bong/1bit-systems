@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0d1117">
-<title>BitNet v2 — Hadamard rotation plan (halo-ai-rs / gen-2) · 1bit.systems docs</title>
+<title>BitNet v2 — Hadamard rotation plan (1bit-systems / gen-2) · 1bit.systems docs</title>
 <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
 <link rel="stylesheet" href="/assets/style.css">
 </head>
@@ -28,7 +28,7 @@
 <a href="/docs/why-shadow-burnin.html">Why Shadow-Burnin</a>
 <a href="/docs/why-h1b-format.html">Why H1b Format</a>
 <a href="/docs/why-caddy-systemd.html">Why Caddy + Systemd</a>
-<a href="/docs/why-halo-agents.html">Why halo-agents</a>
+<a href="/docs/why-1bit-agents.html">Why 1bit-agents</a>
 <a href="/docs/why-no-python.html">Why No Python</a>
 <a href="/docs/why-parity-gates.html">Why Parity Gates</a>
 <a href="/docs/why-no-npu-yet.html">Why No NPU Yet</a>
@@ -39,7 +39,7 @@
 <a href="/docs/amd-gaia-integration.html">AMD GAIA</a>
 <a href="/docs/medusa-integration-plan.html">Medusa plan</a>
 <a href="/docs/rotorquant-default-decision.html">Rotorquant</a>
-<a href="/docs/halo-whisper-streaming-plan.html">Whisper streaming</a>
+<a href="/docs/1bit-whisper-streaming-plan.html">Whisper streaming</a>
 <a href="/docs/npu-kernel-design.html">NPU kernel</a>
 <a href="/docs/ternary-on-aie-pack-plan.html">Ternary on AIE</a>
 <a href="/docs/peak-performance-projection.html">Peak projection</a>
@@ -49,11 +49,11 @@
 <a href="/docs/beta-10-day-ttl.html">Beta 10-day TTL</a>
 <a href="/docs/sdd-workflow.html">SDD workflow</a>
 <h4>crates</h4>
-<a href="/docs/crate-halo-echo.html">halo-echo</a>
-<a href="/docs/crate-halo-helm.html">halo-helm</a>
-<a href="/docs/crate-halo-landing.html">halo-landing</a>
-<a href="/docs/crate-halo-lemonade.html">halo-lemonade</a>
-<a href="/docs/crate-halo-agents-watch.html">halo-agents-watch</a>
+<a href="/docs/crate-1bit-echo.html">1bit-echo</a>
+<a href="/docs/crate-1bit-helm.html">1bit-helm</a>
+<a href="/docs/crate-1bit-landing.html">1bit-landing</a>
+<a href="/docs/crate-1bit-lemonade.html">1bit-lemonade</a>
+<a href="/docs/crate-1bit-agents-watch.html">1bit-agents-watch</a>
 <h4>amd scans</h4>
 <a href="/docs/amd-ai-ml-tools-scan.html">AI/ML tools</a>
 <a href="/docs/amd-compilers-analyzers-scan.html">Compilers</a>
@@ -67,7 +67,7 @@
 
 </aside>
 <main class="docs-body">
-<h1>BitNet v2 — Hadamard rotation plan (halo-ai-rs / gen-2)</h1>
+<h1>BitNet v2 — Hadamard rotation plan (1bit-systems / gen-2)</h1>
 <p>Tracker for the <strong>H-BitLinear</strong> activation path (paper: arXiv 2504.18415, Wang/Ma/Huang/Wei, Microsoft, April 2025). Replaces the BitNet-a4.8 staged A8→A4 recipe we had queued after Sherry lands.</p>
 <p><strong>Landed</strong>: 2026-04-20 — skeleton kernel + plan only. No forward-pass wiring, no weight pipeline, no PPL runs yet.</p>
 <hr>
@@ -93,7 +93,7 @@
 <p>PPL-vs-cost curve; B=256 returns ~0.03 PPL more improvement at 2× the kernel cost, B=64 gives up ~0.1 PPL. B=128 is what Microsoft ships.</p>
 <p>Implementation note: the kernel is <strong>parameterized on B</strong> as a template / constexpr so we can run B=256 and B=64 in our PPL sweep before committing.</p>
 <h2 id="3-insertion-points-in-our-forward-pass">3. Insertion points in our forward pass</h2>
-<p>All sites are in <code>crates/halo-router/src/backend_impl.rs</code> (gen-2 Rust forward driver). Line numbers are as of commit HEAD on 2026-04-20:</p>
+<p>All sites are in <code>crates/1bit-router/src/backend_impl.rs</code> (gen-2 Rust forward driver). Line numbers are as of commit HEAD on 2026-04-20:</p>
 <table>
 <thead><tr><th>#</th><th>site</th><th>line</th><th>pre-state</th><th>post-rotate step</th></tr></thead>
 <tbody>
@@ -122,9 +122,9 @@
 <ol>
 <li><strong><code>kernels/ternary_gemv_phase5_i4a.hip</code></strong> — already consumes <code>i4</code></li>
 </ol>
-<p>activations with a <strong>per-tensor</strong> scale (halo-ai Lane A predecessor). Needs: per-token scale path parameterized in (we quantize fresh every forward pass, so the scale is per-site-per-token — which is what the kernel already handles via the <code>x_scale</code> scalar; just re-plumb from <code>x_scale_dev</code> on the Rust side). No kernel restructure required. Add <code>ternary_gemv_halo_i4a_f16</code> fp16-output twin mirroring the <code>halo_f16</code> suffix pattern.</p>
+<p>activations with a <strong>per-tensor</strong> scale (1bit systems Lane A predecessor). Needs: per-token scale path parameterized in (we quantize fresh every forward pass, so the scale is per-site-per-token — which is what the kernel already handles via the <code>x_scale</code> scalar; just re-plumb from <code>x_scale_dev</code> on the Rust side). No kernel restructure required. Add <code>ternary_gemv_halo_i4a_f16</code> fp16-output twin mirroring the <code>halo_f16</code> suffix pattern.</p>
 <ol>
-<li><strong>Offline requantizer</strong> — <code>halo-core</code> / tools path. <code>W' = W @ H^T</code></li>
+<li><strong>Offline requantizer</strong> — <code>1bit-core</code> / tools path. <code>W' = W @ H^T</code></li>
 </ol>
 <p>applied once at <code>.h1b</code> export time. Since <code>H ∈ {+1, -1}</code> the matmul reduces to sign-flipped adds; no multiplies. Output is still ternary because <code>H^T</code> is ±1 and the ternary weight space is closed under sign flip. <strong>Important</strong>: this means model weights re-ship as a new <code>.h1b</code> variant flag (<code>H1B_FLAG_HADAMARD_ROTATED</code>) — existing rocm-cpp consumers must reject a non-matching flag cleanly (loader bounds check as always).</p>
 <h3 id="untouched">Untouched</h3>

@@ -1,20 +1,20 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/halo-cli",
-    "crates/halo-core",
-    "crates/halo-router",
-    "crates/halo-server",
-    "crates/halo-agents",
-    "crates/halo-mcp",
-    "crates/halo-bitnet-hip",
-    "crates/halo-bitnet-mlx",
-    "crates/halo-lemonade",
-    "crates/halo-helm",
-    "crates/halo-landing",
-    "crates/halo-voice",
-    "crates/halo-echo",
-    "crates/halo-bitnet-xdna",
+    "crates/1bit-cli",
+    "crates/1bit-core",
+    "crates/1bit-router",
+    "crates/1bit-server",
+    "crates/1bit-agents",
+    "crates/1bit-mcp",
+    "crates/1bit-hip",
+    "crates/1bit-mlx",
+    "crates/1bit-lemonade",
+    "crates/1bit-helm",
+    "crates/1bit-landing",
+    "crates/1bit-voice",
+    "crates/1bit-echo",
+    "crates/1bit-xdna",
 ]
 
 [workspace.package]
@@ -72,10 +72,10 @@ sha2        = "0.10"
 uuid        = { version = "1", features = ["v4", "serde"] }
 
 # Shared across halo crates
-halo-core        = { path = "crates/halo-core" }
-halo-router      = { path = "crates/halo-router" }
-halo-agents      = { path = "crates/halo-agents" }
-halo-bitnet-hip  = { path = "crates/halo-bitnet-hip" }
+onebit-core        = { path = "crates/1bit-core" }
+onebit-router      = { path = "crates/1bit-router" }
+onebit-agents      = { path = "crates/1bit-agents" }
+onebit-hip  = { path = "crates/1bit-hip" }
 
 [profile.release]
 opt-level     = 3

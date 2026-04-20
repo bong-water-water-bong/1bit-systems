@@ -22,7 +22,7 @@
     <a href="/audio/">audio</a>
     <a href="/join/">join</a>
     <a href="#apu">apu</a>
-    <a href="https://discord.gg/halo-ai" rel="noopener">Discord</a>
+    <a href="https://discord.gg/1bit systems" rel="noopener">Discord</a>
     <a class="gh-btn" href="https://github.com/bong-water-water-bong" rel="noopener">GitHub</a>
   </nav>
 </header>
@@ -87,9 +87,9 @@
     <div title="Projected after idx=7 fp32 argmax tie-break fix lands on next burnin cycle. Previous: 95.55%."><b>~98.9%</b><span>byte-exact burn-in</span></div>
     <div title="Ternary GEMV roofline via rocprof."><b>92%</b><span>of LPDDR5 peak</span></div>
     <div title="Split-KV Flash-Decoding attention @L=2048. Bit-exact output."><b>6.78×</b><span>attn @2048 vs prior</span></div>
-    <div title="End-to-end halo-voice first audio byte, measured 2026-04-20."><b>1.23 s</b><span>first audio (TTS)</span></div>
+    <div title="End-to-end 1bit-voice first audio byte, measured 2026-04-20."><b>1.23 s</b><span>first audio (TTS)</span></div>
     <div title="Workspace test count across 14 crates. Zero failures."><b>245</b><span>tests · 0 fail</span></div>
-    <div title="halo-server release binary, stripped. Cold start under 200 ms."><b>2.4&nbsp;MB</b><span>server binary</span></div>
+    <div title="1bit-server release binary, stripped. Cold start under 200 ms."><b>2.4&nbsp;MB</b><span>server binary</span></div>
     <div title="CPU + iGPU + NPU shared pool. No PCIe tax on weights."><b>128&nbsp;GB</b><span>shared LPDDR5</span></div>
   </div>
 </section>
@@ -102,36 +102,36 @@
     <li>No sudo password leaves the machine. Script runs unprivileged, prompts locally.</li>
     <li>Idempotent — rerun anytime to repair or upgrade.</li>
   </ul>
-  <p class="note">Prefer git? <a href="https://github.com/bong-water-water-bong/halo-ai-rs" rel="noopener">clone the monorepo</a> and run <code>./install.sh</code> directly.</p>
+  <p class="note">Prefer git? <a href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">clone the monorepo</a> and run <code>./install.sh</code> directly.</p>
 </section>
 
 <section id="family" class="pillars">
   <h2>featuring halo — and family</h2>
   <p class="note">Fourteen crates, one monorepo, one job each. Rust above the HIP line, C++ below. No Python in the hot path. No container overhead. Everything runs as a user-systemd unit.</p>
   <div class="pillar-grid">
-    <article class="pillar"><h3>halo-server</h3><p>OpenAI-compat HTTP. /v1/chat/completions with SSE. Bearer-gated via Caddy. 2.4&nbsp;MB binary.</p></article>
-    <article class="pillar"><h3>halo-router</h3><p>Backend dispatcher — iGPU / NPU / CPU. <code>HALO_BACKEND=xdna</code> wires FLM subprocess for NPU prefill.</p></article>
-    <article class="pillar"><h3>halo-bitnet-hip</h3><p>FFI into rocm-cpp HIP kernels. 92%-LPDDR5-peak ternary GEMV lives on the other side.</p></article>
-    <article class="pillar"><h3>halo-bitnet-xdna</h3><p>FFI into libxrt for XDNA 2 NPU. FastFlowLM subprocess bridge; ternary-INT8 mapping pending AMD.</p></article>
-    <article class="pillar"><h3>halo-voice</h3><p>Sentence-boundary streaming TTS. 1.23 s first audio. 17 unit tests.</p></article>
-    <article class="pillar"><h3>halo-echo</h3><p>WebSocket voice server, Opus 20&nbsp;ms frames. Cancellation path on disconnect. 11 tests.</p></article>
-    <article class="pillar"><h3>halo-whisper</h3><p>STT via whisper.cpp on gfx1151. Streaming partials on roadmap.</p></article>
+    <article class="pillar"><h3>1bit-server</h3><p>OpenAI-compat HTTP. /v1/chat/completions with SSE. Bearer-gated via Caddy. 2.4&nbsp;MB binary.</p></article>
+    <article class="pillar"><h3>1bit-router</h3><p>Backend dispatcher — iGPU / NPU / CPU. <code>HALO_BACKEND=xdna</code> wires FLM subprocess for NPU prefill.</p></article>
+    <article class="pillar"><h3>1bit-hip</h3><p>FFI into rocm-cpp HIP kernels. 92%-LPDDR5-peak ternary GEMV lives on the other side.</p></article>
+    <article class="pillar"><h3>1bit-xdna</h3><p>FFI into libxrt for XDNA 2 NPU. FastFlowLM subprocess bridge; ternary-INT8 mapping pending AMD.</p></article>
+    <article class="pillar"><h3>1bit-voice</h3><p>Sentence-boundary streaming TTS. 1.23 s first audio. 17 unit tests.</p></article>
+    <article class="pillar"><h3>1bit-echo</h3><p>WebSocket voice server, Opus 20&nbsp;ms frames. Cancellation path on disconnect. 11 tests.</p></article>
+    <article class="pillar"><h3>1bit-whisper</h3><p>STT via whisper.cpp on gfx1151. Streaming partials on roadmap.</p></article>
     <article class="pillar"><h3>halo-kokoro</h3><p>TTS, 24&nbsp;kHz mono WAV, onnxruntime. af_sky / am_michael / bf_emma / bm_george.</p></article>
-    <article class="pillar"><h3>halo-mcp</h3><p>Stdio MCP bridge. 19 tools: 17 specialists + skill_manage + memory_manage.</p></article>
-    <article class="pillar"><h3>halo-agents</h3><p>17 typed specialists. <code>halo-watch-discord</code> + <code>halo-watch-github</code> keep the fleet online.</p></article>
-    <article class="pillar"><h3>halo-cli</h3><p><code>halo status · doctor · install · skill · memory · npu · burnin · power</code>. One command, whole stack.</p></article>
-    <article class="pillar"><h3>halo-landing</h3><p>LAN dashboard on :8190. Live metrics, /_live/stats SSE.</p></article>
-    <article class="pillar"><h3>halo-lemonade</h3><p>OpenAI-compat gateway on :8200. Hermes + AMD GAIA interop.</p></article>
-    <article class="pillar"><h3>halo-helm</h3><p>Native desktop client (egui/eframe). Rust GUI, no Electron, no web-view. Formerly halo-gaia.</p></article>
-    <article class="pillar"><h3>halo-core</h3><p>Pure parsers. mmap, zero I/O beyond the file handle. Only crate with zero deps beyond std.</p></article>
+    <article class="pillar"><h3>1bit-mcp</h3><p>Stdio MCP bridge. 19 tools: 17 specialists + skill_manage + memory_manage.</p></article>
+    <article class="pillar"><h3>1bit-agents</h3><p>17 typed specialists. <code>halo-watch-discord</code> + <code>halo-watch-github</code> keep the fleet online.</p></article>
+    <article class="pillar"><h3>1bit-cli</h3><p><code>halo status · doctor · install · skill · memory · npu · burnin · power</code>. One command, whole stack.</p></article>
+    <article class="pillar"><h3>1bit-landing</h3><p>LAN dashboard on :8190. Live metrics, /_live/stats SSE.</p></article>
+    <article class="pillar"><h3>1bit-lemonade</h3><p>OpenAI-compat gateway on :8200. Hermes + AMD GAIA interop.</p></article>
+    <article class="pillar"><h3>1bit-helm</h3><p>Native desktop client (egui/eframe). Rust GUI, no Electron, no web-view. Formerly halo-gaia.</p></article>
+    <article class="pillar"><h3>1bit-core</h3><p>Pure parsers. mmap, zero I/O beyond the file handle. Only crate with zero deps beyond std.</p></article>
   </div>
 </section>
 
 <section id="community" class="community">
   <h2>community</h2>
   <div class="community-row">
-    <a class="comm-card" href="https://discord.gg/halo-ai" rel="noopener"><b>Discord</b><span>dev chat + install help + beta invites</span></a>
-    <a class="comm-card" href="https://github.com/bong-water-water-bong" rel="noopener"><b>GitHub</b><span>bong-water-water-bong · halo-ai-rs + family</span></a>
+    <a class="comm-card" href="https://discord.gg/1bit systems" rel="noopener"><b>Discord</b><span>dev chat + install help + beta invites</span></a>
+    <a class="comm-card" href="https://github.com/bong-water-water-bong" rel="noopener"><b>GitHub</b><span>bong-water-water-bong · 1bit-systems + family</span></a>
     <a class="comm-card" href="https://github.com/amd/RyzenAI-SW/issues/366" rel="noopener"><b>AMD Issue #366</b><span>Strix Halo Linux NPU — resolved via Lemonade 10.2</span></a>
   </div>
 </section>

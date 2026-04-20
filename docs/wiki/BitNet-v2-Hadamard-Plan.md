@@ -1,4 +1,4 @@
-# BitNet v2 — Hadamard rotation plan (halo-ai-rs / gen-2)
+# BitNet v2 — Hadamard rotation plan (1bit-systems / gen-2)
 
 Tracker for the **H-BitLinear** activation path (paper: arXiv 2504.18415,
 Wang/Ma/Huang/Wei, Microsoft, April 2025). Replaces the BitNet-a4.8 staged
@@ -52,7 +52,7 @@ constexpr so we can run B=256 and B=64 in our PPL sweep before committing.
 
 ## 3. Insertion points in our forward pass
 
-All sites are in `crates/halo-router/src/backend_impl.rs` (gen-2 Rust
+All sites are in `crates/1bit-router/src/backend_impl.rs` (gen-2 Rust
 forward driver). Line numbers are as of commit HEAD on 2026-04-20:
 
 | # | site | line | pre-state | post-rotate step |
@@ -92,14 +92,14 @@ them is a correctness bug.
 ### Modified
 
 4. **`kernels/ternary_gemv_phase5_i4a.hip`** — already consumes `i4`
-   activations with a **per-tensor** scale (halo-ai Lane A predecessor).
+   activations with a **per-tensor** scale (1bit systems Lane A predecessor).
    Needs: per-token scale path parameterized in (we quantize fresh every
    forward pass, so the scale is per-site-per-token — which is what the
    kernel already handles via the `x_scale` scalar; just re-plumb from
    `x_scale_dev` on the Rust side). No kernel restructure required.
    Add `ternary_gemv_halo_i4a_f16` fp16-output twin mirroring the
    `halo_f16` suffix pattern.
-5. **Offline requantizer** — `halo-core` / tools path. `W' = W @ H^T`
+5. **Offline requantizer** — `1bit-core` / tools path. `W' = W @ H^T`
    applied once at `.h1b` export time. Since `H ∈ {+1, -1}` the matmul
    reduces to sign-flipped adds; no multiplies. Output is still ternary
    because `H^T` is ±1 and the ternary weight space is closed under sign

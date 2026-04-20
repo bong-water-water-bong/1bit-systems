@@ -1,4 +1,4 @@
-# halo-ai reverse proxy — 127.0.0.1:8080 (bitnet_decode) -> HTTPS
+# 1bit systems reverse proxy — 127.0.0.1:8080 (bitnet_decode) -> HTTPS
 # Hostnames: the machine's .local (mDNS/Bonjour) and explicit LAN IP fallback.
 {
     # Internal CA — Caddy issues self-signed certs trusted via its root.
@@ -8,9 +8,9 @@
 }
 
 # Per-user bearer matcher — regenerated from /etc/caddy/bearers.txt by
-# strixhalo/bin/halo-caddy-bearers.sh. Defines (bearer_matcher) snippet
+# strixhalo/bin/1bit-caddy-bearers.sh. Defines (bearer_matcher) snippet
 # so every gated route can `import bearer_matcher` and share one regex.
-# On a fresh box, bearers.conf is empty / placeholder; halo-mesh-invite.sh
+# On a fresh box, bearers.conf is empty / placeholder; 1bit-mesh-invite.sh
 # creates bearers.txt on first invite and rebuilds this snippet.
 import /etc/caddy/bearers.conf
 
@@ -21,7 +21,7 @@ strixhalo.local, 10.0.0.10 {
     # Defines @authorized for this site; nested handle blocks inherit it.
     import bearer_matcher
 
-    # / + landing assets + live status → halo-landing (127.0.0.1:8190).
+    # / + landing assets + live status → 1bit-landing (127.0.0.1:8190).
     # No bearer — marketing page, LAN-only via hostname.
     @landing path / /style.css /_health /_live/*
     handle @landing {
@@ -94,7 +94,7 @@ strixhalo.local, 10.0.0.10 {
         }
     }
 
-    # /whisper/* → halo-whisper STT (127.0.0.1:8082). Bearer-gated.
+    # /whisper/* → 1bit-whisper STT (127.0.0.1:8082). Bearer-gated.
     # Consumed by studio-site/voice/ mobile web app.
     handle_path /whisper/* {
         handle @authorized {

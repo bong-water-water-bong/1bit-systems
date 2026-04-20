@@ -98,7 +98,7 @@ Until compile is verified, the file is **not** in the CMake target.
 
 Today our attention kernel is `src/kv_cache_attn_fd.hip` (Flash-Decoding,
 one query per head, split-KV). It's called from
-`crates/halo-router/src/backend_impl.rs` in the `forward_token` hot path:
+`crates/1bit-router/src/backend_impl.rs` in the `forward_token` hot path:
 
 - `backend_impl.rs:463` — `forward_token` entry (one token in, one out).
 - `backend_impl.rs:595-614` — `hipMemcpyAsync` writes K/V into the
@@ -144,7 +144,7 @@ One PR per crate so each is reviewable in isolation.
       a mask arg and an outer M loop).
 - [ ] C API entry points in `include/rocm_cpp/` for both.
 
-### PR-2: `halo-bitnet-hip` — FFI bindings
+### PR-2: `1bit-hip` — FFI bindings
 
 - [ ] `src/ffi.rs` — add `extern "C"` prototypes mirroring
       `ternary_gemv_halo_f16` at line 258 and `kv_cache_attn_decode_fd`
@@ -153,7 +153,7 @@ One PR per crate so each is reviewable in isolation.
 - [ ] Three in-crate tests (per CLAUDE.md): mock-device happy path,
       mask-bounds check, M-range bounds check.
 
-### PR-3: `halo-router` — `forward_tree`, gated behind config
+### PR-3: `1bit-router` — `forward_tree`, gated behind config
 
 - [ ] `backend_impl.rs` — add `forward_tree(&mut self, accepted: &[i32],
       base_pos: i32, tree: &SpecTree, logits_out: &mut [f32]) ->
@@ -162,14 +162,14 @@ One PR per crate so each is reviewable in isolation.
       config dispatches in the caller, not inside the backend.
 - [ ] `src/lib.rs:599, :615` — call-site guard: if `SpecConfig::None`,
       use `forward_token`; else `forward_tree`.
-- [ ] `halo-core::sampler::Sampler` — add `argmax_batched` for the
+- [ ] `1bit-core::sampler::Sampler` — add `argmax_batched` for the
       batched verify. Rep-penalty only applied to accepted prefix.
 
 ### PR-4: heads loader + CLI switch
 
-- [ ] `halo-core` — new `.medusa` file format (1 magic + 4 × safetensors
+- [ ] `1bit-core` — new `.medusa` file format (1 magic + 4 × safetensors
       blob). Mmap, zero-copy. Same hard rule as `.h1b`.
-- [ ] `halo-cli` — `halo gen --spec medusa` flag.
+- [ ] `1bit-cli` — `halo gen --spec medusa` flag.
 
 ### Out of scope
 
@@ -187,7 +187,7 @@ Reasons:
 
 - parrishcorcoran's heads are **Alpaca-only**. Our actual traffic is
   mixed: Open WebUI chat, code completion via the lemonade gateway,
-  long-context agentic workflows (halo-agents). Alpaca's loss curve
+  long-context agentic workflows (1bit-agents). Alpaca's loss curve
   (9.85 → 3.32) does not transfer cleanly to code or long-context
   acceptance. Head-1 at 63% on Alpaca does not mean 63% on our prompts.
 - Training cost is cheap in absolute terms: 11 h on Strix Halo CPU per
@@ -200,7 +200,7 @@ Reasons:
 
 **Cheaper interim step before a full retrain**: run parrishcorcoran's
 heads against ~500 prompts from our actual workload (sample from
-halo-agents audit log) and measure head-1 acceptance. If it holds at
+1bit-agents audit log) and measure head-1 acceptance. If it holds at
 ≥ 55% we can ship with upstream heads and retrain later. If it drops
 below 40%, retrain is non-negotiable.
 

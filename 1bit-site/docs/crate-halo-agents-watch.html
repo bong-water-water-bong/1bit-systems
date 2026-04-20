@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0d1117">
-<title>halo-agents watch binaries · 1bit.systems docs</title>
+<title>1bit-agents watch binaries · 1bit.systems docs</title>
 <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
 <link rel="stylesheet" href="/assets/style.css">
 </head>
@@ -28,7 +28,7 @@
 <a href="/docs/why-shadow-burnin.html">Why Shadow-Burnin</a>
 <a href="/docs/why-h1b-format.html">Why H1b Format</a>
 <a href="/docs/why-caddy-systemd.html">Why Caddy + Systemd</a>
-<a href="/docs/why-halo-agents.html">Why halo-agents</a>
+<a href="/docs/why-1bit-agents.html">Why 1bit-agents</a>
 <a href="/docs/why-no-python.html">Why No Python</a>
 <a href="/docs/why-parity-gates.html">Why Parity Gates</a>
 <a href="/docs/why-no-npu-yet.html">Why No NPU Yet</a>
@@ -39,7 +39,7 @@
 <a href="/docs/amd-gaia-integration.html">AMD GAIA</a>
 <a href="/docs/medusa-integration-plan.html">Medusa plan</a>
 <a href="/docs/rotorquant-default-decision.html">Rotorquant</a>
-<a href="/docs/halo-whisper-streaming-plan.html">Whisper streaming</a>
+<a href="/docs/1bit-whisper-streaming-plan.html">Whisper streaming</a>
 <a href="/docs/npu-kernel-design.html">NPU kernel</a>
 <a href="/docs/ternary-on-aie-pack-plan.html">Ternary on AIE</a>
 <a href="/docs/peak-performance-projection.html">Peak projection</a>
@@ -49,11 +49,11 @@
 <a href="/docs/beta-10-day-ttl.html">Beta 10-day TTL</a>
 <a href="/docs/sdd-workflow.html">SDD workflow</a>
 <h4>crates</h4>
-<a href="/docs/crate-halo-echo.html">halo-echo</a>
-<a href="/docs/crate-halo-helm.html">halo-helm</a>
-<a href="/docs/crate-halo-landing.html">halo-landing</a>
-<a href="/docs/crate-halo-lemonade.html">halo-lemonade</a>
-<a href="/docs/crate-halo-agents-watch.html">halo-agents-watch</a>
+<a href="/docs/crate-1bit-echo.html">1bit-echo</a>
+<a href="/docs/crate-1bit-helm.html">1bit-helm</a>
+<a href="/docs/crate-1bit-landing.html">1bit-landing</a>
+<a href="/docs/crate-1bit-lemonade.html">1bit-lemonade</a>
+<a href="/docs/crate-1bit-agents-watch.html">1bit-agents-watch</a>
 <h4>amd scans</h4>
 <a href="/docs/amd-ai-ml-tools-scan.html">AI/ML tools</a>
 <a href="/docs/amd-compilers-analyzers-scan.html">Compilers</a>
@@ -67,13 +67,13 @@
 
 </aside>
 <main class="docs-body">
-<h1>halo-agents watch binaries</h1>
+<h1>1bit-agents watch binaries</h1>
 <p>Two opt-in binaries that keep the 17-specialist registry aware of activity outside the local machine:</p>
 <ul>
 <li><code>halo-watch-discord</code> — Discord gateway client.</li>
 <li><code>halo-watch-github</code>  — GitHub issue/PR poller (read-only).</li>
 </ul>
-<p>Both live in the <code>halo-agents</code> crate so they share the registry type and don't need an IPC boundary to dispatch to a specialist.</p>
+<p>Both live in the <code>1bit-agents</code> crate so they share the registry type and don't need an IPC boundary to dispatch to a specialist.</p>
 <h2 id="what-the-discord-bot-does">What the Discord bot does</h2>
 <p>The bot is a <strong>lurker</strong>. It:</p>
 <ol>
@@ -120,8 +120,8 @@
 <tbody>
 <tr><td><code>DISCORD_BOT_TOKEN</code></td><td>yes</td><td>—</td><td>Raw Discord bot token (no <code>Bot </code> prefix).</td></tr>
 <tr><td><code>HALO_DISCORD_CHANNELS</code></td><td>yes</td><td>—</td><td>Comma-separated channel IDs (u64) to observe.</td></tr>
-<tr><td><code>HALO_SERVER_URL</code></td><td>no</td><td><code>http://127.0.0.1:8180</code></td><td>halo-server base URL for <code>status</code> reply (<code>/v1/models</code>).</td></tr>
-<tr><td><code>HALO_LANDING_URL</code></td><td>no</td><td><code>http://127.0.0.1:8190</code></td><td>halo-landing base URL for <code>status</code> reply (<code>/metrics</code>).</td></tr>
+<tr><td><code>HALO_SERVER_URL</code></td><td>no</td><td><code>http://127.0.0.1:8180</code></td><td>1bit-server base URL for <code>status</code> reply (<code>/v1/models</code>).</td></tr>
+<tr><td><code>HALO_LANDING_URL</code></td><td>no</td><td><code>http://127.0.0.1:8190</code></td><td>1bit-landing base URL for <code>status</code> reply (<code>/metrics</code>).</td></tr>
 <tr><td><code>RUST_LOG</code></td><td>no</td><td><code>halo_watch_discord=info</code></td><td>Standard tracing filter.</td></tr>
 </tbody></table>
 <p>If <code>DISCORD_BOT_TOKEN</code> is unset or empty, the binary prints the help banner and exits 0. This is the fresh-box default — <code>systemctl --user status strix-watch-discord</code> will show <code>inactive</code>.</p>
@@ -155,9 +155,9 @@ systemctl --user enable --now strix-watch-discord
 <ul>
 <li><strong>No bearer-token handling.</strong> Do not add code that reads</li>
 </ul>
-<p><code>Authorization:</code> headers out of message content, and do not paste halo-server tokens into any channel the bot watches.</p>
+<p><code>Authorization:</code> headers out of message content, and do not paste 1bit-server tokens into any channel the bot watches.</p>
 <ul>
-<li><strong>No outbound network except halo-server / halo-landing.</strong> The</li>
+<li><strong>No outbound network except 1bit-server / 1bit-landing.</strong> The</li>
 </ul>
 <p><code>status</code> command probes those two only; don't bolt on arbitrary web requests.</p>
 <ul>
@@ -176,7 +176,7 @@ systemctl --user enable --now strix-watch-discord
 </code></pre>
 <p>Specialists must tolerate unknown fields — we'll add more context (thread ID, message ID, attachments) in later iterations.</p>
 <h2 id="testing">Testing</h2>
-<p>Classifier + env-parser tests live in <code>halo_agents::watch::tests</code> and run under <code>cargo test -p halo-agents</code>. The startup-without-token contract is exercised by the integration test at <code>tests/watch_discord_startup.rs</code>, which spawns the compiled binary with the token env cleared and asserts exit 0 + help banner on stdout.</p>
+<p>Classifier + env-parser tests live in <code>onebit_agents::watch::tests</code> and run under <code>cargo test -p 1bit-agents</code>. The startup-without-token contract is exercised by the integration test at <code>tests/watch_discord_startup.rs</code>, which spawns the compiled binary with the token env cleared and asserts exit 0 + help banner on stdout.</p>
 <hr>
 <h2 id="what-the-github-watcher-does">What the GitHub watcher does</h2>
 <p><code>halo-watch-github</code> is a <strong>read-only oneshot poller</strong>. It:</p>
@@ -227,7 +227,7 @@ systemctl --user enable --now strix-watch-discord
 <thead><tr><th>Var</th><th>Required</th><th>Default</th><th>Purpose</th></tr></thead>
 <tbody>
 <tr><td><code>GITHUB_TOKEN</code></td><td>no</td><td>—</td><td>PAT (read-only <code>public_repo</code>) or installation token. Unset → skip.</td></tr>
-<tr><td><code>HALO_GH_REPOS</code></td><td>no</td><td><code>bong-water-water-bong/halo-ai-rs,bong-water-water-bong/bitnet-mlx.rs,strix-ai-rs/halo-workspace</code></td><td>Comma-separated <code>owner/repo</code> list.</td></tr>
+<tr><td><code>HALO_GH_REPOS</code></td><td>no</td><td><code>bong-water-water-bong/1bit-systems,bong-water-water-bong/bitnet-mlx.rs,strix-ai-rs/halo-workspace</code></td><td>Comma-separated <code>owner/repo</code> list.</td></tr>
 <tr><td><code>HALO_GH_POLL_SECONDS</code></td><td>no</td><td><code>300</code></td><td>Poll interval in seconds. Lookback is <code>2×</code> this.</td></tr>
 <tr><td><code>RUST_LOG</code></td><td>no</td><td><code>info</code></td><td>Standard tracing filter.</td></tr>
 </tbody></table>
@@ -273,7 +273,7 @@ systemctl --user enable --now strix-watch-github.timer
 </code></pre>
 <p><code>kind</code> is <code>&quot;issue&quot;</code> or <code>&quot;pr&quot;</code>. Specialists must tolerate unknown fields; we'll fold in commit SHA, review comments, check-run status in later iterations.</p>
 <h2 id="github-testing">GitHub testing</h2>
-<p>Classifier + env-parser tests live in <code>halo_agents::watch::github::tests</code> and run under <code>cargo test -p halo-agents --release</code>. The token-absent short-circuit is not covered by a binary integration test because <code>Registry::default_stubs()</code> is exercised elsewhere and the branch is trivially <code>info!(); return Ok(())</code>.</p>
+<p>Classifier + env-parser tests live in <code>onebit_agents::watch::github::tests</code> and run under <code>cargo test -p 1bit-agents --release</code>. The token-absent short-circuit is not covered by a binary integration test because <code>Registry::default_stubs()</code> is exercised elsewhere and the branch is trivially <code>info!(); return Ok(())</code>.</p>
 
 </main>
 <aside class="docs-toc">

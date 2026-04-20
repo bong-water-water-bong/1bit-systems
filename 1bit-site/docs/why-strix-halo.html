@@ -28,7 +28,7 @@
 <a href="/docs/why-shadow-burnin.html">Why Shadow-Burnin</a>
 <a href="/docs/why-h1b-format.html">Why H1b Format</a>
 <a href="/docs/why-caddy-systemd.html">Why Caddy + Systemd</a>
-<a href="/docs/why-halo-agents.html">Why halo-agents</a>
+<a href="/docs/why-1bit-agents.html">Why 1bit-agents</a>
 <a href="/docs/why-no-python.html">Why No Python</a>
 <a href="/docs/why-parity-gates.html">Why Parity Gates</a>
 <a href="/docs/why-no-npu-yet.html">Why No NPU Yet</a>
@@ -39,7 +39,7 @@
 <a href="/docs/amd-gaia-integration.html">AMD GAIA</a>
 <a href="/docs/medusa-integration-plan.html">Medusa plan</a>
 <a href="/docs/rotorquant-default-decision.html">Rotorquant</a>
-<a href="/docs/halo-whisper-streaming-plan.html">Whisper streaming</a>
+<a href="/docs/1bit-whisper-streaming-plan.html">Whisper streaming</a>
 <a href="/docs/npu-kernel-design.html">NPU kernel</a>
 <a href="/docs/ternary-on-aie-pack-plan.html">Ternary on AIE</a>
 <a href="/docs/peak-performance-projection.html">Peak projection</a>
@@ -49,11 +49,11 @@
 <a href="/docs/beta-10-day-ttl.html">Beta 10-day TTL</a>
 <a href="/docs/sdd-workflow.html">SDD workflow</a>
 <h4>crates</h4>
-<a href="/docs/crate-halo-echo.html">halo-echo</a>
-<a href="/docs/crate-halo-helm.html">halo-helm</a>
-<a href="/docs/crate-halo-landing.html">halo-landing</a>
-<a href="/docs/crate-halo-lemonade.html">halo-lemonade</a>
-<a href="/docs/crate-halo-agents-watch.html">halo-agents-watch</a>
+<a href="/docs/crate-1bit-echo.html">1bit-echo</a>
+<a href="/docs/crate-1bit-helm.html">1bit-helm</a>
+<a href="/docs/crate-1bit-landing.html">1bit-landing</a>
+<a href="/docs/crate-1bit-lemonade.html">1bit-lemonade</a>
+<a href="/docs/crate-1bit-agents-watch.html">1bit-agents-watch</a>
 <h4>amd scans</h4>
 <a href="/docs/amd-ai-ml-tools-scan.html">AI/ML tools</a>
 <a href="/docs/amd-compilers-analyzers-scan.html">Compilers</a>
@@ -74,7 +74,7 @@
 <li><strong>CPU</strong>: AMD Ryzen AI MAX+ 395 (Strix Halo) — 16 Zen 5 cores, 32 threads, 5.1 GHz boost.</li>
 <li><strong>iGPU</strong>: Radeon 8060S (RDNA 3.5, gfx1151) — 40 CUs, WMMA matrix accelerators.</li>
 <li><strong>Memory</strong>: 128 GB LPDDR5-8000, 256 bit-wide, 256 GB/s.</li>
-<li><strong>NPU</strong>: XDNA 2 at 50 TOPS (int8). Not used today by halo-ai; ROCm-7 + amdxdna kernel driver expose it.</li>
+<li><strong>NPU</strong>: XDNA 2 at 50 TOPS (int8). Not used today by 1bit systems; ROCm-7 + amdxdna kernel driver expose it.</li>
 <li><strong>Power</strong>: ~45 W idle, ~150 W sustained inference.</li>
 <li><strong>Form</strong>: mini-PC, 0.5L chassis, passive-or-quiet cooling possible.</li>
 </ul>
@@ -101,11 +101,11 @@
 <p>Apple's memory bandwidth is higher (M4 Max is 546 GB/s), memory caps similar (128 GB). Real reasons we picked AMD:</p>
 <ul>
 <li><strong>ROCm is open</strong> — HIP kernels compile + debug with open source. MLX is open too, but Metal's kernel-dev ergonomics lag ROCm's, and MLX's ternary path lagged BitNet's release by months. When we hit a bug in <code>v_dot4_i32_i8</code> on gfx1151 we can patch it; with Metal we'd file feedback-assistant reports.</li>
-<li><strong>Linux-first</strong> — halo-ai is CachyOS/Arch. Native systemd, native <code>rocm-smi</code>, native <code>perf</code>, native Caddy. macOS has launchd and a different permissions model.</li>
+<li><strong>Linux-first</strong> — 1bit systems is CachyOS/Arch. Native systemd, native <code>rocm-smi</code>, native <code>perf</code>, native Caddy. macOS has launchd and a different permissions model.</li>
 <li><strong>Price/perf</strong> — Strix Halo $2-3k vs M4 Max Mac Studio $3–5k at equivalent RAM.</li>
 <li><strong>Upgrade path</strong> — Strix Halo boxes are x86. Add another Ryzen node to the Headscale mesh and you have 256 GB of unified-memory compute. Apple Silicon doesn't federate.</li>
 </ul>
-<p>We feature-gate a <code>mlx-apple</code> path in <code>halo-bitnet-mlx</code> so the workspace still compiles and runs on M-series for developers who work cross-platform. But AMD is the performance target.</p>
+<p>We feature-gate a <code>mlx-apple</code> path in <code>1bit-mlx</code> so the workspace still compiles and runs on M-series for developers who work cross-platform. But AMD is the performance target.</p>
 <h2 id="why-gfx1151-specifically">Why gfx1151 specifically</h2>
 <p>RDNA 3.5 iGPU. The <code>gfx1151</code> ISA level gives us:</p>
 <ul>

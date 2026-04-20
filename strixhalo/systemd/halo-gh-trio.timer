@@ -1,5 +1,5 @@
 [Unit]
-Description=halo-ai GitHub automation — quartermaster, magistrate, librarian
+Description=1bit systems GitHub automation — quartermaster, magistrate, librarian
 
 [Timer]
 OnBootSec=3min

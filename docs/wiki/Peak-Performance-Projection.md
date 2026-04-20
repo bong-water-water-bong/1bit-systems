@@ -1,6 +1,6 @@
 # Peak Performance Projection
 
-Quantitative projection of halo-ai end-state throughput on Strix Halo
+Quantitative projection of 1bit systems end-state throughput on Strix Halo
 (Ryzen AI MAX+ 395) once all seven planned lanes ship. Every number has
 a derivation or a citation. All projections carry a ±20% band unless
 stated otherwise.
@@ -89,7 +89,7 @@ Uncertainty band: 25–60 tokens depending on actual BD-list setup cost
 
 | stage | surface | time | note |
 |---|---|---:|---|
-| Tokenize 512 in | CPU (1 core) | 4 ms | halo-core BPE, already measured |
+| Tokenize 512 in | CPU (1 core) | 4 ms | 1bit-core BPE, already measured |
 | Prefill 512 tok | NPU | 512 / 8 800 + 3 ms ≈ 61 ms | int2-via-int8 projection |
 | RoPE tables + dispatch | CPU | <1 ms | precomputed, cached |
 | Decode 256 tok @ L≈768 | iGPU | 256 / 220 ≈ **1.16 s** | Sherry + actsparse + a4 + Medusa 1.7× |

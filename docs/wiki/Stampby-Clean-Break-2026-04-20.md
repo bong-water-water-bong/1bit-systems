@@ -31,8 +31,8 @@ All **259** repos owned by `stampby` are tagged `action=delete` in
 
 Notable originals being nuked (all already archived; Halo code lives elsewhere):
 
-- `rocm-cpp`, `halo-ai-core`, `halo-mcp`, `agent-cpp`, `halo-brain`,
-  `halo-browser`, `halo-1bit`, `halo-ai-site`, `halo-discord-agents`,
+- `rocm-cpp`, `1bit systems-core`, `1bit-mcp`, `agent-cpp`, `halo-brain`,
+  `halo-browser`, `halo-1bit`, `1bit systems-site`, `halo-discord-agents`,
   `halo-finetuning`, `halo-arcade`, `bleeding-edge`, `claude-hybrid-proxy`,
   `claude-memory`, `lemonade-finetune`, `comfyui-voice`, `voice-digest`,
   `dotfiles` / `dotfiles-strixhalo`, `echo` / `echo-reddit`, `forge`,
@@ -94,7 +94,7 @@ as a mirror layer, not the canonical source.
 2. **Dry-run first (default, safe)**:
 
    ```sh
-   /home/bcloud/repos/halo-workspace/strixhalo/bin/halo-stampby-nuke.sh
+   /home/bcloud/repos/halo-workspace/strixhalo/bin/1bit-stampby-nuke.sh
    ```
 
    Every row prints as `DRY-RUN would run: gh repo delete stampby/<name> --yes`.
@@ -106,7 +106,7 @@ as a mirror layer, not the canonical source.
    - **Interactive** (recommended for the first handful, sanity check):
 
      ```sh
-     /home/bcloud/repos/halo-workspace/strixhalo/bin/halo-stampby-nuke.sh --apply
+     /home/bcloud/repos/halo-workspace/strixhalo/bin/1bit-stampby-nuke.sh --apply
      ```
 
      Prompts `delete https://github.com/stampby/<name>? [y/N]` before each one.
@@ -114,7 +114,7 @@ as a mirror layer, not the canonical source.
    - **Unattended** (after you've sanity-checked a few):
 
      ```sh
-     /home/bcloud/repos/halo-workspace/strixhalo/bin/halo-stampby-nuke.sh --apply --force
+     /home/bcloud/repos/halo-workspace/strixhalo/bin/1bit-stampby-nuke.sh --apply --force
      ```
 
      No prompts. Rips through all 259 rows.
@@ -137,7 +137,7 @@ as a mirror layer, not the canonical source.
       `github.com/stampby/...` URLs. Same fix.
 - [ ] Retain the CSV and final `stampby-nuke-*.log` under
       `/home/bcloud/claude output/` (and rsync to Pi archive via
-      `halo-archive.sh` — they're the audit trail).
+      `1bit-archive.sh` — they're the audit trail).
 - [ ] **Scorched-earth option**: if the user wants the `stampby` GitHub
       profile itself deleted (not just the repos), that's a manual step
       GitHub only exposes via the web UI:
@@ -150,5 +150,5 @@ as a mirror layer, not the canonical source.
 
 - JSON snapshot: `/home/bcloud/claude output/stampby-repos-2026-04-20.json`
 - CSV action list: `/home/bcloud/claude output/stampby-repos-2026-04-20.csv`
-- Delete script: `/home/bcloud/repos/halo-workspace/strixhalo/bin/halo-stampby-nuke.sh`
+- Delete script: `/home/bcloud/repos/halo-workspace/strixhalo/bin/1bit-stampby-nuke.sh`
 - Run log (produced by script): `/home/bcloud/claude output/stampby-nuke-<UTCstamp>.log`

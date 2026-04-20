@@ -1,6 +1,6 @@
 # CPU Lane Plan
 
-The 7th surface of halo-ai's APU stack: the 16 Zen5 cores on Strix Halo,
+The 7th surface of 1bit systems's APU stack: the 16 Zen5 cores on Strix Halo,
 running the sampler + tokenizer + dispatcher in parallel with the iGPU's
 next-token grind.
 
@@ -30,8 +30,8 @@ that work its own rayon-backed thread pool:
 * Each rayon thread named `halo-cpu-<idx>` so `rocprof` / `perf top`
   attribute it cleanly.
 
-Surface entry point: [`halo_router::cpu_lane::CpuLane`] in
-`crates/halo-router/src/cpu_lane.rs`.
+Surface entry point: [`onebit_router::cpu_lane::CpuLane`] in
+`crates/1bit-router/src/cpu_lane.rs`.
 
 ## Why CPU is a peer lane, not a fallback
 
@@ -55,16 +55,16 @@ Surface entry point: [`halo_router::cpu_lane::CpuLane`] in
 
 2026-04-20:
 
-* `crates/halo-router/src/cpu_lane.rs` — new module. `CpuLane` struct
+* `crates/1bit-router/src/cpu_lane.rs` — new module. `CpuLane` struct
   holds a `rayon::ThreadPool`; `parallel_sample(&self, logits, top_k,
   top_p, temp)` demonstrates the rayon parallel-reduction pattern
   (argmax at `temp=0`, chunked top-k fallback at `temp>0`).
-* `Backend::Cpu` in `halo-router`'s routing guard now returns
+* `Backend::Cpu` in `1bit-router`'s routing guard now returns
   `BackendError::CpuLaneStub("CPU sampler lane scaffolded, not yet on
   critical path; see docs/wiki/CPU-Lane-Plan.md")` instead of
   `unimplemented!()`. Distinct error kind from `NotYetWired` so ops
   tooling can count them separately.
-* `rayon = "1"` added to `crates/halo-router/Cargo.toml`. Rayon 1.12 is
+* `rayon = "1"` added to `crates/1bit-router/Cargo.toml`. Rayon 1.12 is
   already in the workspace Cargo.lock transitively (via tokenizers);
   adding it directly doesn't grow the build graph.
 * Three unit tests in `cpu_lane::tests` — constructor doesn't panic,
@@ -75,9 +75,9 @@ Surface entry point: [`halo_router::cpu_lane::CpuLane`] in
 
 What we did **not** do today, on purpose:
 
-* Wire `CpuLane` into halo-server's SSE handler. The hotspot analysis
+* Wire `CpuLane` into 1bit-server's SSE handler. The hotspot analysis
   comes first — see step (a) below.
-* Replace the existing `halo_core::sampler::Sampler` (full top-k + top-p
+* Replace the existing `onebit_core::sampler::Sampler` (full top-k + top-p
   + temperature + repetition penalty). `parallel_sample` today is
   scaffolding — it proves the rayon pattern, not a drop-in replacement.
 * Add any C++ deps. Rule A + the 2026-04-20 "bare-metal first" lock-in
@@ -85,13 +85,13 @@ What we did **not** do today, on purpose:
 
 ## What's next (three concrete steps)
 
-### (a) Wire `CpuLane::parallel_sample` into halo-server's SSE handler
+### (a) Wire `CpuLane::parallel_sample` into 1bit-server's SSE handler
 
-`halo-server` runs the sampler inline on the main axum task today. The
+`1bit-server` runs the sampler inline on the main axum task today. The
 wire-up:
 
-1. Construct a process-global `CpuLane` in `halo-server`'s `main` via
-   `halo_router::cpu_lane::global_lane()`.
+1. Construct a process-global `CpuLane` in `1bit-server`'s `main` via
+   `onebit_router::cpu_lane::global_lane()`.
 2. In the `/v1/chat/completions` streaming handler, replace
    `sampler.sample(logits, history)` with a dispatch that routes to
    `lane.parallel_sample(logits, top_k, top_p, temp)` when the CPU lane
@@ -103,11 +103,11 @@ wire-up:
 ### (b) Microbenchmark single-threaded vs rayon-parallel sampler
 
 Not wired = no measurement. Target: `criterion` bench in
-`crates/halo-router/benches/cpu_lane.rs`:
+`crates/1bit-router/benches/cpu_lane.rs`:
 
 * Input: a synthetic 32k-element logit vector (BitNet's vocab size,
   128256 rounded down for easier chunking).
-* Harness: compare `halo_core::sampler::Sampler::sample` (single-threaded)
+* Harness: compare `onebit_core::sampler::Sampler::sample` (single-threaded)
   against `CpuLane::parallel_sample` at pool sizes 1, 4, 8, 14.
 * Pass criterion: rayon-parallel faster at ≥ 4 threads by enough that
   the iGPU overlap (~200 µs per token measured on a clean burn) wouldn't
@@ -142,4 +142,4 @@ skip and stay pure Rust.
 * `docs/wiki/Peak-Performance-Projection.md` — the 7/7 lane aspirational
   target; the CPU lane closes surface #7.
 * `docs/wiki/AMD-AI-ML-Tools-Scan.md` — ZenDNN 5.2 notes for step (c).
-* `crates/halo-router/src/cpu_lane.rs` — the module this page describes.
+* `crates/1bit-router/src/cpu_lane.rs` — the module this page describes.

@@ -1,13 +1,13 @@
-# Contributing to halo-ai-rs
+# Contributing to 1bit-systems
 
-Private monorepo for the gen-2 Rust halo-ai stack. Public clients and downstream projects are welcome regardless of who holds the workspace checkout.
+Private monorepo for the gen-2 Rust 1bit systems stack. Public clients and downstream projects are welcome regardless of who holds the workspace checkout.
 
 ## How to help
 
 - **File an issue** in this repo with reproducible steps and `halo doctor` output.
-- **Send a patch** via pull request against the `bong-water-water-bong/halo-ai-rs` mirror, or via a git bundle if you don't have collaborator access. The team-lead reviews and lands.
+- **Send a patch** via pull request against the `bong-water-water-bong/1bit-systems` mirror, or via a git bundle if you don't have collaborator access. The team-lead reviews and lands.
 - **Run the benchmark** on your Strix Halo box — `halo bench` output against a clean install is gold for our perf table.
-- **Test client compatibility** — if you wire Open WebUI, DSPy, LibreChat, Sorana, Aicono, TabNeuron, or anything else against halo-server and hit a snag, document the config delta in an issue.
+- **Test client compatibility** — if you wire Open WebUI, DSPy, LibreChat, Sorana, Aicono, TabNeuron, or anything else against 1bit-server and hit a snag, document the config delta in an issue.
 - **Translate** the README — our current translations are machine-generated. Native speakers welcome.
 
 ## Code style
@@ -15,7 +15,7 @@ Private monorepo for the gen-2 Rust halo-ai stack. Public clients and downstream
 See [`CLAUDE.md`](./CLAUDE.md). Short version:
 
 - **Rule A**: no Python at runtime (scripts are fine, services are Rust).
-- **Rule B**: C++20 only for HIP kernels, FFI'd through `halo-bitnet-hip`.
+- **Rule B**: C++20 only for HIP kernels, FFI'd through `1bit-hip`.
 - **Rule C**: hipBLAS banned at runtime.
 - **Rule D**: Rust 1.86, edition 2024.
 
@@ -27,13 +27,13 @@ Use Conventional Commits (`feat:`, `fix:`, `docs:`, etc.). Tests must stay green
 
 Huge gratitude to **[Light Heart Labs](https://lightheartlabs.io/)** — their open-source **DreamServer** project ([`Light-Heart-Labs/DreamServer`](https://github.com/Light-Heart-Labs/DreamServer)) has been a reference point for local-AI-first architecture and a supportive neighbor in the ecosystem. Their maintainer **[@Lightheartdevs](https://github.com/Lightheartdevs)** is a pull-access collaborator on this repo.
 
-### Upstream projects halo-ai stands on
+### Upstream projects 1bit systems stands on
 
 - **Microsoft BitNet** — [`microsoft/BitNet`](https://github.com/microsoft/BitNet), Wang & Ma et al. The reference C++ kernels and the `bitnet-b1.58-2B-4T` weights we run today. arXiv: [`2402.17764`](https://arxiv.org/abs/2402.17764) (BitNet b1.58), [`2504.18415`](https://arxiv.org/abs/2504.18415) (BitNet v2).
 - **llama.cpp** — [`ggml-org/llama.cpp`](https://github.com/ggml-org/llama.cpp). GGUF format, IQ2_S quantization scheme, and the attention-kernel idioms our FD attention grew out of.
 - **ROCm / HIP** — the AMD compute runtime that our `rocm-cpp` kernels compile against.
 - **axum / tokio / serde / clap / reqwest** — the Rust crate foundations of halo-workspace.
-- **egui / eframe** — halo-helm's native GUI layer (formerly ratatui/crossterm; egui cutover 2026-04-20 with the halo-gaia → halo-helm rename).
+- **egui / eframe** — 1bit-helm's native GUI layer (formerly ratatui/crossterm; egui cutover 2026-04-20 with the halo-gaia → 1bit-helm rename).
 - **puppeteer-core + Bun** — halo-browser's attach-mode CDP driver.
 
 ### Research we read (that shipped)
@@ -52,8 +52,8 @@ Huge gratitude to **[Light Heart Labs](https://lightheartlabs.io/)** — their o
 
 ### Co-travelers on the AMD ternary road
 
-- **AMD Lemonade** — their official local-LLM server; we ship a Lemonade-SDK-compatible shim so their clients run against halo-server with zero config change.
-- **Chi Hoang (Tetramatrix)** — 168-repo AMD-Lemonade ecosystem. His clients (Sorana, Aicono, TabNeuron, diffron, lemonade-python-sdk) are first-class citizens of halo-ai via the `/api/v1/health` + `/api/v0/models` compat paths in `halo-lemonade`.
+- **AMD Lemonade** — their official local-LLM server; we ship a Lemonade-SDK-compatible shim so their clients run against 1bit-server with zero config change.
+- **Chi Hoang (Tetramatrix)** — 168-repo AMD-Lemonade ecosystem. His clients (Sorana, Aicono, TabNeuron, diffron, lemonade-python-sdk) are first-class citizens of 1bit systems via the `/api/v1/health` + `/api/v0/models` compat paths in `1bit-lemonade`.
 - **FlyGoat (RyzenAdj)** — the Linux Ryzen power-tuning CLI that will back our future `halo power` subcommand.
 
 ## How to apply this file

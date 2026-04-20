@@ -5,6 +5,6 @@ Type = Package
 Target = xrt
 
 [Action]
-Description = halo-ai: re-patching /usr/share/cmake/XRT/xrt-targets.cmake (CachyOS xrt ships broken cmake — see memory project_strix_halo_hardware.md)
+Description = 1bit systems: re-patching /usr/share/cmake/XRT/xrt-targets.cmake (CachyOS xrt ships broken cmake — see memory project_strix_halo_hardware.md)
 When = PostTransaction
-Exec = /usr/local/sbin/halo-xrt-cmake-patch.sh
+Exec = /usr/local/sbin/1bit-xrt-cmake-patch.sh

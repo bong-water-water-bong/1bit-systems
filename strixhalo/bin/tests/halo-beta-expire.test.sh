@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# halo-beta-expire.test.sh — plain-bash unit tests for halo-beta-expire.sh.
+# halo-beta-expire.test.sh — plain-bash unit tests for 1bit-beta-expire.sh.
 #
 # `bats` is not installed on strixhalo as of 2026-04-20, so we roll a
 # minimal assert-style runner instead of adding a dependency. One .sh
@@ -13,7 +13,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SCRIPT="$HERE/../halo-beta-expire.sh"
+SCRIPT="$HERE/../1bit-beta-expire.sh"
 
 if [[ ! -f "$SCRIPT" ]]; then
     echo "FATAL: $SCRIPT not found"
@@ -67,14 +67,14 @@ make_sandbox() {
     d=$(mktemp -d)
     mkdir -p "$d/caddy" "$d/audit" "$d/memory" "$d/bin"
 
-    # Mock halo-mesh-revoke.sh — a no-op that records who it was called for.
-    cat > "$d/bin/halo-mesh-revoke.sh" <<'EOF'
+    # Mock 1bit-mesh-revoke.sh — a no-op that records who it was called for.
+    cat > "$d/bin/1bit-mesh-revoke.sh" <<'EOF'
 #!/usr/bin/env bash
 # test mock — just log the handle to $MOCK_REVOKE_LOG
 printf '%s\n' "$1" >> "$MOCK_REVOKE_LOG"
 exit 0
 EOF
-    chmod 0755 "$d/bin/halo-mesh-revoke.sh"
+    chmod 0755 "$d/bin/1bit-mesh-revoke.sh"
 
     printf '%s' "$d"
 }
@@ -148,15 +148,15 @@ test_dry_run_reports_expired_without_touching() {
 
     # Copy the script into the sandbox bin dir so REVOKE_CMD resolves to
     # our mock (revoke is discovered by `dirname $0`).
-    cp "$SCRIPT" "$sandbox/bin/halo-beta-expire.sh"
-    chmod 0755 "$sandbox/bin/halo-beta-expire.sh"
+    cp "$SCRIPT" "$sandbox/bin/1bit-beta-expire.sh"
+    chmod 0755 "$sandbox/bin/1bit-beta-expire.sh"
 
     local out
     out=$(HALO_BETA_BEARER_FILE="$bearers" \
           HALO_BETA_AUDIT_DIR="$sandbox/audit" \
           HALO_BETA_MEMORY_DIR="$sandbox/memory" \
           MOCK_REVOKE_LOG="$mock_log" \
-          bash "$sandbox/bin/halo-beta-expire.sh" 2>&1)
+          bash "$sandbox/bin/1bit-beta-expire.sh" 2>&1)
 
     _expect "dry-run mentions alice as expired" "$out" "alice"
     _expect "dry-run announces DRY RUN mode" "$out" "DRY RUN"
@@ -181,7 +181,7 @@ test_dry_run_reports_expired_without_touching() {
 }
 
 test_apply_calls_mock_revoke() {
-    _test "--apply calls halo-mesh-revoke.sh (mocked) for expired handles"
+    _test "--apply calls 1bit-mesh-revoke.sh (mocked) for expired handles"
     local sandbox; sandbox=$(make_sandbox)
     local bearers="$sandbox/caddy/bearers.txt"
 
@@ -198,15 +198,15 @@ test_apply_calls_mock_revoke() {
     local mock_log="$sandbox/revoke.log"
     : > "$mock_log"
 
-    cp "$SCRIPT" "$sandbox/bin/halo-beta-expire.sh"
-    chmod 0755 "$sandbox/bin/halo-beta-expire.sh"
+    cp "$SCRIPT" "$sandbox/bin/1bit-beta-expire.sh"
+    chmod 0755 "$sandbox/bin/1bit-beta-expire.sh"
 
     local out
     out=$(HALO_BETA_BEARER_FILE="$bearers" \
           HALO_BETA_AUDIT_DIR="$sandbox/audit" \
           HALO_BETA_MEMORY_DIR="$sandbox/memory" \
           MOCK_REVOKE_LOG="$mock_log" \
-          bash "$sandbox/bin/halo-beta-expire.sh" --apply 2>&1) || true
+          bash "$sandbox/bin/1bit-beta-expire.sh" --apply 2>&1) || true
 
     _expect "apply announces APPLY mode" "$out" "APPLY"
 
@@ -234,14 +234,14 @@ test_apply_writes_audit_log() {
 
     local mock_log="$sandbox/revoke.log"
     : > "$mock_log"
-    cp "$SCRIPT" "$sandbox/bin/halo-beta-expire.sh"
-    chmod 0755 "$sandbox/bin/halo-beta-expire.sh"
+    cp "$SCRIPT" "$sandbox/bin/1bit-beta-expire.sh"
+    chmod 0755 "$sandbox/bin/1bit-beta-expire.sh"
 
     HALO_BETA_BEARER_FILE="$bearers" \
         HALO_BETA_AUDIT_DIR="$sandbox/audit" \
         HALO_BETA_MEMORY_DIR="$sandbox/memory" \
         MOCK_REVOKE_LOG="$mock_log" \
-        bash "$sandbox/bin/halo-beta-expire.sh" --apply >/dev/null 2>&1 || true
+        bash "$sandbox/bin/1bit-beta-expire.sh" --apply >/dev/null 2>&1 || true
 
     local audit_file
     audit_file=$(find "$sandbox/audit" -name 'expired-*.log' -type f | head -1)
@@ -285,15 +285,15 @@ EOF
 
     local mock_log="$sandbox/revoke.log"
     : > "$mock_log"
-    cp "$SCRIPT" "$sandbox/bin/halo-beta-expire.sh"
-    chmod 0755 "$sandbox/bin/halo-beta-expire.sh"
+    cp "$SCRIPT" "$sandbox/bin/1bit-beta-expire.sh"
+    chmod 0755 "$sandbox/bin/1bit-beta-expire.sh"
 
     local out
     out=$(HALO_BETA_BEARER_FILE="/dev/null" \
           HALO_BETA_AUDIT_DIR="$sandbox/audit" \
           HALO_BETA_MEMORY_DIR="$mem" \
           MOCK_REVOKE_LOG="$mock_log" \
-          bash "$sandbox/bin/halo-beta-expire.sh" --apply 2>&1)
+          bash "$sandbox/bin/1bit-beta-expire.sh" --apply 2>&1)
 
     if [[ -f "$mem/project_reddit_relaunch.md" ]]; then
         _expect_eq "allow-listed file survived --apply" "present" "present"
@@ -329,15 +329,15 @@ EOF
 
     local mock_log="$sandbox/revoke.log"
     : > "$mock_log"
-    cp "$SCRIPT" "$sandbox/bin/halo-beta-expire.sh"
-    chmod 0755 "$sandbox/bin/halo-beta-expire.sh"
+    cp "$SCRIPT" "$sandbox/bin/1bit-beta-expire.sh"
+    chmod 0755 "$sandbox/bin/1bit-beta-expire.sh"
 
     # Dry run first — no deletion.
     HALO_BETA_BEARER_FILE="/dev/null" \
         HALO_BETA_AUDIT_DIR="$sandbox/audit" \
         HALO_BETA_MEMORY_DIR="$mem" \
         MOCK_REVOKE_LOG="$mock_log" \
-        bash "$sandbox/bin/halo-beta-expire.sh" >/dev/null 2>&1
+        bash "$sandbox/bin/1bit-beta-expire.sh" >/dev/null 2>&1
 
     if [[ -f "$mem/project_beta_ephemeral.md" ]]; then
         _expect_eq "dry-run kept the file" "present" "present"
@@ -350,7 +350,7 @@ EOF
         HALO_BETA_AUDIT_DIR="$sandbox/audit" \
         HALO_BETA_MEMORY_DIR="$mem" \
         MOCK_REVOKE_LOG="$mock_log" \
-        bash "$sandbox/bin/halo-beta-expire.sh" --apply >/dev/null 2>&1
+        bash "$sandbox/bin/1bit-beta-expire.sh" --apply >/dev/null 2>&1
 
     if [[ ! -f "$mem/project_beta_ephemeral.md" ]]; then
         _expect_eq "--apply purged expires: file" "purged" "purged"
@@ -365,15 +365,15 @@ test_idempotent_no_bearers_file() {
     _test "missing bearer file is a non-fatal no-op"
     local sandbox; sandbox=$(make_sandbox)
 
-    cp "$SCRIPT" "$sandbox/bin/halo-beta-expire.sh"
-    chmod 0755 "$sandbox/bin/halo-beta-expire.sh"
+    cp "$SCRIPT" "$sandbox/bin/1bit-beta-expire.sh"
+    chmod 0755 "$sandbox/bin/1bit-beta-expire.sh"
 
     local out rc
     out=$(HALO_BETA_BEARER_FILE="$sandbox/caddy/does-not-exist.txt" \
           HALO_BETA_AUDIT_DIR="$sandbox/audit" \
           HALO_BETA_MEMORY_DIR="$sandbox/memory" \
           MOCK_REVOKE_LOG="$sandbox/revoke.log" \
-          bash "$sandbox/bin/halo-beta-expire.sh" --apply 2>&1)
+          bash "$sandbox/bin/1bit-beta-expire.sh" --apply 2>&1)
     rc=$?
     _expect_eq "exit code 0 when bearer file missing" "$rc" "0"
     _expect "message mentions skipping bearer sweep" "$out" "skipping bearer sweep"
@@ -383,7 +383,7 @@ test_idempotent_no_bearers_file() {
 
 # ---- run ---------------------------------------------------------------
 
-printf 'halo-beta-expire.sh test suite\n==============================\n'
+printf '1bit-beta-expire.sh test suite\n==============================\n'
 test_parse_bearer_expiry_reads_expires_field
 test_parse_bearer_expiry_falls_back_to_issued_plus_ttl
 test_parse_bearer_expiry_empty_when_no_fields

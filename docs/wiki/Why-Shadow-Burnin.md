@@ -1,6 +1,6 @@
 # Why shadow-burnin?
 
-**One-line answer**: before we flip `/v1/*` from the battle-tested C++ server (`bitnet_decode` on `:8080`) to the new Rust server (`halo-server` on `:8180`), we want **real evidence** that the Rust version gives the same answers under real traffic — not synthetic tests.
+**One-line answer**: before we flip `/v1/*` from the battle-tested C++ server (`bitnet_decode` on `:8080`) to the new Rust server (`1bit-server` on `:8180`), we want **real evidence** that the Rust version gives the same answers under real traffic — not synthetic tests.
 
 ## The setup
 
@@ -13,7 +13,7 @@ prompt ─┬─▶ :8080 (gen-1 C++) ──▶ reply A
          diff(A, B) → { exact, prefix-only, no-match }
 ```
 
-Runs forever. State persists in `~/.local/share/halo-ai/shadow-burnin.state`, JSONL log in `~/claude output/shadow-burnin.jsonl`. Pace: ~1 round every 2-3 seconds. Target: 50 000 rounds over 72 hours.
+Runs forever. State persists in `~/.local/share/1bit systems/shadow-burnin.state`, JSONL log in `~/claude output/shadow-burnin.jsonl`. Pace: ~1 round every 2-3 seconds. Target: 50 000 rounds over 72 hours.
 
 ## What the numbers mean
 

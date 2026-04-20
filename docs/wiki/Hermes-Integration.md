@@ -15,32 +15,32 @@ hermes setup         # wizard
 hermes model         # pick "custom endpoint"
 ```
 
-When prompted for the endpoint, use the halo-server URL from the mesh:
+When prompted for the endpoint, use the 1bit-server URL from the mesh:
 
 ```
 base_url:    http://100.64.0.1:8180/v1          # Headscale mesh, strixhalo
 model:       halo-1bit-2b
-api_key:     sk-halo-local                       # ignored by halo-server
+api_key:     sk-halo-local                       # ignored by 1bit-server
 ```
 
-That's it. `hermes` TUI now drives halo-server. Every request lands on our native HIP kernels, no detour through NousPortal/OpenRouter.
+That's it. `hermes` TUI now drives 1bit-server. Every request lands on our native HIP kernels, no detour through NousPortal/OpenRouter.
 
-## Expose halo-mcp to Hermes
+## Expose 1bit-mcp to Hermes
 
-halo-mcp is the Rust stdio JSON-RPC bridge that exposes every halo-agents specialist as an MCP tool. Point Hermes at it:
+1bit-mcp is the Rust stdio JSON-RPC bridge that exposes every 1bit-agents specialist as an MCP tool. Point Hermes at it:
 
 ```bash
-hermes config set mcp.servers.halo.command /path/to/halo-mcp
+hermes config set mcp.servers.halo.command /path/to/1bit-mcp
 hermes config set mcp.servers.halo.args '[]'
 ```
 
 Then inside a Hermes conversation:
 
 ```
-/mcp list                   # see halo-agents specialists as tools
+/mcp list                   # see 1bit-agents specialists as tools
 ```
 
-Hermes' 40+ built-in tools + our 17 halo-agents specialists → 57-tool agent on commodity Python, talking to native-HIP inference. Rule A untouched: Python lives on the laptop, kernels stay on strixhalo.
+Hermes' 40+ built-in tools + our 17 1bit-agents specialists → 57-tool agent on commodity Python, talking to native-HIP inference. Rule A untouched: Python lives on the laptop, kernels stay on strixhalo.
 
 ## How Hermes' "self-improving skills" actually work
 
@@ -86,54 +86,54 @@ Hermes stores memory in plain markdown files with a hard char cap:
 - `~/.hermes/memories/USER.md` — 1,375 char cap
 - `~/.hermes/state.db` — SQLite + FTS5 for session history, immutable mid-session snapshot injected at start
 
-We already do MEMORY.md at `~/.claude/projects/-home-bcloud/memory/`. Match the format in halo-agents' new memory layer:
+We already do MEMORY.md at `~/.claude/projects/-home-bcloud/memory/`. Match the format in 1bit-agents' new memory layer:
 
 - `~/.halo/memories/MEMORY.md` + `USER.md` (same caps, same `§` delimiter)
 - `~/.halo/state.db` via `rusqlite` with FTS5 module
 
-## Features worth porting into halo-agents
+## Features worth porting into 1bit-agents
 
 Revised rank after reading the architecture (`AIAgent` 10,700 LOC, `HermesCLI` 10,000 LOC, `GatewayRunner` 9,000 LOC — three god-classes):
 
 | Feature | Mechanism | Effort | Notes |
 |---|---|---|---|
 | SKILL.md format + `~/.halo/skills/` layout | File + YAML frontmatter, same keys as Hermes | **1 day** | Interop win. Free. Do this first. |
-| `skill_manage` tool (create/patch/edit/delete) | Text-edit tool exposed to halo-agents specialists | **3 days** | The entire "self-improvement loop" reduces to this one tool. |
-| FTS5 session search | `rusqlite` `fts5` feature on `~/.halo/state.db` | **3 days** | Replaces halo-agents linear-scan recall. |
+| `skill_manage` tool (create/patch/edit/delete) | Text-edit tool exposed to 1bit-agents specialists | **3 days** | The entire "self-improvement loop" reduces to this one tool. |
+| FTS5 session search | `rusqlite` `fts5` feature on `~/.halo/state.db` | **3 days** | Replaces 1bit-agents linear-scan recall. |
 | MEMORY.md / USER.md file layer | Same 2200/1375 char cap + `§` delimiter | **1 day** | Matches format we use; formalize it. |
 | Autonomous skill-creation trigger | Heuristic: successful run length ≥5 tools, recovery path, user correction | **1 week** | After skill_manage lands. |
 | Honcho dialectic user model | Reimplement in Rust; Honcho itself is just one of 8 memory plugins in Hermes — don't treat it as special | **2 weeks** | Lower priority after rereading docs; Hermes pluggable design means it's not core. |
 | Messaging gateway (Telegram/Discord/Slack/WhatsApp/Signal) | Hermes has 18 platform adapters in `gateway/` | **Do not port** | Wrap Hermes instead. Python on a user VPS, strixhalo stays clean. |
-| Three API modes (chat_completions / codex_responses / anthropic_messages) | Hermes' `runtime_provider.py` | **Already done** | halo-server is OpenAI-compat; we're the endpoint, not the caller. |
+| Three API modes (chat_completions / codex_responses / anthropic_messages) | Hermes' `runtime_provider.py` | **Already done** | 1bit-server is OpenAI-compat; we're the endpoint, not the caller. |
 | 47-tool registry with `check_fn` gating | Import-time `registry.register()` | **Already better** | Our 17 typed specialists beat a 47-tool `**kwargs` bag. Keep our shape. |
 
 Skip: OpenClaw migration, Termux, serverless (Modal/Daytona/Singularity), 3 API-mode adapter layer.
 
 ## Integration order (concrete)
 
-1. **Today**: wire Hermes → halo-server + expose halo-mcp (5-min operator setup, above).
+1. **Today**: wire Hermes → 1bit-server + expose 1bit-mcp (5-min operator setup, above).
 2. **Week 1**: adopt SKILL.md + `~/.halo/skills/` layout. Write halo-skills format doc. 1 day.
 3. **Week 1**: MEMORY.md / USER.md + `~/.halo/state.db` FTS5. 4 days.
-4. **Week 2**: `skill_manage` Rust tool exposed to halo-agents. 3 days. This is the entire "self-improvement loop" — it's that simple.
+4. **Week 2**: `skill_manage` Rust tool exposed to 1bit-agents. 3 days. This is the entire "self-improvement loop" — it's that simple.
 5. **Week 3**: autonomous skill-creation trigger, heuristic. 1 week.
 6. **Month 2+**: Honcho reimpl if still warranted, after we see real usage of the skill loop.
 
-All of it behind Sherry + BitNet v2 on inference critical path, but the agent-UX lane can progress in parallel (different crates, different files — halo-agents vs rocm-cpp).
+All of it behind Sherry + BitNet v2 on inference critical path, but the agent-UX lane can progress in parallel (different crates, different files — 1bit-agents vs rocm-cpp).
 
 ## Honest comparison
 
-What Hermes has that halo-agents doesn't:
+What Hermes has that 1bit-agents doesn't:
 - Skill self-improvement loop (genuinely novel)
 - Multi-platform messaging bridge
 - 104k users, battle-tested
 
-What halo-agents has that Hermes doesn't:
+What 1bit-agents has that Hermes doesn't:
 - Native HIP inference (Hermes is model-agnostic — the model is whatever endpoint you point it at)
 - Rule A compliance (no Python in the hot path)
 - Shadow-burnin parity harness
 - Live on Strix Halo as a tiny-box mini-PC
 
-Complementary, not competitive. Hermes is the cockpit; halo-ai-rs is the engine.
+Complementary, not competitive. Hermes is the cockpit; 1bit-systems is the engine.
 
 ## References
 
@@ -141,4 +141,4 @@ Complementary, not competitive. Hermes is the cockpit; halo-ai-rs is the engine.
 - [Hermes docs](https://hermes-agent.nousresearch.com/docs/)
 - [Honcho upstream](https://github.com/plastic-labs/honcho)
 - [agentskills.io](https://agentskills.io) — open standard for skill sharing
-- Our halo-mcp crate: `crates/halo-mcp/`
+- Our 1bit-mcp crate: `crates/1bit-mcp/`

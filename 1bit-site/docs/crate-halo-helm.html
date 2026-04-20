@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0d1117">
-<title>Crate: halo-helm · 1bit.systems docs</title>
+<title>Crate: 1bit-helm · 1bit.systems docs</title>
 <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
 <link rel="stylesheet" href="/assets/style.css">
 </head>
@@ -28,7 +28,7 @@
 <a href="/docs/why-shadow-burnin.html">Why Shadow-Burnin</a>
 <a href="/docs/why-h1b-format.html">Why H1b Format</a>
 <a href="/docs/why-caddy-systemd.html">Why Caddy + Systemd</a>
-<a href="/docs/why-halo-agents.html">Why halo-agents</a>
+<a href="/docs/why-1bit-agents.html">Why 1bit-agents</a>
 <a href="/docs/why-no-python.html">Why No Python</a>
 <a href="/docs/why-parity-gates.html">Why Parity Gates</a>
 <a href="/docs/why-no-npu-yet.html">Why No NPU Yet</a>
@@ -39,7 +39,7 @@
 <a href="/docs/amd-gaia-integration.html">AMD GAIA</a>
 <a href="/docs/medusa-integration-plan.html">Medusa plan</a>
 <a href="/docs/rotorquant-default-decision.html">Rotorquant</a>
-<a href="/docs/halo-whisper-streaming-plan.html">Whisper streaming</a>
+<a href="/docs/1bit-whisper-streaming-plan.html">Whisper streaming</a>
 <a href="/docs/npu-kernel-design.html">NPU kernel</a>
 <a href="/docs/ternary-on-aie-pack-plan.html">Ternary on AIE</a>
 <a href="/docs/peak-performance-projection.html">Peak projection</a>
@@ -49,11 +49,11 @@
 <a href="/docs/beta-10-day-ttl.html">Beta 10-day TTL</a>
 <a href="/docs/sdd-workflow.html">SDD workflow</a>
 <h4>crates</h4>
-<a href="/docs/crate-halo-echo.html">halo-echo</a>
-<a href="/docs/crate-halo-helm.html">halo-helm</a>
-<a href="/docs/crate-halo-landing.html">halo-landing</a>
-<a href="/docs/crate-halo-lemonade.html">halo-lemonade</a>
-<a href="/docs/crate-halo-agents-watch.html">halo-agents-watch</a>
+<a href="/docs/crate-1bit-echo.html">1bit-echo</a>
+<a href="/docs/crate-1bit-helm.html">1bit-helm</a>
+<a href="/docs/crate-1bit-landing.html">1bit-landing</a>
+<a href="/docs/crate-1bit-lemonade.html">1bit-lemonade</a>
+<a href="/docs/crate-1bit-agents-watch.html">1bit-agents-watch</a>
 <h4>amd scans</h4>
 <a href="/docs/amd-ai-ml-tools-scan.html">AI/ML tools</a>
 <a href="/docs/amd-compilers-analyzers-scan.html">Compilers</a>
@@ -67,35 +67,35 @@
 
 </aside>
 <main class="docs-body">
-<h1>Crate: halo-helm</h1>
+<h1>Crate: 1bit-helm</h1>
 <hr>
 <p>phase: solutioning owner: cartograph renamed_from: halo-gaia rename_date: 2026-04-20 ---</p>
-<h1 id="crate-halo-helm">Crate: halo-helm</h1>
+<h1 id="crate-1bit-helm">Crate: 1bit-helm</h1>
 <blockquote>
 <p>Renamed from <code>halo-gaia</code> on 2026-04-20 to avoid clash with AMD GAIA (amd-gaia.ai). See <code>docs/wiki/AMD-GAIA-Integration.md</code>. The old name is retained as an install alias in <code>packages.toml</code> (<code>[component.gaia]</code> → <code>helm</code>) but no source tree reference to <code>halo-gaia</code> / <code>halo_gaia</code> should remain outside the AMD-GAIA comparison doc.</p>
 </blockquote>
 <h2 id="problem">Problem</h2>
-<p>Operator + end-user desktop client for halo-ai. Today the paths are (a) browser at <code>/studio/voice/</code> (Apple watch to Android phone to laptop), (b) <code>halo</code> CLI (terse, power-user). Nothing pulls everything into one pane: live metrics + voice chat + skill + memory inspection + remote mesh peers. halo-helm is that pane.</p>
+<p>Operator + end-user desktop client for 1bit systems. Today the paths are (a) browser at <code>/studio/voice/</code> (Apple watch to Android phone to laptop), (b) <code>halo</code> CLI (terse, power-user). Nothing pulls everything into one pane: live metrics + voice chat + skill + memory inspection + remote mesh peers. 1bit-helm is that pane.</p>
 <p>Name: a ship's helm is the single surface where the pilot reads instruments and applies control. Fits the role better than the original &quot;halo-gaia&quot; once AMD shipped their own GAIA.</p>
 <h2 id="invariants">Invariants</h2>
 <ol>
 <li><strong>Single binary, no runtime deps.</strong> Native Rust GUI on egui/eframe (glow backend). Ships as one ELF, runs on Linux first, macOS later. No Electron, no web-view shell. No Python, no node. Rule A applies all the way to the user's desktop.</li>
-<li><strong>Works offline.</strong> Must render + let the user manage local skills / memory / models even when halo-server is down.</li>
-<li><strong>Mesh-aware.</strong> The same binary running on any mesh peer (laptop, second mini-PC, Pi) should see the same halo-ai state by pointing at the mesh IP. No per-device state drift.</li>
+<li><strong>Works offline.</strong> Must render + let the user manage local skills / memory / models even when 1bit-server is down.</li>
+<li><strong>Mesh-aware.</strong> The same binary running on any mesh peer (laptop, second mini-PC, Pi) should see the same 1bit systems state by pointing at the mesh IP. No per-device state drift.</li>
 <li><strong>Bearer secrets never land in files.</strong> Tokens live in the system keyring (secret-service / kwallet / libsecret). No plaintext token on disk.</li>
 <li><strong>One keyboard trip equals one user intention.</strong> No popup dialogs for routine ops. CLI power-user can drive every pane with keyboard alone.</li>
 </ol>
 <h2 id="non-goals">Non-goals</h2>
 <ul>
 <li>Not a web-browser shell (use <code>/studio/voice/</code> in Firefox if you want a browser — this is the native client lane).</li>
-<li>Not a model trainer — halo-helm never spawns training jobs. Training happens on Battlemage or a rented box; halo-helm consumes the resulting weights via <code>halo install</code>.</li>
-<li>Not a chat-logging product — conversation history lives in the server-side FTS5 sessions DB (halo-agents::sessions), NOT in halo-helm. halo-helm is a view.</li>
-<li>Not a web-facing product. Distribution is via <code>halo install helm</code> (aliased from legacy <code>halo install gaia</code>) or <code>cargo install halo-helm</code> — no signed installers for Windows / macOS ahead of Linux.</li>
+<li>Not a model trainer — 1bit-helm never spawns training jobs. Training happens on Battlemage or a rented box; 1bit-helm consumes the resulting weights via <code>halo install</code>.</li>
+<li>Not a chat-logging product — conversation history lives in the server-side FTS5 sessions DB (1bit-agents::sessions), NOT in 1bit-helm. 1bit-helm is a view.</li>
+<li>Not a web-facing product. Distribution is via <code>halo install helm</code> (aliased from legacy <code>halo install gaia</code>) or <code>cargo install 1bit-helm</code> — no signed installers for Windows / macOS ahead of Linux.</li>
 <li>Not a multi-tenant app — each user runs their own mesh peer.</li>
 </ul>
 <h2 id="interface">Interface</h2>
 <h3 id="binary">Binary</h3>
-<pre><code class="lang-text">halo-helm                # opens the window
+<pre><code class="lang-text">1bit-helm                # opens the window
 # env:
 HALO_HELM_URL    # default http://127.0.0.1:8180
 HALO_HELM_MODEL  # default halo-1bit-2b
@@ -120,13 +120,13 @@ pub enum Pane { Status, Chat, Skills, Memory, Models }
 <tbody>
 <tr><td>Status</td><td><code>GET /_health</code> + <code>/v1/models</code> + probe metrics</td><td>read-only</td></tr>
 <tr><td>Chat</td><td><code>POST /v1/chat/completions</code>, <code>stream: true</code></td><td>HelmClient stream</td></tr>
-<tr><td>Skills</td><td><code>halo_agents::SkillStore::list</code></td><td>read-only for now</td></tr>
-<tr><td>Memory</td><td>`halo_agents::MemoryStore::list(Memory \</td><td>User)`</td><td>read-only for now</td></tr>
+<tr><td>Skills</td><td><code>onebit_agents::SkillStore::list</code></td><td>read-only for now</td></tr>
+<tr><td>Memory</td><td>`onebit_agents::MemoryStore::list(Memory \</td><td>User)`</td><td>read-only for now</td></tr>
 <tr><td>Models</td><td><code>GET /v1/models</code></td><td>read-only</td></tr>
 </tbody></table>
 <p>Top bar: 5-button pane switcher. Left side panel: the same 5 panes as a radio list, plus a small config summary (default model). Bottom panel: status strip with reachability + tok/s OR last error in red.</p>
 <h3 id="persistence">Persistence</h3>
-<p>eframe's <code>persistence</code> feature stores state in the platform config dir (<code>~/.config/halo-helm/</code> on Linux, via eframe's default). Today we persist the last-open pane under key <code>helm.current_pane</code>; window size is handled by eframe's own viewport save. Schema is <code>serde_json</code>-compatible so we can change the backing ron later without a migration.</p>
+<p>eframe's <code>persistence</code> feature stores state in the platform config dir (<code>~/.config/1bit-helm/</code> on Linux, via eframe's default). Today we persist the last-open pane under key <code>helm.current_pane</code>; window size is handled by eframe's own viewport save. Schema is <code>serde_json</code>-compatible so we can change the backing ron later without a migration.</p>
 <h2 id="test-matrix">Test matrix</h2>
 <table>
 <thead><tr><th>Invariant</th><th>Test</th></tr></thead>
@@ -139,12 +139,12 @@ pub enum Pane { Status, Chat, Skills, Memory, Models }
 </tbody></table>
 <p>Transport modules (<code>client</code>, <code>conversation</code>, <code>session</code>, <code>stream</code>) keep their pre-rename test coverage.</p>
 <h2 id="phase-solutioning">Phase: solutioning</h2>
-<p>Promoted from <code>analysis</code> on 2026-04-20 alongside the rename. The interface sketch above and the first real <code>HelmApp</code> + <code>Pane</code> types in <code>crates/halo-helm/src/app.rs</code> give magistrate + cartograph something concrete to review.</p>
+<p>Promoted from <code>analysis</code> on 2026-04-20 alongside the rename. The interface sketch above and the first real <code>HelmApp</code> + <code>Pane</code> types in <code>crates/1bit-helm/src/app.rs</code> give magistrate + cartograph something concrete to review.</p>
 <p>Remaining open questions for the jump to <code>implementation</code>:</p>
 <ul>
 <li>Async plumbing for network panes. Today <code>refresh_models</code> / chat streaming are marked <code>not wired yet</code>. Path of least resistance: a <code>tokio</code> runtime handle stashed on <code>HelmApp</code>, a <code>mpsc::UnboundedReceiver&lt;PaneMsg&gt;</code> drained each frame. Keep the runtime out of <code>HelmApp::new</code> so tests stay runtime-free.</li>
 <li>Keyring backend selection per-OS. libsecret on Linux; keychain on macOS.</li>
-<li>Does it own its own halo-server lifecycle (start/stop via systemd --user) or just observe?</li>
+<li>Does it own its own 1bit-server lifecycle (start/stop via systemd --user) or just observe?</li>
 <li>egui theming: go with <code>egui::Visuals::dark</code> default or read the system prefers-colour-scheme hint?</li>
 </ul>
 <h2 id="runtime-system-deps">Runtime system deps</h2>
@@ -163,7 +163,7 @@ pub enum Pane { Status, Chat, Skills, Memory, Models }
 <li><code>docs/wiki/SDD-Workflow.md</code> — phase gate + review specialist mapping.</li>
 <li><code>docs/wiki/VPN-Only-API.md</code> — mesh-awareness requirement (invariant 3).</li>
 <li><code>docs/wiki/AMD-GAIA-Integration.md</code> — rename rationale + AMD GAIA integration story.</li>
-<li><code>crates/halo-helm/</code> — implementation.</li>
+<li><code>crates/1bit-helm/</code> — implementation.</li>
 </ul>
 
 </main>

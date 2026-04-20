@@ -1,10 +1,10 @@
-# Why halo-agents?
+# Why 1bit-agents?
 
 **One-line answer**: 17 typed specialists in one Rust file. Not a framework, not a DAG engine, not a "multi-agent orchestrator" — just a registry of concrete ops the box needs to do, with typed inputs and typed outputs. Each one is tiny; the boundary between them is a `Name` enum.
 
 ## One file, one source of truth
 
-Everything lives in [`crates/halo-agents/src/lib.rs`](../../crates/halo-agents/src/lib.rs). The enum and its `ALL` constant are the registry:
+Everything lives in [`crates/1bit-agents/src/lib.rs`](../../crates/1bit-agents/src/lib.rs). The enum and its `ALL` constant are the registry:
 
 ```rust
 pub enum Name {
@@ -78,10 +78,10 @@ Our 17 specialists are each 100-400 LOC. Tests are per-specialist. Inputs are ty
 
 ## How Claude / Hermes see them
 
-Via [`halo-mcp`](../../crates/halo-mcp/) — a tokio stdio JSON-RPC bridge. All 17 specialists surface as MCP tools, plus `skill_manage` and `memory_manage` (file-backed, see [Hermes Integration](./Hermes-Integration.md)). That's **19 MCP tools total**. Any MCP-speaking client drives the box.
+Via [`1bit-mcp`](../../crates/1bit-mcp/) — a tokio stdio JSON-RPC bridge. All 17 specialists surface as MCP tools, plus `skill_manage` and `memory_manage` (file-backed, see [Hermes Integration](./Hermes-Integration.md)). That's **19 MCP tools total**. Any MCP-speaking client drives the box.
 
 ## Pointers
 
-- Registry: [`crates/halo-agents/src/lib.rs`](../../crates/halo-agents/src/lib.rs)
-- Bridge: [`crates/halo-mcp/`](../../crates/halo-mcp/)
+- Registry: [`crates/1bit-agents/src/lib.rs`](../../crates/1bit-agents/src/lib.rs)
+- Bridge: [`crates/1bit-mcp/`](../../crates/1bit-mcp/)
 - External client setup: [Hermes Integration](./Hermes-Integration.md)

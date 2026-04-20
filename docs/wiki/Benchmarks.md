@@ -15,8 +15,8 @@ What we measure and what each number means. All numbers taken on the production 
 | Split-KV Flash-Decoding attn | **6.78× vs prior** @ L=2048 | `benchmarks/attn_fd.sh` | Bit-exact speedup over single-block attention. Default since 2026-04-19. |
 | Voice mouth-to-ear first audio | **1.23 s** | `benchmarks/voice.sh` | End-to-end: STT + LLM + TTS first chunk. 3-5× faster than naive serial loop. |
 | Tests across 13 crates | **201 passing, 0 failing** | `cargo test --workspace --release` | Workspace-wide green. CI gate. |
-| `halo-server` binary, stripped | **2.4 MB** | `size target/release/halo-server` | Static-friendly Rust binary; ships without a runtime. |
-| Landing live tok/s | **pulled from `/metrics` via `/_live/stats` SSE** | `crates/halo-landing/src/telemetry.rs` | The number you see in the hero on `https://strixhalo.local/` is no longer a static guess — it's the same `tokps_recent` the Prom scraper sees, pushed over SSE every 1.5 s. |
+| `1bit-server` binary, stripped | **2.4 MB** | `size target/release/1bit-server` | Static-friendly Rust binary; ships without a runtime. |
+| Landing live tok/s | **pulled from `/metrics` via `/_live/stats` SSE** | `crates/1bit-landing/src/telemetry.rs` | The number you see in the hero on `https://strixhalo.local/` is no longer a static guess — it's the same `tokps_recent` the Prom scraper sees, pushed over SSE every 1.5 s. |
 
 ## One-liners per number
 

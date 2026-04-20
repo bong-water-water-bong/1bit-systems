@@ -1,4 +1,4 @@
-# Medusa Integration Plan (halo-ai-rs / gen-2)
+# Medusa Integration Plan (1bit-systems / gen-2)
 
 Status: research brief, no code written.
 Date: 2026-04-20.
@@ -74,7 +74,7 @@ touch all three.
 - `tools/bitnet_decode.cpp` — gen-1 CLI. Only touch if we want a gen-1
   reference loop for parity-checking; otherwise leave.
 
-### 2.2 `halo-workspace/crates/halo-bitnet-hip` (Rust FFI)
+### 2.2 `halo-workspace/crates/1bit-hip` (Rust FFI)
 
 - `src/lib.rs` — add FFI bindings for the new kernels:
   - `kv_cache_attn_tree_fd(...)` mirroring `kv_cache_attn_decode_fd` at
@@ -84,7 +84,7 @@ touch all three.
   - `fp16_gemv_batched(...)` if we choose path (1) for the heads.
 - `src/ffi.rs` — matching `extern "C"` prototypes.
 
-### 2.3 `halo-workspace/crates/halo-router` (decode driver)
+### 2.3 `halo-workspace/crates/1bit-router` (decode driver)
 
 - `src/backend_impl.rs:410` — `HipBackend::forward_token` is the hot loop.
   It takes one token id and returns one. Medusa requires a new sibling
@@ -106,8 +106,8 @@ touch all three.
   decode loop. Wrap behind a `SpecConfig` struct on `GenRequest`; if
   `None`, call `forward_token` unchanged; if `Some`, call `forward_tree`
   and advance `cur` / `pos` by the accepted length.
-- `halo-core::sampler::Sampler` at
-  `crates/halo-core/src/sampler.rs` — currently samples one token from
+- `1bit-core::sampler::Sampler` at
+  `crates/1bit-core/src/sampler.rs` — currently samples one token from
   one logits row. Needs a batched variant that takes a 2D logits buffer
   and returns the argmax *per row* so the verify step can pick the
   accepted prefix. Rep-penalty bookkeeping has to be applied to the
@@ -115,8 +115,8 @@ touch all three.
 
 ### 2.4 Things that **don't** change
 
-- Tokenizer (`crates/halo-router/src/tokenizer.rs`,
-  `crates/halo-core/src/htok.rs`) — vocabulary is the same backbone; heads
+- Tokenizer (`crates/1bit-router/src/tokenizer.rs`,
+  `crates/1bit-core/src/htok.rs`) — vocabulary is the same backbone; heads
   share `lm_head`.
 - GGUF/.h1b loaders — heads are a separate 13 MB fp16 file; add one new
   loader path, don't touch the backbone loader.
@@ -178,7 +178,7 @@ Ranked by how much of a blocker each one is.
 3. **Hidden-state exposure from `forward_token`.** The current FFI
    returns an int (the sampled token). Medusa needs the pre-`lm_head`
    residual to feed the heads. This is a visibility change in
-   `halo-bitnet-hip`, not a new kernel, but it does ripple through the
+   `1bit-hip`, not a new kernel, but it does ripple through the
    FFI surface.
 4. **Batched sampler + rep-penalty accounting.** Minor; Rust-side only.
 5. **Per-request spec config plumbing.** Minor; `GenRequest` gets a new

@@ -2,7 +2,7 @@
 
 When to run: after the 72-hour shadow burn-in clears the gates below.
 What happens: Caddy's `/v1/*` route moves from `127.0.0.1:8080`
-(`bitnet_decode`, C++) to `127.0.0.1:8180` (`halo-server`, Rust). Gen-1
+(`bitnet_decode`, C++) to `127.0.0.1:8180` (`1bit-server`, Rust). Gen-1
 stays running on `:8080` for rollback; `/v1-legacy/*` is added as an
 escape hatch.
 
@@ -16,7 +16,7 @@ escape hatch.
 | v2 unreachable count | < 0.1% of rounds | 0% | ✓ |
 | v1/v2 p95 latency gap | < 100 ms | 10 ms | ✓ |
 | Median prefix-match length | ≥ 40 chars | 80 chars | ✓ |
-| halo-server uptime since KV-reset fix | ≥ 72 h | ~10 h | ⌛ |
+| 1bit-server uptime since KV-reset fix | ≥ 72 h | ~10 h | ⌛ |
 | CI on main | green | green | ✓ |
 
 Re-run check:
@@ -62,7 +62,7 @@ Takes under 10 seconds.
    ```bash
    curl -sS -H "Authorization: Bearer $TOKEN" \
         https://strixhalo.local/v1/chat/completions \
-        -d '{"model":"halo-1bit-2b","messages":[{"role":"user","content":"Hi"}],"max_tokens":8}' \
+        -d '{"model":"1bit-monster-2b","messages":[{"role":"user","content":"Hi"}],"max_tokens":8}' \
         | jq -c '.choices[0].message.content'
    ```
 7. Post to #changelog via halo-anvil: "cutover done, /v1 now gen-2".
@@ -74,8 +74,8 @@ Takes under 10 seconds.
   server matches the OpenAI shape exactly; gen-1 had minor drift.
   Fix: update client to use `jq` / a JSON parser, not string matching.
 - Clients that used `stream: true` with SSE **must** handle the
-  `data: [DONE]\n\n` sentinel. halo-server emits it; some gen-1 builds
-  didn't. DSPy, OpenAI SDK, our halo-helm all handle it; ad-hoc curl
+  `data: [DONE]\n\n` sentinel. 1bit-server emits it; some gen-1 builds
+  didn't. DSPy, OpenAI SDK, our 1bit-helm all handle it; ad-hoc curl
   consumers should check.
 
 ## Post-cutover (within 7 days)
@@ -83,7 +83,7 @@ Takes under 10 seconds.
 - Remove `halo-bitnet.service` from `halo install --list` default set
   (keep component in `packages.toml`, drop from `core` deps).
 - Drop gen-1 from shadow-burnin (no longer useful as baseline; replace
-  with halo-router itself on a second GPU once we have one).
+  with 1bit-router itself on a second GPU once we have one).
 - Update README.md's "Quickstart" to point at `:8180` by default.
 - Tag a `pre-cutover` snapshot on `bong-water-water-bong/rocm-cpp` so
   we can roll back to the gen-1-compatible kernel set if needed.

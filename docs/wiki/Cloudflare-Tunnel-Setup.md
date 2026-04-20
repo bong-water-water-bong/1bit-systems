@@ -1,8 +1,8 @@
-# Cloudflare Tunnel Setup — api.halo-ai.studio
+# Cloudflare Tunnel Setup — api.1bit.systems
 
-**Status 2026-04-20:** `halo-ai.studio` apex is **already live** as a Hugo site on Cloudflare Pages (HTTP/2, CF-Ray header, 172.67.134.39). That is the marketing site, served from an external repo, unrelated to this tunnel.
+**Status 2026-04-20:** `1bit.systems` apex is **already live** as a Hugo site on Cloudflare Pages (HTTP/2, CF-Ray header, 172.67.134.39). That is the marketing site, served from an external repo, unrelated to this tunnel.
 
-**This tunnel exposes a _different_ subdomain: `api.halo-ai.studio` → halo-server `:8180`**. Purpose: public OpenAI-compat endpoint so Hermes / OpenWebUI / third-party clients can point at us over the open internet without needing Tailscale.
+**This tunnel exposes a _different_ subdomain: `api.1bit.systems` → 1bit-server `:8180`**. Purpose: public OpenAI-compat endpoint so Hermes / OpenWebUI / third-party clients can point at us over the open internet without needing Tailscale.
 
 ## State on strixhalo
 
@@ -26,15 +26,15 @@ Nothing is running or reachable yet — auth + UUID fill-in still needed.
 ```bash
 # 1. Browser-authenticate with your Cloudflare account
 cloudflared tunnel login
-#    → opens browser, pick the halo-ai.studio zone, writes
+#    → opens browser, pick the 1bit.systems zone, writes
 #      ~/.cloudflared/cert.pem
 
 # 2. Create the tunnel (returns a UUID, writes ~/.cloudflared/<UUID>.json)
-cloudflared tunnel create api-halo-ai-studio
+cloudflared tunnel create api-1bit systems-studio
 #    → note the UUID; call it TUUID
 
 # 3. Bind the subdomain to the tunnel (creates a proxied CNAME in CF DNS)
-cloudflared tunnel route dns api-halo-ai-studio api.halo-ai.studio
+cloudflared tunnel route dns api-1bit systems-studio api.1bit.systems
 ```
 
 ## Four mechanical steps (fill in UUID + enable)
@@ -48,8 +48,8 @@ sed -i "s/PLACEHOLDER_UUID/$TUUID/g" ~/.cloudflared/config.yml
 # 5. Quick smoke test (foreground, kill with Ctrl-C)
 cloudflared tunnel --config ~/.cloudflared/config.yml run
 #    → from another machine:
-#      curl -sS https://api.halo-ai.studio/v1/models
-#      should return halo-server's OpenAI-compat /v1/models JSON
+#      curl -sS https://api.1bit.systems/v1/models
+#      should return 1bit-server's OpenAI-compat /v1/models JSON
 
 # 6. Enable persistent user service
 systemctl --user daemon-reload
@@ -70,7 +70,7 @@ tunnel: <UUID>
 credentials-file: /home/bcloud/.cloudflared/<UUID>.json
 
 ingress:
-  - hostname: api.halo-ai.studio
+  - hostname: api.1bit.systems
     service: http://127.0.0.1:8180
     originRequest:
       connectTimeout: 30s
@@ -78,7 +78,7 @@ ingress:
   - service: http_status:404
 ```
 
-`http://127.0.0.1:8180` is the halo-server bind (from `strix-server.service`). halo-server will see requests as coming from 127.0.0.1; the real client IP lands in the `CF-Connecting-IP` header. If rate-limiting or logging per-user is needed later, read that header in halo-server routes.
+`http://127.0.0.1:8180` is the 1bit-server bind (from `strix-server.service`). 1bit-server will see requests as coming from 127.0.0.1; the real client IP lands in the `CF-Connecting-IP` header. If rate-limiting or logging per-user is needed later, read that header in 1bit-server routes.
 
 ## Coexistence with Caddy
 
@@ -87,16 +87,16 @@ ingress:
 | `strixhalo.local:443` (Caddy, tls internal) | LAN mesh | ✓ |
 | `strixhalo.local:8443` | LAN mesh | ✓ |
 | `10.0.0.10:8099` (Caddy bootstrap HTTP) | LAN | ✓ |
-| `127.0.0.1:8180` (halo-server) | loopback | **now also routed via CF tunnel → api.halo-ai.studio** |
-| `127.0.0.1:8190` (halo-landing) | loopback | keep LAN-only for now |
+| `127.0.0.1:8180` (1bit-server) | loopback | **now also routed via CF tunnel → api.1bit.systems** |
+| `127.0.0.1:8190` (1bit-landing) | loopback | keep LAN-only for now |
 
 No Caddyfile change required.
 
 ## What NOT to expose via tunnel
 
-- **Admin / metrics endpoints.** `/metrics` on halo-landing leaks per-specialist stats. Keep LAN-only.
-- **halo-mcp stdio JSON-RPC.** Not HTTP; wouldn't work anyway.
-- **halo-helm desktop client.** No reason to publicly expose.
+- **Admin / metrics endpoints.** `/metrics` on 1bit-landing leaks per-specialist stats. Keep LAN-only.
+- **1bit-mcp stdio JSON-RPC.** Not HTTP; wouldn't work anyway.
+- **1bit-helm desktop client.** No reason to publicly expose.
 - **strix-burnin** / **shadow-burnin** logs. Private.
 
 If we need per-path gating later, CF Access can front the tunnel with email-link auth. That's a follow-up, not required for launch.
@@ -105,8 +105,8 @@ If we need per-path gating later, CF Access can front the tunnel with email-link
 
 ```bash
 systemctl --user disable --now strix-cloudflared.service
-cloudflared tunnel route dns --overwrite-dns api-halo-ai-studio  # removes CNAME
-cloudflared tunnel delete api-halo-ai-studio
+cloudflared tunnel route dns --overwrite-dns api-1bit systems-studio  # removes CNAME
+cloudflared tunnel delete api-1bit systems-studio
 ```
 
 ## References
@@ -114,4 +114,4 @@ cloudflared tunnel delete api-halo-ai-studio
 - [`strixhalo/systemd/strix-cloudflared.service`](../../strixhalo/systemd/strix-cloudflared.service) — tracked copy of the user unit
 - [`strixhalo/cloudflared/config.yml.template`](../../strixhalo/cloudflared/config.yml.template) — tracked template with PLACEHOLDER_UUID
 - Cloudflare Tunnel docs: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/
-- halo-server port: `crates/halo-server/src/lib.rs` (bind `127.0.0.1:8180`)
+- 1bit-server port: `crates/1bit-server/src/lib.rs` (bind `127.0.0.1:8180`)

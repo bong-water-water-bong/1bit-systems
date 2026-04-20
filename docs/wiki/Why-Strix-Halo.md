@@ -7,7 +7,7 @@
 - **CPU**: AMD Ryzen AI MAX+ 395 (Strix Halo) — 16 Zen 5 cores, 32 threads, 5.1 GHz boost.
 - **iGPU**: Radeon 8060S (RDNA 3.5, gfx1151) — 40 CUs, WMMA matrix accelerators.
 - **Memory**: 128 GB LPDDR5-8000, 256 bit-wide, 256 GB/s.
-- **NPU**: XDNA 2 at 50 TOPS (int8). Not used today by halo-ai; ROCm-7 + amdxdna kernel driver expose it.
+- **NPU**: XDNA 2 at 50 TOPS (int8). Not used today by 1bit systems; ROCm-7 + amdxdna kernel driver expose it.
 - **Power**: ~45 W idle, ~150 W sustained inference.
 - **Form**: mini-PC, 0.5L chassis, passive-or-quiet cooling possible.
 
@@ -38,11 +38,11 @@ The bottleneck is memory bandwidth, not compute. This validates the ternary stor
 Apple's memory bandwidth is higher (M4 Max is 546 GB/s), memory caps similar (128 GB). Real reasons we picked AMD:
 
 - **ROCm is open** — HIP kernels compile + debug with open source. MLX is open too, but Metal's kernel-dev ergonomics lag ROCm's, and MLX's ternary path lagged BitNet's release by months. When we hit a bug in `v_dot4_i32_i8` on gfx1151 we can patch it; with Metal we'd file feedback-assistant reports.
-- **Linux-first** — halo-ai is CachyOS/Arch. Native systemd, native `rocm-smi`, native `perf`, native Caddy. macOS has launchd and a different permissions model.
+- **Linux-first** — 1bit systems is CachyOS/Arch. Native systemd, native `rocm-smi`, native `perf`, native Caddy. macOS has launchd and a different permissions model.
 - **Price/perf** — Strix Halo $2-3k vs M4 Max Mac Studio $3–5k at equivalent RAM.
 - **Upgrade path** — Strix Halo boxes are x86. Add another Ryzen node to the Headscale mesh and you have 256 GB of unified-memory compute. Apple Silicon doesn't federate.
 
-We feature-gate a `mlx-apple` path in `halo-bitnet-mlx` so the workspace still compiles and runs on M-series for developers who work cross-platform. But AMD is the performance target.
+We feature-gate a `mlx-apple` path in `1bit-mlx` so the workspace still compiles and runs on M-series for developers who work cross-platform. But AMD is the performance target.
 
 ## Why gfx1151 specifically
 

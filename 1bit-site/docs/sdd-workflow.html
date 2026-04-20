@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0d1117">
-<title>Spec-driven development workflow (halo-ai) · 1bit.systems docs</title>
+<title>Spec-driven development workflow (1bit systems) · 1bit.systems docs</title>
 <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
 <link rel="stylesheet" href="/assets/style.css">
 </head>
@@ -28,7 +28,7 @@
 <a href="/docs/why-shadow-burnin.html">Why Shadow-Burnin</a>
 <a href="/docs/why-h1b-format.html">Why H1b Format</a>
 <a href="/docs/why-caddy-systemd.html">Why Caddy + Systemd</a>
-<a href="/docs/why-halo-agents.html">Why halo-agents</a>
+<a href="/docs/why-1bit-agents.html">Why 1bit-agents</a>
 <a href="/docs/why-no-python.html">Why No Python</a>
 <a href="/docs/why-parity-gates.html">Why Parity Gates</a>
 <a href="/docs/why-no-npu-yet.html">Why No NPU Yet</a>
@@ -39,7 +39,7 @@
 <a href="/docs/amd-gaia-integration.html">AMD GAIA</a>
 <a href="/docs/medusa-integration-plan.html">Medusa plan</a>
 <a href="/docs/rotorquant-default-decision.html">Rotorquant</a>
-<a href="/docs/halo-whisper-streaming-plan.html">Whisper streaming</a>
+<a href="/docs/1bit-whisper-streaming-plan.html">Whisper streaming</a>
 <a href="/docs/npu-kernel-design.html">NPU kernel</a>
 <a href="/docs/ternary-on-aie-pack-plan.html">Ternary on AIE</a>
 <a href="/docs/peak-performance-projection.html">Peak projection</a>
@@ -49,11 +49,11 @@
 <a href="/docs/beta-10-day-ttl.html">Beta 10-day TTL</a>
 <a href="/docs/sdd-workflow.html">SDD workflow</a>
 <h4>crates</h4>
-<a href="/docs/crate-halo-echo.html">halo-echo</a>
-<a href="/docs/crate-halo-helm.html">halo-helm</a>
-<a href="/docs/crate-halo-landing.html">halo-landing</a>
-<a href="/docs/crate-halo-lemonade.html">halo-lemonade</a>
-<a href="/docs/crate-halo-agents-watch.html">halo-agents-watch</a>
+<a href="/docs/crate-1bit-echo.html">1bit-echo</a>
+<a href="/docs/crate-1bit-helm.html">1bit-helm</a>
+<a href="/docs/crate-1bit-landing.html">1bit-landing</a>
+<a href="/docs/crate-1bit-lemonade.html">1bit-lemonade</a>
+<a href="/docs/crate-1bit-agents-watch.html">1bit-agents-watch</a>
 <h4>amd scans</h4>
 <a href="/docs/amd-ai-ml-tools-scan.html">AI/ML tools</a>
 <a href="/docs/amd-compilers-analyzers-scan.html">Compilers</a>
@@ -67,11 +67,11 @@
 
 </aside>
 <main class="docs-body">
-<h1>Spec-driven development workflow (halo-ai)</h1>
+<h1>Spec-driven development workflow (1bit systems)</h1>
 <hr>
 <p>phase: verified owner: cartograph ---</p>
-<h1 id="spec-driven-development-workflow-halo-ai">Spec-driven development workflow (halo-ai)</h1>
-<p>halo-ai runs on a spec-first loop. Every crate / kernel / service integration lands with a <code>docs/wiki/Crate-*.md</code> (or <code>docs/wiki/Why-*.md</code>) spec BEFORE code. Code implements the spec. Tests verify the spec. Agents are briefed against the spec, not ad-hoc prose.</p>
+<h1 id="spec-driven-development-workflow-1bit systems">Spec-driven development workflow (1bit systems)</h1>
+<p>1bit systems runs on a spec-first loop. Every crate / kernel / service integration lands with a <code>docs/wiki/Crate-*.md</code> (or <code>docs/wiki/Why-*.md</code>) spec BEFORE code. Code implements the spec. Tests verify the spec. Agents are briefed against the spec, not ad-hoc prose.</p>
 <p>Inspired by BMAD-Method (<code>docs.bmad-method.org</code>) phase gates + Kiro / Spec-Kit specification patterns. <strong>We skip the frameworks</strong> (Rule A — no extra runtime deps). The markdown-plus-clangd-plus-tests workflow already gives spec → code → verification; we borrow only the phase tags + agent routing.</p>
 <h2 id="four-phases">Four phases</h2>
 <table>
@@ -95,8 +95,8 @@ blocks: [Crate-foo, Crate-bar]    # optional: downstream specs that can't advanc
 </code></pre>
 <p>Examples:</p>
 <ul>
-<li><code>spec(halo-helm): promote from analysis → solutioning — API signatures reviewed by cartograph 2026-04-20</code> (crate renamed from halo-gaia on the same day)</li>
-<li><code>spec(halo-bitnet-xdna): promote from implementation → verified — 201 tests green, bit-exact parity vs Hip on 10k prompts</code></li>
+<li><code>spec(1bit-helm): promote from analysis → solutioning — API signatures reviewed by cartograph 2026-04-20</code> (crate renamed from halo-gaia on the same day)</li>
+<li><code>spec(1bit-xdna): promote from implementation → verified — 201 tests green, bit-exact parity vs Hip on 10k prompts</code></li>
 </ul>
 <p>If a spec needs to go BACK a phase (discovered-constraint rewrites the design), commit message says <code>spec(&lt;crate&gt;): demote from &lt;old&gt; → &lt;new&gt; — &lt;reason&gt;</code>. Demotions are normal; they're a sign the spec is learning.</p>
 <h2 id="required-sections-per-phase">Required sections per phase</h2>
@@ -124,15 +124,15 @@ blocks: [Crate-foo, Crate-bar]    # optional: downstream specs that can't advanc
 <h2 id="agent-briefs-quote-the-spec">Agent briefs quote the spec</h2>
 <p>When I spawn a background agent (research or build), the prompt points at the spec file rather than re-describing the problem. Agents diff their output against the spec sections. Example prompt framing:</p>
 <blockquote>
-<p>Implement <code>crates/halo-helm/src/view/mod.rs</code> per <code>docs/wiki/Crate-halo-helm.md</code> § Interface. Keep invariants §2 + §3 green. Non-goals in §5 are out of scope.</p>
+<p>Implement <code>crates/1bit-helm/src/view/mod.rs</code> per <code>docs/wiki/Crate-1bit-helm.md</code> § Interface. Keep invariants §2 + §3 green. Non-goals in §5 are out of scope.</p>
 </blockquote>
 <h2 id="retroactive-application">Retroactive application</h2>
 <p>Modules already in tree without a matching spec file get one <strong>the next time they're touched</strong>. Currently unspec'd (as of 2026-04-20):</p>
 <ul>
-<li>halo-echo — <code>phase: implementation</code> already (Opus path, 10 tests). Needs a retrospective spec.</li>
-<li>halo-lemonade — <code>phase: implementation</code> already. Retrospective spec needed.</li>
-<li>halo-helm — renamed from halo-gaia on 2026-04-20 (AMD GAIA clash). Spec promoted analysis → solutioning alongside first egui/eframe scaffold.</li>
-<li>halo-landing — <code>phase: implementation</code> already. Retrospective spec needed.</li>
+<li>1bit-echo — <code>phase: implementation</code> already (Opus path, 10 tests). Needs a retrospective spec.</li>
+<li>1bit-lemonade — <code>phase: implementation</code> already. Retrospective spec needed.</li>
+<li>1bit-helm — renamed from halo-gaia on 2026-04-20 (AMD GAIA clash). Spec promoted analysis → solutioning alongside first egui/eframe scaffold.</li>
+<li>1bit-landing — <code>phase: implementation</code> already. Retrospective spec needed.</li>
 </ul>
 <p>Well-spec'd (templates for the above):</p>
 <ul>
@@ -158,7 +158,7 @@ blocks: [Crate-foo, Crate-bar]    # optional: downstream specs that can't advanc
 <ul>
 <li><code>feedback_spec_driven_dev.md</code> in memory — policy pointer.</li>
 <li>CLAUDE.md § Hard rules — Rule A / B / C / D / E frame every spec.</li>
-<li><code>crates/halo-agents/src/lib.rs</code> — the 17 specialists that own phase reviews.</li>
+<li><code>crates/1bit-agents/src/lib.rs</code> — the 17 specialists that own phase reviews.</li>
 </ul>
 
 </main>

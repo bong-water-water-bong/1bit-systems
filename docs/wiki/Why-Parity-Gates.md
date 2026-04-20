@@ -17,7 +17,7 @@ Unit tests run on every PR. Parity runs before every cutover.
 
 ### Shadow-burnin (argmax byte-compare)
 
-`benchmarks/shadow-burnin.sh` fires the same prompt at `/v1` (gen-1 C++ bitnet_decode on :8080) and `/v2` (gen-2 Rust halo-server on :8180), diffs the replies byte-for-byte. Pace: ~1 round / 2-3 s.
+`benchmarks/shadow-burnin.sh` fires the same prompt at `/v1` (gen-1 C++ bitnet_decode on :8080) and `/v2` (gen-2 Rust 1bit-server on :8180), diffs the replies byte-for-byte. Pace: ~1 round / 2-3 s.
 
 - **Current**: **95.55% byte-exact** over **14,344 rounds** (2026-04-20)
 - **Drift analysis**: **74.9% of all misses trace to ONE prompt** — `idx=7`, "chemical symbol for gold". That's a single sampler delta, not a systemic divergence. Fix it and parity jumps to **~98.9%**.
@@ -53,7 +53,7 @@ If any of those trend down in the 48 hours before cutover, we don't flip. Receip
 
 ## The operator interface
 
-`halo burnin {stats,drift,recent,since}` reads the JSONL log at `~/claude output/shadow-burnin.jsonl` (note the space in the path, quote it). State persists at `~/.local/share/halo-ai/shadow-burnin.state`.
+`halo burnin {stats,drift,recent,since}` reads the JSONL log at `~/claude output/shadow-burnin.jsonl` (note the space in the path, quote it). State persists at `~/.local/share/1bit systems/shadow-burnin.state`.
 
 ```bash
 halo burnin stats

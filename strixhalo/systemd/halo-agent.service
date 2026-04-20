@@ -1,5 +1,5 @@
 [Unit]
-Description=halo-ai agent runtime
+Description=1bit systems agent runtime
 After=halo-bitnet.service
 Wants=halo-bitnet.service
 

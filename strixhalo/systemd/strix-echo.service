@@ -1,11 +1,11 @@
 [Unit]
-Description=halo-echo WebSocket voice server (:8085)
+Description=1bit-echo WebSocket voice server (:8085)
 After=network-online.target strix-server.service strix-kokoro.service
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/halo-echo --bind 127.0.0.1:8085 --codec opus
+ExecStart=/usr/local/bin/1bit-echo --bind 127.0.0.1:8085 --codec opus
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

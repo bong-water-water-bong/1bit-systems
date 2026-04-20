@@ -1,5 +1,5 @@
 [Unit]
-Description=Cloudflare Tunnel for api.halo-ai.studio (halo-server :8180)
+Description=Cloudflare Tunnel for api.1bit.systems (1bit-server :8180)
 After=network-online.target strix-server.service
 Wants=network-online.target
 

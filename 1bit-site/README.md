@@ -42,7 +42,7 @@ No crates, no markdown library, no network.
 ## Deploy (Cloudflare Pages)
 
 1. DNS: point `1bit.systems` NS records at Cloudflare (Namecheap → CF nameservers).
-2. In the CF dashboard: Pages → Create → Connect Git → repo `halo-ai-rs` → production branch `main`.
+2. In the CF dashboard: Pages → Create → Connect Git → repo `1bit-systems` → production branch `main`.
 3. Build command: `bash 1bit-site/docs/build.sh`
 4. Build output directory: `1bit-site`
 5. Add custom domain: `1bit.systems` + `www.1bit.systems`.

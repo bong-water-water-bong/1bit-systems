@@ -55,7 +55,7 @@ neither is in scope for this spike.
 - `rocm-cpp/tools/bitnet_decode.cpp:267-271` — version-dispatched GEMV
   selector (v1/v2 → halo, v3 → sherry, v4 → tq1-halo)
 - `rocm-cpp/tools/bench_sherry.cpp` — cross-bench harness
-- `halo-ai/models/halo-1bit-2b.sherry.h1b`,
+- `1bit systems/models/halo-1bit-2b.sherry.h1b`,
   `halo-1bit-2b.sherry-proper.h1b`,
   `halo-1bit-2b.sherry-ft.h1b` — three candidate model files, 1.65 GB each
 
@@ -88,29 +88,29 @@ gets the Sherry kernel automatically.
  --- a/strixhalo/systemd/halo-bitnet.service
  +++ b/strixhalo/systemd/halo-bitnet.service
  @@ -7,1 +7,1 @@
--ExecStart=/usr/local/bin/bitnet_decode __HOME__/halo-ai/models/halo-1bit-2b.h1b --server 8080
-+ExecStart=/usr/local/bin/bitnet_decode __HOME__/halo-ai/models/halo-1bit-2b.sherry-ft.h1b --server 8080
+-ExecStart=/usr/local/bin/bitnet_decode __HOME__/1bit systems/models/halo-1bit-2b.h1b --server 8080
++ExecStart=/usr/local/bin/bitnet_decode __HOME__/1bit systems/models/halo-1bit-2b.sherry-ft.h1b --server 8080
 
  diff --git a/strixhalo/systemd/strix-server.service b/strixhalo/systemd/strix-server.service
  --- a/strixhalo/systemd/strix-server.service
  +++ b/strixhalo/systemd/strix-server.service
  @@ -8,1 +8,1 @@
--ExecStart=__HOME__/.local/bin/halo-server-real --bind 127.0.0.1:8180 --model __HOME__/halo-ai/models/halo-1bit-2b.h1b
-+ExecStart=__HOME__/.local/bin/halo-server-real --bind 127.0.0.1:8180 --model __HOME__/halo-ai/models/halo-1bit-2b.sherry-ft.h1b
+-ExecStart=__HOME__/.local/bin/1bit-server-real --bind 127.0.0.1:8180 --model __HOME__/1bit systems/models/halo-1bit-2b.h1b
++ExecStart=__HOME__/.local/bin/1bit-server-real --bind 127.0.0.1:8180 --model __HOME__/1bit systems/models/halo-1bit-2b.sherry-ft.h1b
 
- diff --git a/strixhalo/bin/halo-anvil.sh b/strixhalo/bin/halo-anvil.sh
- --- a/strixhalo/bin/halo-anvil.sh
- +++ b/strixhalo/bin/halo-anvil.sh
+ diff --git a/strixhalo/bin/1bit-anvil.sh b/strixhalo/bin/1bit-anvil.sh
+ --- a/strixhalo/bin/1bit-anvil.sh
+ +++ b/strixhalo/bin/1bit-anvil.sh
 @@ -60,1 +60,1 @@
--MODEL="$HOME/halo-ai/models/halo-1bit-2b.h1b"
-+MODEL="$HOME/halo-ai/models/halo-1bit-2b.sherry-ft.h1b"
+-MODEL="$HOME/1bit systems/models/halo-1bit-2b.h1b"
++MODEL="$HOME/1bit systems/models/halo-1bit-2b.sherry-ft.h1b"
 
- diff --git a/crates/halo-server/src/routes.rs b/crates/halo-server/src/routes.rs
- --- a/crates/halo-server/src/routes.rs
- +++ b/crates/halo-server/src/routes.rs
+ diff --git a/crates/1bit-server/src/routes.rs b/crates/1bit-server/src/routes.rs
+ --- a/crates/1bit-server/src/routes.rs
+ +++ b/crates/1bit-server/src/routes.rs
 @@ -909,1 +909,1 @@
--            .unwrap_or_else(|_| PathBuf::from(format!("{home}/halo-ai/models/halo-1bit-2b.h1b")));
-+            .unwrap_or_else(|_| PathBuf::from(format!("{home}/halo-ai/models/halo-1bit-2b.sherry-ft.h1b")));
+-            .unwrap_or_else(|_| PathBuf::from(format!("{home}/1bit systems/models/halo-1bit-2b.h1b")));
++            .unwrap_or_else(|_| PathBuf::from(format!("{home}/1bit systems/models/halo-1bit-2b.sherry-ft.h1b")));
 ```
 
 Alternative (cleaner): publish the accepted Sherry file as the canonical
