@@ -17,11 +17,11 @@ links = "rocm_cpp"
 path = "src/lib.rs"
 
 [features]
-# Default: link against the native librocm_cpp.so on this host. Disable via
-# `--no-default-features` on CI machines without AMD GPUs / ROCm installed —
-# the crate then exposes the same public API, with every call returning
-# `RcppStatus::Unsupported` and no native symbols referenced.
-default      = ["link-rocm"]
+# Default: NO link against rocm (safe for CI / hosts without ROCm). Callers
+# that want real kernels enable `link-rocm` via halo-router's `hip` feature
+# or halo-server's `real-backend` feature. Local dev builds can flip with
+# `cargo build -p halo-bitnet-hip --features link-rocm`.
+default      = []
 link-rocm    = []
 
 [dependencies]
