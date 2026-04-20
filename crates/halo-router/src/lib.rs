@@ -35,6 +35,7 @@ pub mod backend_impl;
 pub mod cpu_lane;
 pub mod detect;
 pub mod tokenizer;
+pub mod xdna_flm;
 
 // The XDNA 2 FFI crate is a compile-time dep so flipping halo-router's
 // `real-xdna` feature propagates to `halo-bitnet-xdna/real-xrt`. We don't
@@ -692,16 +693,81 @@ fn default_model_id(h1b_path: &Path) -> String {
 /// stand up a Router (which requires HIP + a real .h1b). Both paths share
 /// this implementation, so asserting against this function also validates
 /// the live `generate` path byte-for-byte.
+///
+/// **Ternary-unaware.** This function predates the FLM bridge; it treats
+/// every Xdna prompt the same way regardless of weight format. New code
+/// should prefer [`prefill_routing_decision_with_model`] which routes
+/// non-ternary Xdna prompts into the FastFlowLM subprocess bridge and
+/// surfaces the ternary-on-NPU gap as a distinct error variant. This
+/// function is kept as a thin wrapper over the model-aware version with
+/// `is_ternary = true` (the status quo: every model halo-router ships
+/// with today is ternary).
 pub fn prefill_routing_decision(
     backend: Backend,
     prompt_tokens: usize,
 ) -> Result<(), BackendError> {
+    prefill_routing_decision_with_model(backend, prompt_tokens, /* is_ternary */ true)
+}
+
+/// Model-aware routing-policy function. Supersedes
+/// [`prefill_routing_decision`] for callers that know the loaded model's
+/// weight format.
+///
+/// Extends the rule set with the FastFlowLM bridge:
+///
+/// * [`Backend::Xdna`] + `prompt_tokens >= XDNA_PREFILL_MIN_TOKENS` +
+///   `is_ternary == true` → [`BackendError::NpuTernaryUnsupported`].
+///   The message points at `project_lemonade_10_2_pivot.md` so ops knows
+///   this is an upstream AMD feature wait, not a halo-router bug. Retry
+///   with `HALO_BACKEND=hip`.
+/// * [`Backend::Xdna`] + `prompt_tokens >= XDNA_PREFILL_MIN_TOKENS` +
+///   `is_ternary == false` → dispatches through
+///   [`xdna_flm::flm_prefill`]. In practice this returns either
+///   [`BackendError::FlmSpawn`] (binary missing) or
+///   [`BackendError::NotYetWired`] (FLM alive but KV handoff pending —
+///   see `xdna_flm` module docstring).
+/// * Everything else mirrors [`prefill_routing_decision`] exactly.
+///
+/// The caller passes `is_ternary` as a bare bool instead of a model
+/// handle so this crate doesn't grow a `halo-core` model-format
+/// dependency just for the policy check — the router's constructors
+/// already know whether they loaded a ternary `.h1b` or a Q4 GGUF, they
+/// can pass the flag through.
+pub fn prefill_routing_decision_with_model(
+    backend: Backend,
+    prompt_tokens: usize,
+    is_ternary: bool,
+) -> Result<(), BackendError> {
     match backend {
         Backend::Hip => Ok(()),
         Backend::Xdna if prompt_tokens >= XDNA_PREFILL_MIN_TOKENS => {
-            Err(BackendError::NotYetWired(
-                "NPU prefill backend not loaded — build xclbin via Peano first, see docs/wiki/NPU-Kernel-Design.md",
-            ))
+            if is_ternary {
+                // AMD ternary→INT8 path hasn't shipped; FLM is Q4NX-only.
+                // Distinct error variant so ops dashboards can count it
+                // separately from "backend not built".
+                Err(BackendError::NpuTernaryUnsupported(
+                    "ternary BitNet weights cannot run on XDNA 2 today — FastFlowLM is Q4NX-only, \
+                     AMD's ternary→INT8 mapping is pending (see project_lemonade_10_2_pivot.md). \
+                     Retry with HALO_BACKEND=hip.",
+                ))
+            } else {
+                // Non-ternary (Q4 GGUF etc.) — drive FLM. The subprocess
+                // path handles its own feature-flag + binary-missing
+                // diagnostics; we just forward whatever it returns.
+                // Model id is the caller's concern; we pass a FLM-shaped
+                // placeholder here because this is the policy checker,
+                // not the actual dispatch. The live `generate` path
+                // passes the router's `model_id` through in
+                // `generate_blocking`.
+                let _ = xdna_flm::flm_prefill(
+                    "",
+                    &xdna_flm::default_flm_model_id(),
+                    /* is_ternary */ false,
+                )?;
+                // Unreachable on current FLM: flm_prefill always returns
+                // Err until KV handoff lands. Kept for the day it does.
+                Ok(())
+            }
         }
         Backend::Xdna => Ok(()),
         Backend::Cpu => Err(BackendError::CpuLaneStub(

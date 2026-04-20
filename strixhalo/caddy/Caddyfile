@@ -30,6 +30,14 @@ strixhalo.local, 10.0.0.10 {
         }
     }
 
+    # /ca/root.crt → Caddy internal CA root cert (for beta users to trust).
+    # Unauthenticated on purpose — you need the cert BEFORE you can auth
+    # on any other route. Re-issued every 7 years by Caddy.
+    handle_path /ca/* {
+        root * /var/lib/caddy/pki/authorities/local
+        file_server
+    }
+
     # /mancave/* → static launcher page (no auth — LAN only via hostname).
     handle_path /mancave/* {
         root * /srv/www/mancave
