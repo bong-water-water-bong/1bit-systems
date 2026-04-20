@@ -1,4 +1,4 @@
-//! Discord watcher plumbing used by the `halo-watch-discord` binary.
+//! Discord watcher plumbing used by the `1bit-watch-discord` binary.
 //!
 //! Pure logic — no I/O, no serenity types — so the classifier can be
 //! exercised in the lib test suite without a live gateway.
@@ -138,7 +138,7 @@ pub fn parse_channel_whitelist(raw: &str) -> Vec<u64> {
 /// Help text printed when `DISCORD_BOT_TOKEN` is not set. The binary
 /// prints this to stdout and exits 0 — a missing token is an expected
 /// state on a fresh box, not a bug.
-pub const HELP_TEXT: &str = "halo-watch-discord — Discord presence for 1bit-agents specialists
+pub const HELP_TEXT: &str = "1bit-watch-discord — Discord presence for 1bit-agents specialists
 
 This bot is a LURKER. By default it observes messages in whitelisted
 channels, classifies each one, and routes the gist to the relevant
@@ -152,7 +152,7 @@ Required env:
 Optional env:
   HALO_SERVER_URL            Default http://127.0.0.1:8180
   HALO_LANDING_URL           Default http://127.0.0.1:8190
-  RUST_LOG                   Default halo_watch_discord=info
+  RUST_LOG                   Default onebit_watch_discord=info
 
 Commands (only in whitelisted channels, via @halo-bot mention):
   @halo-bot status           One-line fleet status

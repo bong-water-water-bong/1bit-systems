@@ -1,10 +1,52 @@
 # Halo-Whisper Streaming Plan
 
-Status: research + planning, 2026-04-20. No crate `1bit-whisper` exists
-yet; voice input is currently batch-POST whole-file transcription
-(outside this workspace). This doc is the design for the streaming
-rewrite that will let `1bit-voice` start reacting before the user
-stops talking.
+Status: scaffold landed 2026-04-20. `crates/1bit-whisper/` exists at
+HEAD. Voice input is still batch-POST in `1bit-voice` today; this doc is
+the design for the streaming rewrite that will let `1bit-voice` start
+reacting before the user stops talking.
+
+## 2026-04-20 UPDATE: crate scaffold landed
+
+- Crate directory: `crates/1bit-whisper/`, package `onebit-whisper`,
+  library ident `onebit_whisper`, binary `1bit-whisper` (the brand name
+  wins at the filesystem + bin level; the Cargo package name takes the
+  leading-digit-free form because Cargo rejects `1bit-whisper` as a
+  package identifier).
+- Backed by Arch/AUR `whisper.cpp` 1.8.3: `/usr/bin/whisper-server`,
+  `/usr/bin/whisper-cli`, `/usr/include/whisper.h`,
+  `/usr/lib/libwhisper.so.1.8.3`. No vendored whisper.cpp source tree —
+  we link against the system `.so` the same way `1bit-hip` links
+  `librocm_cpp.so`.
+- Feature flags:
+  - `stub` (default) — no C shim built, no libwhisper link. Every
+    engine method returns `WhisperError::UnsupportedStub`. Keeps CI +
+    laptops without libwhisper green.
+  - `real-whisper` — `build.rs` compiles `cpp/shim.cpp` into
+    `libonebit_whisper_shim.a` via `cc = "1.2"` and emits
+    `cargo:rustc-link-lib=whisper`. Swaps the stub for the
+    libwhisper-backed implementation.
+- FFI surface in `cpp/shim.h` (four C-linkage functions over an opaque
+  `WhisperCtx*`): `onebit_whisper_init / _free / _feed / _drain`. The
+  shim owns a 500 ms scheduler that fires `whisper_full` over a 5 s
+  sliding window; Rust just pumps PCM in and pulls text out.
+- Safe Rust surface: `WhisperEngine::new(path) / feed(&[i16]) /
+  drain_partials() -> Vec<Partial>` where
+  `Partial { text, start_ms, end_ms }` derives Serialize + Deserialize.
+- Tests (stub feature, default): 3 unit + 1 integration noop = 4.
+  Covers UnsupportedStub error path, Partial serde roundtrip,
+  WhisperError::Display informativeness, and a stable integration
+  test count across feature configurations.
+- Tests (real-whisper feature): 2 unit + 1 FFI-link = 3. The link
+  test takes function pointers to prove libwhisper symbols resolve
+  without requiring a model file on disk.
+- Wired into `workspace.members` and `workspace.dependencies` with
+  `default-features = false, features = ["stub"]` so downstream crates
+  (1bit-voice, 1bit-echo) pick up the stub by default and flip to
+  `real-whisper` explicitly when they want the native path.
+- Open follow-ups tracked by this doc (unchanged from the sections
+  below): VAD-tail commit, per-stream `whisper_state` isolation,
+  real `t0`/`t1` timestamps via `whisper_full_get_segment_t0/_t1`,
+  1bit-voice `speak_from_stream` integration.
 
 Companion notes:
 - `project_halo_kokoro.md` — TTS side (kokoro, echo_mouth)

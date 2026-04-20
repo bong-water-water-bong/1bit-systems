@@ -1,0 +1,44 @@
+[package]
+# Cargo package names cannot start with a digit. The filesystem / bin name
+# keeps the `1bit-whisper` brand; the package / crate identifier is the
+# underscore form.
+name         = "onebit-whisper"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+authors.workspace      = true
+description  = "1bit-whisper — FFI + safe Rust streaming surface over libwhisper (whisper.cpp 1.8.x)."
+
+[lib]
+name = "onebit_whisper"
+path = "src/lib.rs"
+
+[[bin]]
+name = "1bit-whisper"
+path = "src/main.rs"
+
+[features]
+# `stub` (default) keeps the crate pure-Rust: no C shim compiled, no link
+# against libwhisper. Every engine method returns `WhisperError::UnsupportedStub`.
+# CI hosts without whisper.cpp installed stay green.
+#
+# `real-whisper` flips on the build.rs shim compile + `-lwhisper` link step
+# and swaps the stub for the libwhisper-backed implementation.
+default       = ["stub"]
+stub          = []
+real-whisper  = []
+
+[dependencies]
+anyhow     = { workspace = true }
+bytes      = { workspace = true }
+tokio      = { workspace = true }
+tracing    = { workspace = true }
+serde      = { workspace = true }
+
+[build-dependencies]
+cc = "1.2"
+
+[dev-dependencies]
+serde_json = { workspace = true }

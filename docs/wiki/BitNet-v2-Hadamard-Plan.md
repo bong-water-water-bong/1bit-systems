@@ -77,12 +77,21 @@ them is a correctness bug.
 
 ### New
 
-1. **`src/hadamard_rotate.hip`** — prototype scalar reference landed today
-   (`rcpp_hadamard_rotate_fp16_ref_launch`). B=128 hardcoded, O(B²) inner
-   loop. Purpose: diff-testable oracle for the butterfly variant.
-2. **`kernels/hadamard_rotate_butterfly.hip`** *(follow-up)* — wave32
-   butterfly, 7 `__shfl_xor` stages, one block per B-sized chunk, fused
-   `1/sqrt(B)` scaling into the final stage. This is the production kernel.
+1. **`src/hadamard_rotate.hip`** — prototype scalar reference landed
+   2026-04-20 (`rcpp_hadamard_rotate_fp16_ref_launch`). B=128 hardcoded,
+   O(B²) inner loop. Purpose: diff-testable oracle for the butterfly variant.
+2. **`kernels/hadamard_rotate_butterfly.hip`** — wave32 butterfly landed
+   2026-04-20 (`rcpp_hadamard_rotate_fp16_butterfly_launch`). 7 stages, one
+   workgroup per B-sized chunk, fused `1/sqrt(B)` into the final store.
+   Stages 0..4 intra-wave via `__shfl_xor` (no LDS); stages 5..6 cross-wave
+   via 512 B LDS + `__syncthreads`. 135 LOC, compile-only (not in
+   CMakeLists.txt yet). Standalone test at
+   `tests/test_hadamard_butterfly.cpp` (136 LOC) exercises bit-exact vs
+   scalar ref on 16 blocks and benches a 2048×2560 tile. **Projected**
+   per-block cost ~0.1-0.3 µs (memory-bound at fp16 load+store, ~7 cycle
+   compute per lane per stage × 7 stages ≈ 50 cycles/block of pure ALU
+   + 2 LDS round-trips); measured numbers pending manual hipcc run
+   (agent is sandboxed).
 3. **`kernels/hadamard_rotate_fused_quant.hip`** *(follow-up)* — fuses
    the butterfly with per-token i4 symmetric quantization (max-reduce →
    scale → quantize → pack) in a single launch. Replaces two separate
@@ -204,20 +213,49 @@ training-side win dwarfs the 2-3% inference delta.
 
 ## 9. Prototype compile verification (manual)
 
-Prototype kernel lives at
-`/home/bcloud/repos/rocm-cpp/src/hadamard_rotate.hip`. Agent was
-sandboxed away from clang invocation; verify with:
+Both prototypes now live in the tree; agent is sandboxed off `clang++` /
+`hipcc`, so verify by hand before flipping the CMakeLists.txt switch.
+
+Scalar reference:
 
 ```bash
 /opt/rocm/lib/llvm/bin/clang++ -x hip --offload-arch=gfx1151 -O3 \
-    -std=c++17 -c \
+    -std=c++20 -c \
     /home/bcloud/repos/rocm-cpp/src/hadamard_rotate.hip \
     -o /tmp/hadamard_rotate.o
 ```
 
-To wire into the existing build, add the file to `rocm_cpp` sources and
-the HIP `set_source_files_properties` list in
-`/home/bcloud/repos/rocm-cpp/CMakeLists.txt` (line 78-ish block).
-Don't add the public header entry in `include/rocm_cpp/ck_gemm.h` until
-the butterfly variant lands — the `_ref_` launcher is intentionally
-not in the public API surface.
+Butterfly kernel (standalone):
+
+```bash
+/opt/rocm/lib/llvm/bin/clang++ -x hip --offload-arch=gfx1151 -O3 \
+    -std=c++20 -c \
+    /home/bcloud/repos/rocm-cpp/kernels/hadamard_rotate_butterfly.hip \
+    -o /tmp/hadamard_rotate_butterfly.o
+```
+
+End-to-end correctness + bench (scalar ref vs butterfly, bit-exact check
+and 2048×2560-tile timing):
+
+```bash
+/opt/rocm/bin/hipcc --offload-arch=gfx1151 -O3 -std=c++20 \
+    /home/bcloud/repos/rocm-cpp/src/hadamard_rotate.hip \
+    /home/bcloud/repos/rocm-cpp/kernels/hadamard_rotate_butterfly.hip \
+    /home/bcloud/repos/rocm-cpp/tests/test_hadamard_butterfly.cpp \
+    -o /tmp/test_hadamard_butterfly && /tmp/test_hadamard_butterfly
+```
+
+Once both verify and the bench shows <1 µs/block, add BOTH files to
+`rocm_cpp` sources and the HIP `set_source_files_properties` list in
+`/home/bcloud/repos/rocm-cpp/CMakeLists.txt` (line 78-ish block), and add
+the `rcpp_hadamard_rotate_fp16_butterfly_launch` prototype to
+`include/rocm_cpp/ck_gemm.h`. The `_ref_` launcher stays internal (oracle
+only, not production-facing).
+
+### Measured numbers
+
+*(Pending — agent sandbox blocks hipcc. Fill in after manual run.)*
+
+| tile | launches | us/launch | us/block | GB/s | bit-exact vs ref |
+|------|----------|-----------|----------|------|-------------------|
+| 2048 × 2560 | 40960 blocks | __ | __ | __ | __ |

@@ -1,4 +1,4 @@
-//! halo-watch-discord — Discord gateway client that keeps the 17 specialist
+//! 1bit-watch-discord — Discord gateway client that keeps the 17 specialist
 //! registry aware of channel activity.
 //!
 //! Design:
@@ -20,7 +20,7 @@
 //!   HALO_DISCORD_CHANNELS      comma-separated channel IDs to watch
 //!   HALO_SERVER_URL            default http://127.0.0.1:8180
 //!   HALO_LANDING_URL           default http://127.0.0.1:8190
-//!   RUST_LOG                   default halo_watch_discord=info
+//!   RUST_LOG                   default onebit_watch_discord=info
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -55,7 +55,7 @@ impl EventHandler for Handler {
         info!(
             bot = %ready.user.name,
             channels = self.channels.len(),
-            "halo-watch-discord connected"
+            "1bit-watch-discord connected"
         );
     }
 
@@ -166,7 +166,7 @@ fn init_tracing() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "halo_watch_discord=info".into()),
+                .unwrap_or_else(|_| "onebit_watch_discord=info".into()),
         )
         .with_target(false)
         .init();
@@ -201,7 +201,7 @@ async fn main() -> Result<()> {
 
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(3))
-        .user_agent("halo-watch-discord/0.1")
+        .user_agent("1bit-watch-discord/0.1")
         .build()?;
 
     let registry = Arc::new(Registry::default_stubs());

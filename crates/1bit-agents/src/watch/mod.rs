@@ -2,9 +2,9 @@
 //!
 //! Two binaries live next to this module:
 //!
-//! * `halo-watch-github` — polls configured repos for new issues + PRs and
+//! * `1bit-watch-github` — polls configured repos for new issues + PRs and
 //!   routes each event to a specialist via the [`Registry`](crate::Registry).
-//! * `halo-watch-discord` — gateway-resident Discord lurker that classifies
+//! * `1bit-watch-discord` — gateway-resident Discord lurker that classifies
 //!   channel messages and routes them to sentinel / herald / magistrate.
 //!
 //! Shared concerns (classification, env parsing, Registry dispatch) live

@@ -1,7 +1,7 @@
-//! Integration test: `halo-watch-discord` gracefully degrades when no
+//! Integration test: `1bit-watch-discord` gracefully degrades when no
 //! `DISCORD_BOT_TOKEN` is set.
 //!
-//! We use Cargo's `CARGO_BIN_EXE_halo-watch-discord` env var (populated
+//! We use Cargo's `CARGO_BIN_EXE_1bit-watch-discord` env var (populated
 //! during `cargo test`) to get the compiled binary path, then run it with
 //! a deliberately cleared token env. The contract is:
 //!
@@ -16,7 +16,7 @@ use std::time::Duration;
 
 #[test]
 fn startup_without_token_prints_help_and_exits_zero() {
-    let bin = env!("CARGO_BIN_EXE_halo-watch-discord");
+    let bin = env!("CARGO_BIN_EXE_1bit-watch-discord");
 
     // Clear any inherited token + channel list. Pass an empty token so
     // the `if !t.trim().is_empty()` branch in main() routes us to the
@@ -34,7 +34,7 @@ fn startup_without_token_prints_help_and_exits_zero() {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .expect("spawn halo-watch-discord");
+        .expect("spawn 1bit-watch-discord");
 
     // Give the binary a few seconds to print + exit. In practice the
     // help path is ~immediate; the timeout is just a safety net.
@@ -61,7 +61,7 @@ fn startup_without_token_prints_help_and_exits_zero() {
             }
             None if std::time::Instant::now() >= deadline => {
                 let _ = child.kill();
-                panic!("halo-watch-discord did not exit within 5s — it tried to connect?");
+                panic!("1bit-watch-discord did not exit within 5s — it tried to connect?");
             }
             None => std::thread::sleep(Duration::from_millis(50)),
         }

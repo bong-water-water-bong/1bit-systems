@@ -1,5 +1,5 @@
 [Unit]
-Description=halo-watch-discord — Discord presence for 1bit-agents specialists (lurker, mention-reply only)
+Description=1bit-watch-discord — Discord presence for 1bit-agents specialists (lurker, mention-reply only)
 After=network-online.target
 Wants=network-online.target
 # Not strictly required — the bot degrades gracefully if 1bit-server is
@@ -10,7 +10,7 @@ Wants=strix-server.service strix-landing.service
 Type=simple
 # Installed via `cargo install --path crates/1bit-agents` or the
 # `halo install 1bit-agents` path (packages.toml).
-ExecStart=%h/.cargo/bin/halo-watch-discord
+ExecStart=%h/.cargo/bin/1bit-watch-discord
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal

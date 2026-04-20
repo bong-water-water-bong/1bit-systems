@@ -15,6 +15,7 @@ members = [
     "crates/1bit-voice",
     "crates/1bit-echo",
     "crates/1bit-xdna",
+    "crates/1bit-whisper",
 ]
 
 [workspace.package]
@@ -76,6 +77,7 @@ onebit-core        = { path = "crates/1bit-core" }
 onebit-router      = { path = "crates/1bit-router" }
 onebit-agents      = { path = "crates/1bit-agents" }
 onebit-hip  = { path = "crates/1bit-hip" }
+onebit-whisper = { path = "crates/1bit-whisper", default-features = false, features = ["stub"] }
 
 [profile.release]
 opt-level     = 3

@@ -1,4 +1,4 @@
-//! GitHub watcher plumbing used by the `halo-watch-github` binary.
+//! GitHub watcher plumbing used by the `1bit-watch-github` binary.
 //!
 //! Pure, read-only classification + config parsing. The binary wraps these
 //! helpers around an `octocrab` client; keeping the logic here means the

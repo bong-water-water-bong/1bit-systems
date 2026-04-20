@@ -1,4 +1,4 @@
-//! halo-watch-github — read-only GitHub poller for 1bit-agents.
+//! 1bit-watch-github — read-only GitHub poller for 1bit-agents.
 //!
 //! Walks the configured repo list (`HALO_GH_REPOS`, comma-separated
 //! `owner/repo`) once per invocation, finds issues + PRs opened or updated
@@ -63,7 +63,7 @@ async fn main() -> Result<()> {
         repos = repos.len(),
         poll_seconds,
         lookback_seconds = lookback.as_secs(),
-        "halo-watch-github starting one-shot poll"
+        "1bit-watch-github starting one-shot poll"
     );
 
     let mut events_seen = 0usize;
@@ -118,7 +118,7 @@ async fn main() -> Result<()> {
 
     info!(
         events_seen,
-        events_routed, "halo-watch-github pass complete"
+        events_routed, "1bit-watch-github pass complete"
     );
     Ok(())
 }
