@@ -16,6 +16,10 @@ Plain-English explanations of the architectural calls we made — one page per d
 - [Why no NPU yet?](./Why-No-NPU-Yet.md) — XDNA 2 status + ONNX/FastFlowLM/IREE evaluation
 - [Why this way + how?](./Why-This-Way-How.md) — long-form walkthrough of all the decisions + end-to-end request path
 
+## Integrations
+
+- [Hermes Agent integration](./Hermes-Integration.md) — Nous Research's agent as external client on halo-server; feature-port list for halo-agents
+
 ## Benchmarks + proof
 
 - [Live tok/s + PPL](./Benchmarks.md) — what we measure, what it means
