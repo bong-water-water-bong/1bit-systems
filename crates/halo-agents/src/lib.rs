@@ -8,10 +8,29 @@
 //! Rust port of `agent-cpp/specialists/*.cpp`. Behaviour parity comes later;
 //! for now each specialist returns a shaped stub so the routing, MCP bridge,
 //! and Discord relay can be wired end-to-end before implementations land.
+//!
+//! # Two trait layers
+//!
+//! * [`Specialist`] is the dyn-safe, JSON-erased trait the registry holds
+//!   and the MCP bridge calls. Input / output are `serde_json::Value`.
+//! * [`TypedSpecialist`] is the DSPy-inspired typed layer: real specialists
+//!   declare their input / output structs with [`schemars::JsonSchema`] +
+//!   serde derive, implement `handle_typed`, and the [`Typed`] adapter shim
+//!   does the serde + schema work automatically. A blanket
+//!   `impl<T: TypedSpecialist> Specialist for Typed<T>` makes them drop-in
+//!   replacements for stubs in the registry.
+//!
+//! `TypedSpecialist` itself is **not** object-safe — it has associated types
+//! and uses native `impl Future` in the `handle_typed` return position.
+//! That's fine: `Typed<T>` is the object-safe wrapper that goes into the
+//! registry. Use `Typed::arc(T)` to register a typed specialist.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use schemars::{JsonSchema, schema_for};
+use serde::Serialize;
+use serde::de::DeserializeOwned;
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -59,6 +78,10 @@ impl Name {
 /// override them; halo-mcp's `tools/list` surfaces the description + input
 /// schema so MCP clients (Claude Code, Claude Desktop, DSPy) can render
 /// typed call UIs without round-tripping through the specialist first.
+///
+/// Prefer implementing [`TypedSpecialist`] and wrapping in [`Typed`] —
+/// that fills `input_schema` / `output_schema` automatically from
+/// `#[derive(JsonSchema)]`.
 #[async_trait]
 pub trait Specialist: Send + Sync {
     fn name(&self) -> Name;
@@ -79,18 +102,92 @@ pub trait Specialist: Send + Sync {
 /// Boxed specialist — registry values share this type.
 pub type Boxed = Arc<dyn Specialist>;
 
+/// Typed, DSPy-inspired specialist trait.
+///
+/// Implementors declare concrete `Input` / `Output` types with serde +
+/// [`JsonSchema`] derives, plus a `const NAME` and `const DESCRIPTION`.
+/// The [`Typed`] adapter wraps any `TypedSpecialist` and implements the
+/// dyn-safe [`Specialist`] trait by driving serde + `schema_for!`.
+///
+/// Uses native `impl Future` (AFIT) in the return position rather than
+/// `#[async_trait]` — this trait is never turned into a trait object, so
+/// the AFIT restriction is fine. Erasure happens at the [`Specialist`]
+/// level via [`Typed`].
+pub trait TypedSpecialist: Send + Sync + 'static {
+    type Input: DeserializeOwned + JsonSchema + Send;
+    type Output: Serialize + JsonSchema + Send;
+
+    const NAME: Name;
+    const DESCRIPTION: &'static str;
+
+    fn handle_typed(
+        &self,
+        req: Self::Input,
+    ) -> impl std::future::Future<Output = Result<Self::Output>> + Send;
+}
+
+/// Adapter that erases a [`TypedSpecialist`] into a dyn-safe [`Specialist`].
+///
+/// Use [`Typed::arc`] to wrap a typed specialist and drop the resulting
+/// `Arc<dyn Specialist>` into a [`Registry`]. The blanket
+/// `impl<T: TypedSpecialist> Specialist for Typed<T>` below handles all
+/// the JSON / schema boilerplate.
+pub struct Typed<T: TypedSpecialist>(pub T);
+
+impl<T: TypedSpecialist> Typed<T> {
+    /// Wrap a typed specialist and return it as an `Arc<dyn Specialist>`
+    /// ready to insert into a [`Registry`].
+    pub fn arc(inner: T) -> Arc<dyn Specialist> {
+        Arc::new(Typed(inner))
+    }
+}
+
+#[async_trait]
+impl<T: TypedSpecialist> Specialist for Typed<T> {
+    fn name(&self) -> Name { T::NAME }
+
+    fn description(&self) -> &'static str { T::DESCRIPTION }
+
+    fn input_schema(&self) -> Value {
+        // `schema_for!` produces a `schemars::Schema` in 1.x; it derefs to
+        // a `serde_json::Value` via `.to_value()`.
+        serde_json::to_value(schema_for!(T::Input))
+            .unwrap_or_else(|_| json!({ "type": "object" }))
+    }
+
+    fn output_schema(&self) -> Value {
+        serde_json::to_value(schema_for!(T::Output))
+            .unwrap_or_else(|_| json!({ "type": "object" }))
+    }
+
+    async fn handle(&self, req: Value) -> Result<Value> {
+        let typed: T::Input = serde_json::from_value(req)
+            .map_err(|e| anyhow!("invalid input for {}: {e}", T::NAME.as_str()))?;
+        let out: T::Output = self.0.handle_typed(typed).await?;
+        let v = serde_json::to_value(out)
+            .map_err(|e| anyhow!("failed to serialize output for {}: {e}", T::NAME.as_str()))?;
+        Ok(v)
+    }
+}
+
 pub struct Registry {
     map: HashMap<Name, Boxed>,
 }
 
 impl Registry {
-    /// Build the default registry (all 17 stubs). Callers replace individual
-    /// entries with real impls via `insert`.
+    /// Build the default registry. Seeded with all 17 stubs, except
+    /// `Anvil` which is swapped for the [`AnvilSpecialist`] typed demo so
+    /// MCP clients see a real input schema out of the box. Callers replace
+    /// the remaining stubs with real impls via `insert`.
     pub fn default_stubs() -> Self {
         let mut map: HashMap<Name, Boxed> = HashMap::new();
         for n in Name::ALL {
             map.insert(*n, Arc::new(Stub(*n)));
         }
+        // Typed demo: Anvil is the first specialist to publish a real
+        // JsonSchema via `Typed<AnvilSpecialist>`. Everything else stays a
+        // Stub until a real TypedSpecialist impl lands.
+        map.insert(Name::Anvil, Typed::arc(AnvilSpecialist));
         Self { map }
     }
 
@@ -126,6 +223,53 @@ impl Specialist for Stub {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Concrete typed specialist: Anvil (build/bench watcher).
+//
+// First real `TypedSpecialist` impl — acts as both a demo and a test
+// fixture. `handle_typed` echoes the request; real build/bench wiring lands
+// later. The point right now is to prove the schema plumbing: MCP clients
+// calling `tools/list` should see a non-trivial JSON Schema for Anvil's
+// arguments rather than the passthrough `{"type":"object"}` stub.
+
+/// Anvil input. `cmd` is required; `sha` defaults to HEAD.
+#[derive(serde::Deserialize, JsonSchema)]
+pub struct AnvilRequest {
+    /// Sub-command: "status" | "build" | "bench"
+    pub cmd: String,
+    /// Optional target commit SHA (defaults to HEAD)
+    #[serde(default)]
+    pub sha: Option<String>,
+}
+
+/// Anvil response — shape stable even when `tok_per_s` is unknown.
+#[derive(serde::Serialize, JsonSchema)]
+pub struct AnvilResponse {
+    pub cmd: String,
+    pub status: String,
+    pub tok_per_s: Option<f32>,
+}
+
+/// Typed Anvil specialist. Stub-echoes for now; real impl lands with the
+/// watcher integration in halo-core / halo-server.
+pub struct AnvilSpecialist;
+
+impl TypedSpecialist for AnvilSpecialist {
+    type Input = AnvilRequest;
+    type Output = AnvilResponse;
+    const NAME: Name = Name::Anvil;
+    const DESCRIPTION: &'static str =
+        "anvil — clone, build, and benchmark a repo end-to-end.";
+
+    async fn handle_typed(&self, req: Self::Input) -> Result<Self::Output> {
+        Ok(AnvilResponse {
+            cmd: req.cmd,
+            status: "stub".to_string(),
+            tok_per_s: None,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -141,8 +285,9 @@ mod tests {
     #[tokio::test]
     async fn registry_dispatches_stub() {
         let r = Registry::default_stubs();
-        let out = r.dispatch("anvil", json!({"cmd":"ping"})).await.unwrap();
-        assert_eq!(out["specialist"], "anvil");
+        // Muse is still a plain Stub (Anvil is now typed).
+        let out = r.dispatch("muse", json!({"cmd":"ping"})).await.unwrap();
+        assert_eq!(out["specialist"], "muse");
         assert_eq!(out["status"], "stub");
         assert_eq!(out["echo"]["cmd"], "ping");
     }
@@ -167,5 +312,96 @@ mod tests {
         r.insert(Arc::new(Real));
         let out = r.dispatch("anvil", json!({})).await.unwrap();
         assert_eq!(out["status"], "real");
+    }
+
+    // -------- TypedSpecialist tests --------
+
+    #[tokio::test]
+    async fn typed_anvil_roundtrips_valid_input() {
+        // Typed roundtrip: JSON → Input → handle_typed → Output → JSON.
+        let a: Arc<dyn Specialist> = Typed::arc(AnvilSpecialist);
+        let out = a
+            .handle(json!({"cmd": "bench", "sha": "deadbeef"}))
+            .await
+            .unwrap();
+        assert_eq!(out["cmd"], "bench");
+        assert_eq!(out["status"], "stub");
+        // `tok_per_s: None` serializes to JSON null.
+        assert!(out["tok_per_s"].is_null());
+    }
+
+    #[test]
+    fn typed_anvil_input_schema_has_cmd_string_property() {
+        let a = Typed(AnvilSpecialist);
+        let schema = a.input_schema();
+        // schemars emits a Draft 2020-12 object schema with a `properties`
+        // map. We deliberately only assert on the stable bits — version-
+        // specific meta keys (title, $schema, etc.) are allowed to drift.
+        assert!(schema.is_object(), "schema must be an object");
+        let props = schema
+            .get("properties")
+            .expect("input_schema must expose properties");
+        assert_eq!(
+            props["cmd"]["type"], "string",
+            "cmd should be typed as string, got {schema}"
+        );
+        // `required` should include `cmd` (no serde default, no Option).
+        let required = schema
+            .get("required")
+            .and_then(|r| r.as_array())
+            .expect("required array");
+        assert!(
+            required.iter().any(|v| v == "cmd"),
+            "required should contain 'cmd', got {required:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn typed_anvil_schema_valid_input_succeeds() {
+        let a: Arc<dyn Specialist> = Typed::arc(AnvilSpecialist);
+        // Minimal valid payload: cmd present, sha omitted (serde default).
+        let out = a.handle(json!({"cmd": "status"})).await.unwrap();
+        assert_eq!(out["cmd"], "status");
+        assert_eq!(out["status"], "stub");
+    }
+
+    #[tokio::test]
+    async fn typed_anvil_schema_invalid_input_errors() {
+        let a: Arc<dyn Specialist> = Typed::arc(AnvilSpecialist);
+        // `cmd` must be a string. Integer → serde error → anyhow::Error.
+        let err = a.handle(json!({"cmd": 42})).await.unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("invalid input") && msg.contains("anvil"),
+            "expected typed-input error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn typed_anvil_output_schema_mentions_tok_per_s() {
+        let a = Typed(AnvilSpecialist);
+        let schema = a.output_schema();
+        assert!(schema.is_object());
+        let props = schema
+            .get("properties")
+            .expect("output_schema must expose properties");
+        assert!(
+            props.get("tok_per_s").is_some(),
+            "tok_per_s should appear in output schema, got {schema}"
+        );
+    }
+
+    #[tokio::test]
+    async fn registry_default_wires_anvil_as_typed() {
+        // The default registry should route Anvil through Typed<AnvilSpecialist>,
+        // so the response shape is the typed one (cmd/status/tok_per_s),
+        // NOT the generic Stub shape ({specialist, status, echo}).
+        let r = Registry::default_stubs();
+        let out = r
+            .dispatch("anvil", json!({"cmd": "build"}))
+            .await
+            .unwrap();
+        assert_eq!(out["cmd"], "build", "got stub shape instead of typed: {out}");
+        assert!(out.get("echo").is_none(), "Anvil should no longer echo: {out}");
     }
 }

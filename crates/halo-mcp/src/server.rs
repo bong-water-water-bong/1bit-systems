@@ -79,11 +79,14 @@ impl StdioServer {
     /// Convenience: default tools derived from `halo_agents::Name::ALL`,
     /// agents registry seeded with `Registry::default_stubs()`. This is the
     /// wiring the binary uses on startup.
+    ///
+    /// Tool schemas are sourced from the live `halo_agents::Registry`, so
+    /// typed specialists (e.g. `Typed<AnvilSpecialist>`) publish their
+    /// real `JsonSchema` in `tools/list` automatically.
     pub fn with_default_agents() -> Self {
-        Self::new(
-            ToolRegistry::from_agents(),
-            Arc::new(Registry::default_stubs()),
-        )
+        let agents = Arc::new(Registry::default_stubs());
+        let tools = ToolRegistry::from_agents_registry(&agents);
+        Self::new(tools, agents)
     }
 
     /// Borrow the underlying tool registry (useful for metrics / tests).
@@ -279,12 +282,31 @@ mod tests {
         for t in tools {
             assert!(t["name"].is_string());
             assert!(t["description"].is_string());
-            assert_eq!(t["inputSchema"]["type"], "object");
+            // Schemas may be the passthrough { "type": "object" } for stubs
+            // or a full JsonSchema for TypedSpecialist impls. We only
+            // assert it's a JSON object with at least some shape — full
+            // structure varies with schemars output across versions.
+            let schema = &t["inputSchema"];
+            assert!(schema.is_object(), "schema not object for {}", t["name"]);
         }
+
+        // Anvil is the first TypedSpecialist demo — its schema must be a
+        // real JsonSchema (has `properties`, not just `{"type":"object"}`).
+        let anvil = tools
+            .iter()
+            .find(|t| t["name"] == "anvil")
+            .expect("anvil tool");
+        assert!(
+            anvil["inputSchema"].get("properties").is_some(),
+            "anvil should publish a typed schema with properties, got {}",
+            anvil["inputSchema"]
+        );
     }
 
     #[tokio::test]
-    async fn tools_call_routes_to_agents_stub() {
+    async fn tools_call_routes_to_agents_typed_anvil() {
+        // Anvil is now a TypedSpecialist — response shape is the typed
+        // AnvilResponse { cmd, status, tok_per_s }.
         let s = server();
         let resp = s
             .handle_request(&json!({
@@ -298,10 +320,31 @@ mod tests {
         let text = resp["result"]["content"][0]["text"]
             .as_str()
             .expect("content text");
-        // The halo-agents stub returns {specialist, status:"stub", echo:req}.
+        let inner: Value = serde_json::from_str(text).expect("inner json");
+        assert_eq!(inner["cmd"], "ping");
+        assert_eq!(inner["status"], "stub");
+        assert!(inner["tok_per_s"].is_null());
+    }
+
+    #[tokio::test]
+    async fn tools_call_routes_to_agents_stub_for_muse() {
+        // Plain Stub path (Muse is still a Stub): {specialist, status, echo}.
+        let s = server();
+        let resp = s
+            .handle_request(&json!({
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": { "name": "muse", "arguments": { "cmd": "ping" } }
+            }))
+            .await;
+        assert_eq!(resp["result"]["isError"], false);
+        let text = resp["result"]["content"][0]["text"]
+            .as_str()
+            .expect("content text");
         let inner: Value = serde_json::from_str(text).expect("inner json");
         assert_eq!(inner["status"], "stub");
-        assert_eq!(inner["specialist"], "anvil");
+        assert_eq!(inner["specialist"], "muse");
         assert_eq!(inner["echo"]["cmd"], "ping");
     }
 
@@ -370,18 +413,30 @@ mod tests {
         use halo_agents::Name;
         let s = server();
         for n in Name::ALL {
+            // Anvil is typed — schema-validated input (needs `cmd`). All
+            // other specialists are plain Stubs and accept `{}`.
+            let args = if *n == Name::Anvil {
+                json!({ "cmd": "status" })
+            } else {
+                json!({})
+            };
             let resp = s
                 .handle_request(&json!({
                     "jsonrpc": "2.0",
                     "id": 1,
                     "method": "tools/call",
-                    "params": { "name": n.as_str(), "arguments": {} }
+                    "params": { "name": n.as_str(), "arguments": args }
                 }))
                 .await;
             let text = resp["result"]["content"][0]["text"].as_str().unwrap();
             let inner: Value = serde_json::from_str(text).unwrap();
             assert_eq!(inner["status"], "stub", "bad status for {}", n.as_str());
-            assert_eq!(inner["specialist"], n.as_str());
+            if *n == Name::Anvil {
+                // Typed response shape — `cmd` echoed, no `specialist` key.
+                assert_eq!(inner["cmd"], "status");
+            } else {
+                assert_eq!(inner["specialist"], n.as_str());
+            }
         }
     }
 
@@ -409,8 +464,10 @@ mod tests {
 
     #[tokio::test]
     async fn stdio_loop_tools_call_end_to_end() {
+        // Use Muse (still a plain Stub) so we can exercise the stub echo
+        // shape end-to-end through the stdio loop.
         let s = server();
-        let input = b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"anvil\",\"arguments\":{\"cmd\":\"ping\"}}}\n"
+        let input = b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"muse\",\"arguments\":{\"cmd\":\"ping\"}}}\n"
             .to_vec();
         let mut output: Vec<u8> = Vec::new();
         s.run(&input[..], &mut output).await.expect("run ok");
@@ -421,6 +478,25 @@ mod tests {
         let inner_text = resp["result"]["content"][0]["text"].as_str().unwrap();
         assert!(inner_text.contains("\"status\":\"stub\""), "got: {inner_text}");
         assert!(inner_text.contains("\"echo\":{\"cmd\":\"ping\"}"), "got: {inner_text}");
+    }
+
+    #[tokio::test]
+    async fn stdio_loop_typed_anvil_end_to_end() {
+        // Typed specialist: request → schema-checked deserialize →
+        // handle_typed → typed response → JSON.
+        let s = server();
+        let input = b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"anvil\",\"arguments\":{\"cmd\":\"build\"}}}\n"
+            .to_vec();
+        let mut output: Vec<u8> = Vec::new();
+        s.run(&input[..], &mut output).await.expect("run ok");
+
+        let text = String::from_utf8(output).unwrap();
+        let resp: Value = serde_json::from_str(text.trim()).unwrap();
+        let inner_text = resp["result"]["content"][0]["text"].as_str().unwrap();
+        let inner: Value = serde_json::from_str(inner_text).unwrap();
+        assert_eq!(inner["cmd"], "build");
+        assert_eq!(inner["status"], "stub");
+        assert!(inner["tok_per_s"].is_null());
     }
 
     #[tokio::test]

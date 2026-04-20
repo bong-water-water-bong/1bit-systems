@@ -18,3 +18,4 @@ tracing     = { workspace = true }
 async-trait = "0.1"
 serde       = { workspace = true }
 serde_json  = { workspace = true }
+schemars    = { workspace = true, features = ["preserve_order"] }
