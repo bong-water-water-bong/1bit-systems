@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AMD Platform Driver Scan — Strix Halo (Ryzen AI MAX+ 395) · halo-ai docs</title>
+  <meta name="description" content="halo-ai docs: AMD Platform Driver Scan — Strix Halo (Ryzen AI MAX+ 395)">
+  <link rel="stylesheet" href="/docs/docs.css">
+</head>
+<body data-slug="amd-platform-driver-scan">
+<nav class="doc-topbar">
+  <a href="/" class="logo">halo-<span>ai</span></a>
+  <a href="/docs/">docs</a>
+  <input type="search" placeholder="filter…" id="q" autocomplete="off">
+</nav>
+<div class="doc-shell">
+<nav class="doc-sidebar" id="sidebar">
+<a class="home-link" href="/docs/">&larr; all docs</a>
+<div class="group"><h4>Getting started</h4><ul>
+<li data-slug="home"><a href="/docs/home.html">halo-ai-rs wiki</a></li>
+<li data-slug="faq"><a href="/docs/faq.html">FAQ</a></li>
+</ul></div>
+<div class="group"><h4>Why we built it this way</h4><ul>
+<li data-slug="why-ternary"><a href="/docs/why-ternary.html">Why 1.58-bit ternary?</a></li>
+<li data-slug="why-rust"><a href="/docs/why-rust.html">Why Rust above, C++ below?</a></li>
+<li data-slug="why-strix-halo"><a href="/docs/why-strix-halo.html">Why Strix Halo (gfx1151)?</a></li>
+<li data-slug="why-shadow-burnin"><a href="/docs/why-shadow-burnin.html">Why shadow-burnin?</a></li>
+<li data-slug="why-no-python"><a href="/docs/why-no-python.html">Why no Python at runtime? (Rule A)</a></li>
+<li data-slug="why-no-npu-yet"><a href="/docs/why-no-npu-yet.html">Why no NPU yet?</a></li>
+<li data-slug="why-this-way-how"><a href="/docs/why-this-way-how.html">Why this way + how — the design walkthrough</a></li>
+<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why <code>halo power</code>?</a></li>
+</ul></div>
+<div class="group"><h4>Research</h4><ul>
+<li data-slug="medusa-integration-plan"><a href="/docs/medusa-integration-plan.html">Medusa Integration Plan (halo-ai-rs / gen-2)</a></li>
+<li data-slug="halo-whisper-streaming-plan"><a href="/docs/halo-whisper-streaming-plan.html">Halo-Whisper Streaming Plan</a></li>
+<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via <code>--kv-quant rotor-3</code></a></li>
+</ul></div>
+<div class="group"><h4>Integrations</h4><ul>
+<li data-slug="hermes-integration"><a href="/docs/hermes-integration.html">Hermes Agent integration</a></li>
+<li data-slug="cloudflare-tunnel-setup"><a href="/docs/cloudflare-tunnel-setup.html">Cloudflare Tunnel Setup — api.halo-ai.studio</a></li>
+</ul></div>
+<div class="group"><h4>Other</h4><ul>
+<li data-slug="amd-ai-ml-tools-scan"><a href="/docs/amd-ai-ml-tools-scan.html">AMD AI/ML SDK Tools Scan</a></li>
+<li data-slug="amd-compilers-analyzers-scan"><a href="/docs/amd-compilers-analyzers-scan.html">AMD Compilers, Analyzers, Debuggers — 2026-04-20 scan</a></li>
+<li data-slug="amd-platform-driver-scan"><a href="/docs/amd-platform-driver-scan.html">AMD Platform Driver Scan — Strix Halo (Ryzen AI MAX+ 395)</a></li>
+<li data-slug="amd-rocm-ai-hub-scan"><a href="/docs/amd-rocm-ai-hub-scan.html">AMD ROCm AI Dev Hub — Scan for 1-bit BitNet on Strix Halo</a></li>
+<li data-slug="benchmarks"><a href="/docs/benchmarks.html">Live tok/s + PPL</a></li>
+<li data-slug="npu-kernel-design"><a href="/docs/npu-kernel-design.html">NPU-Kernel-Design</a></li>
+<li data-slug="peak-performance-projection"><a href="/docs/peak-performance-projection.html">Peak Performance Projection</a></li>
+<li data-slug="ternary-on-aie-pack-plan"><a href="/docs/ternary-on-aie-pack-plan.html">Ternary-on-AIE: packing &amp; MAC plan</a></li>
+<li data-slug="why-caddy-systemd"><a href="/docs/why-caddy-systemd.html">Why Caddy + user-scope systemd?</a></li>
+<li data-slug="why-h1b-format"><a href="/docs/why-h1b-format.html">Why our own <code>.h1b</code> format?</a></li>
+<li data-slug="why-halo-agents"><a href="/docs/why-halo-agents.html">Why halo-agents?</a></li>
+<li data-slug="why-parity-gates"><a href="/docs/why-parity-gates.html">Why shadow-traffic parity gates?</a></li>
+</ul></div>
+</nav>
+
+<main class="doc-main">
+  <h1>AMD Platform Driver Scan — Strix Halo (Ryzen AI MAX+ 395)</h1>
+  <p>Scanned 2026-04-20. Box: Bosgame M5 / BeyondMax, Sixunited AXB35 board, BIOS 1.07, NPU fw 1.1.2.65, CachyOS 7.0.0.</p>
+<h2 id="the-originally-linked-url-is-wrong">The originally linked URL is wrong</h2>
+<p><code>drivers.html/chipsets/am5/b650.html</code> is the <strong>AM5 desktop chipset</strong> page. Strix Halo is a BGA APU (FP8/FP11 socket-class, soldered); it has <strong>no discrete chipset driver SKU</strong>. The B650 page does not apply.</p>
+<p>Correct AMD support roots:</p>
+<ul>
+<li>Ryzen AI MAX+ 395 consumer: <code>https://www.amd.com/en/support/downloads/drivers.html/processors/ryzen/ryzen-ai-max-series/amd-ryzen-ai-max-plus-395.html</code></li>
+<li>Ryzen AI MAX+ PRO 395: <code>.../ryzen-pro/ryzen-ai-max-pro-300-series/amd-ryzen-ai-max-plus-pro-395.html</code></li>
+</ul>
+<h2 id="what-amd-officially-ships-for-this-sku-on-linux">What AMD officially ships for this SKU on Linux</h2>
+<table>
+<thead><tr><th>Component</th><th>AMD package</th><th>Linux?</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td>GPU (gfx1151)</td><td><code>amdgpu</code> (mainline) + ROCm 7.x</td><td>Yes</td><td>Already installed. ROCm Strix Halo guide exists.</td></tr>
+<tr><td>NPU (XDNA2)</td><td><code>amdxdna</code> (mainline kernel 6.10+) + <code>xrt</code> + <code>xrt-plugin-amdxdna</code> + Ryzen AI SW 1.7.1</td><td>Yes</td><td>Installed. SW 1.7.1 (2026-04-08) lists <strong>STX + KRK only</strong>; Strix Halo (STX-H) not in supported matrix — works in practice, not guaranteed.</td></tr>
+<tr><td>Chipset driver</td><td>8.02.18.557 (2026-03-09)</td><td><strong>Windows only</strong></td><td>Bundles PPM/PMF profiles, SMBus, GPIO. No Linux package. Equivalents live in <code>amd_pmf</code>, <code>amd_pstate_epp</code>, <code>k10temp</code>, <code>amd_hsmp</code> kernel drivers — already in CachyOS kernel.</td></tr>
+<tr><td>Sensor Fusion Hub</td><td><code>amd-sfh-hid</code> (mainline ≥ 5.11)</td><td>Yes</td><td>Laptop sensors only (accel/gyro/ALS). Strix Halo mini-PC has none wired — driver will bind to nothing, that's fine.</td></tr>
+<tr><td>Infinity Fabric monitoring</td><td><strong>No AMD userland tool</strong></td><td>—</td><td>Use <code>amd_hsmp</code> + <code>rocm-smi</code> + <code>amd_energy</code> + <code>turbostat</code>. No official package missing.</td></tr>
+<tr><td>EC / thermals</td><td>Vendor BIOS (Bosgame/Sixunited)</td><td>—</td><td>Not AMD's deliverable. <code>amd_pmf</code> slider covers the AMDI0102 ACPI path.</td></tr>
+</tbody></table>
+<h2 id="what-we-might-be-missing-honest-list">What we might be missing — honest list</h2>
+<p><strong>Nothing from amd.com is installable on Linux that we don't already have.</strong> The Windows "Chipset Driver 8.02" maps 1:1 to in-tree kernel drivers we already run. Ryzen AI Software 1.7.1 for Linux is the only other AMD-shipped Linux artefact, and it's redundant with our <code>xrt</code> + <code>amdxdna</code> stack (it bundles the same kernel module + xrt-smi we already have from CachyOS repos).</p>
+<h2 id="bios-npu-firmware-update-path">BIOS / NPU firmware update path</h2>
+<ul>
+<li>AMD does <strong>not</strong> ship BIOS. Strix Halo BIOS comes from the board OEM (Sixunited AXB35 reference → rebadged by Bosgame).</li>
+<li>Canonical update source: <strong>strixhalo.wiki Sixunited AXB35 Firmware page</strong> (<code>https://strixhalo.wiki/Hardware/Boards/Sixunited_AXB35/Firmware</code>). All AXB35-based devices share a compatible BIOS family; OEM cross-flashing is community-confirmed but unofficial.</li>
+<li>Bosgame's own page: <code>https://www.bosgamepc.com/pages/bios-download-center</code>.</li>
+<li>Linux-native flash path: EFI Shell via <code>capetron/minisforum-ms-s1-max-bios</code> recipe (no Windows needed).</li>
+<li>NPU firmware (<code>1.1.2.65</code>) is shipped inside <code>linux-firmware</code> (<code>amdnpu/*.sbin</code>), not the BIOS. Bumps arrive via distro <code>linux-firmware</code> updates, not AMD.com.</li>
+</ul>
+<h2 id="recommendation">Recommendation</h2>
+<p>Do not install anything from amd.com. Our existing CachyOS-repo stack (<code>amdgpu</code>, <code>amdxdna</code>, <code>xrt</code>, <code>xrt-plugin-amdxdna</code>, <code>linux-firmware</code>, kernel <code>amd_pmf</code>/<code>amd_hsmp</code>/<code>amd-sfh-hid</code>) is a superset of what AMD publishes for this SKU on Linux. BIOS updates go through the OEM/Sixunited channel on the Strix Halo wiki.</p>
+
+</main>
+</div>
+<script src="/docs/docs.js"></script>
+</body>
+</html>

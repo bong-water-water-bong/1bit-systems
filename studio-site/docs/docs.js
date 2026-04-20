@@ -1,28 +1,131 @@
-// docs.js — tiny client-side filter for sidebar + landing cards.
-// Loads /docs/index.json once, filters on every input keystroke.
+// docs.js — sidebar filter + group collapse + copy-buttons + right TOC scrollspy.
+// Loads /docs/index.json once for search.
 (function () {
   var $q = document.getElementById('q');
-  if (!$q) return;
   var body = document.body;
   var curSlug = body.getAttribute('data-slug');
 
-  // Mark the current page in the sidebar.
-  if (curSlug) {
-    var li = document.querySelector('.doc-sidebar li[data-slug="' + curSlug + '"]');
-    if (li) {
-      li.classList.add('active');
-      var a = li.querySelector('a');
-      if (a) a.classList.add('current');
+  // ── sidebar: mark current, collapse groups, auto-open current group ──
+  var sidebar = document.querySelector('.doc-sidebar');
+  if (sidebar) {
+    var groups = sidebar.querySelectorAll('.group');
+    var isIndex = curSlug === 'index' || !curSlug;
+    for (var gi = 0; gi < groups.length; gi++) {
+      var g = groups[gi];
+      var h = g.querySelector('h4');
+      var hasCur = curSlug && g.querySelector('li[data-slug="' + curSlug + '"]');
+      if (!isIndex && !hasCur) g.classList.add('collapsed');
+      if (h) {
+        h.addEventListener('click', (function (el) {
+          return function () { el.classList.toggle('collapsed'); };
+        })(g));
+      }
+    }
+    if (curSlug) {
+      var li = sidebar.querySelector('li[data-slug="' + curSlug + '"]');
+      if (li) {
+        li.classList.add('active');
+        var a = li.querySelector('a');
+        if (a) a.classList.add('current');
+      }
     }
   }
 
+  // ── hamburger + backdrop (mobile drawer) ──
+  var topbar = document.querySelector('.doc-topbar');
+  if (topbar && sidebar) {
+    var burger = document.createElement('button');
+    burger.className = 'doc-burger';
+    burger.setAttribute('aria-label', 'menu');
+    burger.textContent = '\u2630';
+    topbar.insertBefore(burger, topbar.firstChild);
+    var backdrop = document.createElement('div');
+    backdrop.className = 'doc-backdrop';
+    document.body.appendChild(backdrop);
+    function closeDrawer() { body.classList.remove('sidebar-open'); }
+    burger.addEventListener('click', function () { body.classList.toggle('sidebar-open'); });
+    backdrop.addEventListener('click', closeDrawer);
+    sidebar.addEventListener('click', function (e) {
+      if (e.target.tagName === 'A') closeDrawer();
+    });
+  }
+
+  // ── copy-to-clipboard on <pre> ──
+  var pres = document.querySelectorAll('.doc-main pre');
+  for (var pi = 0; pi < pres.length; pi++) {
+    var pre = pres[pi];
+    var code = pre.querySelector('code');
+    if (code) {
+      var cls = (code.className || '').match(/language-(\S+)/);
+      if (cls) pre.setAttribute('data-lang', cls[1]);
+    }
+    var btn = document.createElement('button');
+    btn.className = 'doc-copy';
+    btn.type = 'button';
+    btn.textContent = 'copy';
+    btn.addEventListener('click', (function (p, b) {
+      return function () {
+        var txt = (p.querySelector('code') || p).innerText;
+        (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject())
+          .then(function () {
+            b.textContent = 'copied'; b.classList.add('copied');
+            setTimeout(function () { b.textContent = 'copy'; b.classList.remove('copied'); }, 1400);
+          })
+          .catch(function () { b.textContent = 'err'; });
+      };
+    })(pre, btn));
+    pre.appendChild(btn);
+  }
+
+  // ── right-rail TOC from h2/h3 in .doc-main ──
+  var main = document.querySelector('.doc-main:not(.doc-landing)');
+  if (main) {
+    var heads = main.querySelectorAll('h2[id], h3[id]');
+    if (heads.length > 1) {
+      var toc = document.createElement('aside');
+      toc.className = 'doc-toc';
+      var title = document.createElement('p');
+      title.className = 'toc-title';
+      title.textContent = 'on this page';
+      toc.appendChild(title);
+      var ul = document.createElement('ul');
+      for (var hi = 0; hi < heads.length; hi++) {
+        var hd = heads[hi];
+        var item = document.createElement('li');
+        item.className = 'lvl-' + hd.tagName.charAt(1);
+        var link = document.createElement('a');
+        link.href = '#' + hd.id;
+        link.textContent = hd.textContent.replace(/^>\s*/, '');
+        item.appendChild(link);
+        ul.appendChild(item);
+      }
+      toc.appendChild(ul);
+      var shell = document.querySelector('.doc-shell');
+      if (shell) shell.appendChild(toc);
+      var links = toc.querySelectorAll('a');
+      function spy() {
+        var y = window.scrollY + 120;
+        var cur = heads[0];
+        for (var i = 0; i < heads.length; i++) {
+          if (heads[i].offsetTop <= y) cur = heads[i];
+        }
+        for (var j = 0; j < links.length; j++) {
+          links[j].classList.toggle('active', links[j].getAttribute('href') === '#' + cur.id);
+        }
+      }
+      window.addEventListener('scroll', spy, { passive: true });
+      spy();
+    }
+  }
+
+  // ── search filter (unchanged behaviour) ──
+  if (!$q) return;
   var index = null;
   var indexReady = fetch('/docs/index.json', { cache: 'no-cache' })
     .then(function (r) { return r.ok ? r.json() : []; })
     .then(function (j) { index = Array.isArray(j) ? j : []; })
     .catch(function () { index = []; });
 
-  // Normalise once; searching against keywords[] + title.
   function matches(entry, q) {
     if (!q) return true;
     q = q.toLowerCase();
@@ -40,7 +143,6 @@
     var cards = document.querySelectorAll('.doc-card');
     var allowed = {};
     if (!q) {
-      // Everything visible.
       for (var i = 0; i < items.length; i++) items[i].classList.remove('hidden');
       for (var j = 0; j < cards.length; j++) cards[j].classList.remove('hidden');
       hideEmptyGroups();
@@ -51,7 +153,6 @@
         if (matches(index[k], q)) allowed[index[k].slug] = true;
       }
     } else {
-      // Index not ready — fall back to title-only substring.
       for (var m = 0; m < items.length; m++) {
         var a = items[m].querySelector('a');
         if (a && a.textContent.toLowerCase().indexOf(q.toLowerCase()) !== -1) {
@@ -100,7 +201,6 @@
     t = setTimeout(function () { apply(q); }, 30);
   });
 
-  // Keyboard: "/" focuses, Esc clears.
   document.addEventListener('keydown', function (e) {
     if (e.key === '/' && document.activeElement !== $q) {
       e.preventDefault();

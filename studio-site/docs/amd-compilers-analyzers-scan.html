@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AMD Compilers, Analyzers, Debuggers — 2026-04-20 scan · halo-ai docs</title>
+  <meta name="description" content="halo-ai docs: AMD Compilers, Analyzers, Debuggers — 2026-04-20 scan">
+  <link rel="stylesheet" href="/docs/docs.css">
+</head>
+<body data-slug="amd-compilers-analyzers-scan">
+<nav class="doc-topbar">
+  <a href="/" class="logo">halo-<span>ai</span></a>
+  <a href="/docs/">docs</a>
+  <input type="search" placeholder="filter…" id="q" autocomplete="off">
+</nav>
+<div class="doc-shell">
+<nav class="doc-sidebar" id="sidebar">
+<a class="home-link" href="/docs/">&larr; all docs</a>
+<div class="group"><h4>Getting started</h4><ul>
+<li data-slug="home"><a href="/docs/home.html">halo-ai-rs wiki</a></li>
+<li data-slug="faq"><a href="/docs/faq.html">FAQ</a></li>
+</ul></div>
+<div class="group"><h4>Why we built it this way</h4><ul>
+<li data-slug="why-ternary"><a href="/docs/why-ternary.html">Why 1.58-bit ternary?</a></li>
+<li data-slug="why-rust"><a href="/docs/why-rust.html">Why Rust above, C++ below?</a></li>
+<li data-slug="why-strix-halo"><a href="/docs/why-strix-halo.html">Why Strix Halo (gfx1151)?</a></li>
+<li data-slug="why-shadow-burnin"><a href="/docs/why-shadow-burnin.html">Why shadow-burnin?</a></li>
+<li data-slug="why-no-python"><a href="/docs/why-no-python.html">Why no Python at runtime? (Rule A)</a></li>
+<li data-slug="why-no-npu-yet"><a href="/docs/why-no-npu-yet.html">Why no NPU yet?</a></li>
+<li data-slug="why-this-way-how"><a href="/docs/why-this-way-how.html">Why this way + how — the design walkthrough</a></li>
+<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why <code>halo power</code>?</a></li>
+</ul></div>
+<div class="group"><h4>Research</h4><ul>
+<li data-slug="medusa-integration-plan"><a href="/docs/medusa-integration-plan.html">Medusa Integration Plan (halo-ai-rs / gen-2)</a></li>
+<li data-slug="halo-whisper-streaming-plan"><a href="/docs/halo-whisper-streaming-plan.html">Halo-Whisper Streaming Plan</a></li>
+<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via <code>--kv-quant rotor-3</code></a></li>
+</ul></div>
+<div class="group"><h4>Integrations</h4><ul>
+<li data-slug="hermes-integration"><a href="/docs/hermes-integration.html">Hermes Agent integration</a></li>
+<li data-slug="cloudflare-tunnel-setup"><a href="/docs/cloudflare-tunnel-setup.html">Cloudflare Tunnel Setup — api.halo-ai.studio</a></li>
+</ul></div>
+<div class="group"><h4>Other</h4><ul>
+<li data-slug="amd-ai-ml-tools-scan"><a href="/docs/amd-ai-ml-tools-scan.html">AMD AI/ML SDK Tools Scan</a></li>
+<li data-slug="amd-compilers-analyzers-scan"><a href="/docs/amd-compilers-analyzers-scan.html">AMD Compilers, Analyzers, Debuggers — 2026-04-20 scan</a></li>
+<li data-slug="amd-platform-driver-scan"><a href="/docs/amd-platform-driver-scan.html">AMD Platform Driver Scan — Strix Halo (Ryzen AI MAX+ 395)</a></li>
+<li data-slug="amd-rocm-ai-hub-scan"><a href="/docs/amd-rocm-ai-hub-scan.html">AMD ROCm AI Dev Hub — Scan for 1-bit BitNet on Strix Halo</a></li>
+<li data-slug="benchmarks"><a href="/docs/benchmarks.html">Live tok/s + PPL</a></li>
+<li data-slug="npu-kernel-design"><a href="/docs/npu-kernel-design.html">NPU-Kernel-Design</a></li>
+<li data-slug="peak-performance-projection"><a href="/docs/peak-performance-projection.html">Peak Performance Projection</a></li>
+<li data-slug="ternary-on-aie-pack-plan"><a href="/docs/ternary-on-aie-pack-plan.html">Ternary-on-AIE: packing &amp; MAC plan</a></li>
+<li data-slug="why-caddy-systemd"><a href="/docs/why-caddy-systemd.html">Why Caddy + user-scope systemd?</a></li>
+<li data-slug="why-h1b-format"><a href="/docs/why-h1b-format.html">Why our own <code>.h1b</code> format?</a></li>
+<li data-slug="why-halo-agents"><a href="/docs/why-halo-agents.html">Why halo-agents?</a></li>
+<li data-slug="why-parity-gates"><a href="/docs/why-parity-gates.html">Why shadow-traffic parity gates?</a></li>
+</ul></div>
+</nav>
+
+<main class="doc-main">
+  <h1>AMD Compilers, Analyzers, Debuggers — 2026-04-20 scan</h1>
+  <p>Lens: what improves halo-ai's AIE kernel authoring, HIP perf, or ROCm profiling beyond our current stack (gcc 14, clang 20, hipcc, Peano/llvm-aie, rocprof, rocgdb, bindgen). Landing page: https://www.amd.com/en/developer/browse-by-resource-type/software-tools.html (fetch blocked; table from GPUOpen + ROCm docs).</p>
+<h2 id="catalog">Catalog</h2>
+<table>
+<thead><tr><th>Tool</th><th>What it does</th><th>Linux today?</th><th>License</th><th>Fits our stack?</th></tr></thead>
+<tbody>
+<tr><td>AOCC</td><td>Zen-tuned Clang/Flang (LLVM 17), no GPU offload</td><td>Yes</td><td>AMD EULA</td><td>Overlaps clang 20; Zen5 wins marginal vs CachyOS <code>znver4</code>. <strong>Skip.</strong></td></tr>
+<tr><td>AOMP</td><td>LLVM+OpenMP GPU offload staging</td><td>Yes</td><td>Apache 2.0</td><td>hipcc covers us. <strong>Defer.</strong></td></tr>
+<tr><td>hipcc / ROCm LLVM</td><td>HIP + amdclang++</td><td>Yes</td><td>NCSA/MIT</td><td><strong>Using.</strong></td></tr>
+<tr><td>ROCgdb</td><td>GDB with AMDGPU wavefront debug</td><td>Yes</td><td>GPL</td><td><strong>Using.</strong></td></tr>
+<tr><td>rocprof / rocprofv2</td><td>HW counters, kernel traces (EOL 2026-Q2)</td><td>Yes</td><td>MIT</td><td><strong>Using.</strong> Migrate Q2.</td></tr>
+<tr><td>rocprofiler-sdk / <code>rocprofv3</code></td><td>Successor C++ API</td><td>Yes</td><td>MIT</td><td><strong>Adopt on next bump.</strong></td></tr>
+<tr><td>ROCm Compute Profiler (<code>rocprof-compute</code>, ex-Omniperf)</td><td>Roofline, L1/L2/LDS counters, Grafana UI</td><td>Yes (ROCm ≥6.2)</td><td>MIT</td><td><strong>Adopt.</strong> Serves Gerganov L1 lead + Sherry bytes-read validation.</td></tr>
+<tr><td>ROCm Systems Profiler (ex-Omnitrace)</td><td>Whole-app timeline, GPU+CPU sampling</td><td>Yes</td><td>MIT</td><td><strong>Adopt for voice lane.</strong></td></tr>
+<tr><td>Radeon GPU Analyzer (RGA)</td><td>Offline compiler + ISA inspector (Vulkan/DX/GL/<strong>OpenCL</strong>), VGPR/SGPR/occupancy</td><td>Yes (CLI + VS Code ext)</td><td>MIT</td><td><strong>gfx1151 supported</strong> (2.12+ adds gfx1150/1151/1152/1201). No native HIP input, but OpenCL+GCN ISA dump fills a real gap vs rocprof. <strong>Adopt.</strong></td></tr>
+<tr><td>Radeon GPU Profiler (RGP)</td><td>Vulkan/DX12 frame profiler</td><td>Yes</td><td>MIT</td><td>Graphics only. <strong>Skip.</strong></td></tr>
+<tr><td>Radeon Raytracing Analyzer (RRA)</td><td>BVH inspector</td><td>Yes</td><td>MIT</td><td><strong>Skip.</strong></td></tr>
+<tr><td>Radeon Memory Visualizer (RMV)</td><td>VRAM residency timeline</td><td>Yes (AMDVLK only)</td><td>MIT</td><td>25.20 RADV-default breaks capture. <strong>Skip for now.</strong></td></tr>
+<tr><td>AMD uProf</td><td>Zen CPU profiler: IBS, branch mispredict, LLC miss, AVX-512 retire; also MI metrics</td><td><strong>Yes, AUR <code>amduprof</code></strong></td><td>AMD EULA</td><td><strong>Adopt for CPU offload lane.</strong> Only tool with clean Zen5 PMC coverage on Linux.</td></tr>
+<tr><td>GPU PerfStudio / RCP</td><td>Deprecated</td><td>—</td><td>—</td><td><strong>Skip.</strong></td></tr>
+<tr><td>llvm-aie <code>llvm-mc</code>, <code>llvm-objdump</code></td><td><strong>AIE2/AIE2P assembler + disassembler</strong> in Peano fork</td><td>Yes, at <code>/opt/peano/bin</code></td><td>Apache-2.0</td><td>Already installed; just not invoking. <code>llvm-objdump -d --triple=aie2p-none-unknown-elf</code> disassembles AIE2P ELFs. <strong>Use for AIE debug.</strong></td></tr>
+<tr><td>mlir-aie / IRON</td><td>MLIR AIE dialect + Python IRON front-end</td><td>Yes</td><td>Apache-2.0</td><td>Authoring-time Python OK (Rule A covers runtime). <strong>Defer until first AIE2P kernel.</strong></td></tr>
+</tbody></table>
+<h2 id="special-focus-answers">Special-focus answers</h2>
+<ul>
+<li><strong>AIE assembler/disassembler?</strong> YES. <code>/opt/peano/bin/llvm-mc</code> + <code>/opt/peano/bin/llvm-objdump</code>, triple <code>aie2p-none-unknown-elf</code>. https://github.com/Xilinx/llvm-aie (issue #352 confirms AIE2PInstPrinter). No separate AMD-branded assembler exists.</li>
+<li><strong>Zen5 profiler on Arch/CachyOS?</strong> YES. AMD uProf via AUR <code>amduprof</code>; closed tarball, user-mode driver loads on Arch kernels. IBS + branch-mispredict + LLC + AVX-512 retire counters.</li>
+<li><strong>RGA on gfx1151?</strong> YES. RGA 2.12+ adds gfx1150/1151/1152/1201 across all compile modes. OpenCL offline path works without a runtime launch. Caveat: no direct <code>.hip</code> ingest — feed extracted GCN asm (<code>hipcc --save-temps</code>) or OpenCL.</li>
+</ul>
+<h2 id="adopt-order-hot-path-impact">Adopt order (hot-path impact)</h2>
+<ol>
+<li><strong>RGA</strong> — offline gfx1151 ISA / occupancy / register-pressure on the ternary GEMV (rocprof doesn't show this).</li>
+<li><strong>rocprof-compute</strong> — roofline validates "92% of LPDDR5 peak" and Sherry's projected bytes-read drop.</li>
+<li><strong>AMD uProf</strong> — CPU offload lane, only clean Zen5 PMC coverage on Linux.</li>
+<li><strong>llvm-objdump --triple=aie2p</strong> — free, already on disk.</li>
+<li><strong>rocprofiler-sdk</strong> — migrate before rocprof EOL 2026-Q2.</li>
+</ol>
+<p>Skips: AOCC, AOMP (overlap); RGP/RRA/RMV (wrong workload); GPU PerfStudio, RCP (deprecated).</p>
+<h2 id="urls">URLs</h2>
+<ul>
+<li>Landing: https://www.amd.com/en/developer/browse-by-resource-type/software-tools.html</li>
+<li>AOCC: https://www.amd.com/en/developer/aocc.html</li>
+<li>uProf: https://www.amd.com/en/developer/uprof.html</li>
+<li>RGA: https://gpuopen.com/rga/ · releases: https://github.com/GPUOpen-Tools/radeon_gpu_analyzer/releases</li>
+<li>RGP/RRA/RMV: https://gpuopen.com/rgp/ · https://gpuopen.com/radeon-raytracing-analyzer/ · https://github.com/GPUOpen-Tools/radeon_memory_visualizer</li>
+<li>rocprof-compute: https://rocm.docs.amd.com/projects/rocprofiler-compute/en/latest/</li>
+<li>rocprofiler-sdk: https://rocm.docs.amd.com/projects/rocprofiler-sdk/en/latest/</li>
+<li>llvm-aie (Peano): https://github.com/Xilinx/llvm-aie</li>
+<li>mlir-aie: https://github.com/Xilinx/mlir-aie</li>
+</ul>
+
+</main>
+</div>
+<script src="/docs/docs.js"></script>
+</body>
+</html>

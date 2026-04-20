@@ -40,6 +40,10 @@
 <li data-slug="cloudflare-tunnel-setup"><a href="/docs/cloudflare-tunnel-setup.html">Cloudflare Tunnel Setup — api.halo-ai.studio</a></li>
 </ul></div>
 <div class="group"><h4>Other</h4><ul>
+<li data-slug="amd-ai-ml-tools-scan"><a href="/docs/amd-ai-ml-tools-scan.html">AMD AI/ML SDK Tools Scan</a></li>
+<li data-slug="amd-compilers-analyzers-scan"><a href="/docs/amd-compilers-analyzers-scan.html">AMD Compilers, Analyzers, Debuggers — 2026-04-20 scan</a></li>
+<li data-slug="amd-platform-driver-scan"><a href="/docs/amd-platform-driver-scan.html">AMD Platform Driver Scan — Strix Halo (Ryzen AI MAX+ 395)</a></li>
+<li data-slug="amd-rocm-ai-hub-scan"><a href="/docs/amd-rocm-ai-hub-scan.html">AMD ROCm AI Dev Hub — Scan for 1-bit BitNet on Strix Halo</a></li>
 <li data-slug="benchmarks"><a href="/docs/benchmarks.html">Live tok/s + PPL</a></li>
 <li data-slug="npu-kernel-design"><a href="/docs/npu-kernel-design.html">NPU-Kernel-Design</a></li>
 <li data-slug="peak-performance-projection"><a href="/docs/peak-performance-projection.html">Peak Performance Projection</a></li>
@@ -81,6 +85,10 @@
 <a class="doc-card" href="/docs/cloudflare-tunnel-setup.html"><h3>Cloudflare Tunnel Setup — api.halo-ai.studio</h3><p>Status 2026-04-20: halo-ai.studio apex is already live as a Hugo site on Cloudflare Pages (HTTP/2, CF-Ray header, 172.67.134.39). That is the marketing site, served from an external repo, unrelated to this tunnel.</p></a>
 </div></section>
 <section class="doc-group"><h2>Other</h2><div class="doc-cards">
+<a class="doc-card" href="/docs/amd-ai-ml-tools-scan.html"><h3>AMD AI/ML SDK Tools Scan</h3><p>Scope: catalog AMD-published AI/ML/inference/quantization/model-serving SDKs from amd.com/en/developer/browse-by-resource-type/software-tools.html and adjacent AMD pages. FPGA-only (Vitis/Versal) excluded — another agent owns that lane. F…</p></a>
+<a class="doc-card" href="/docs/amd-compilers-analyzers-scan.html"><h3>AMD Compilers, Analyzers, Debuggers — 2026-04-20 scan</h3><p>Lens: what improves halo-ai's AIE kernel authoring, HIP perf, or ROCm profiling beyond our current stack (gcc 14, clang 20, hipcc, Peano/llvm-aie, rocprof, rocgdb, bindgen). Landing page: https://www.amd.com/en/developer/browse-by-resource-…</p></a>
+<a class="doc-card" href="/docs/amd-platform-driver-scan.html"><h3>AMD Platform Driver Scan — Strix Halo (Ryzen AI MAX+ 395)</h3><p>Scanned 2026-04-20. Box: Bosgame M5 / BeyondMax, Sixunited AXB35 board, BIOS 1.07, NPU fw 1.1.2.65, CachyOS 7.0.0.</p></a>
+<a class="doc-card" href="/docs/amd-rocm-ai-hub-scan.html"><h3>AMD ROCm AI Dev Hub — Scan for 1-bit BitNet on Strix Halo</h3><p>Date: 2026-04-20 Source root: &lt;https://www.amd.com/en/developer/resources/rocm-hub/dev-ai.html&gt; Fetch method: WebSearch (WebFetch permission denied). Link anchors verified via search snippets, not DOM walk. Scope: ROCm AI landing + top 10 s…</p></a>
 <a class="doc-card" href="/docs/benchmarks.html"><h3>Live tok/s + PPL</h3><p>What we measure and what each number means. All numbers taken on the production box (strixhalo, 100.64.0.1) unless noted.</p></a>
 <a class="doc-card" href="/docs/npu-kernel-design.html"><h3>NPU-Kernel-Design</h3><p>Design notes for the straight-C++/Peano reimplementation of IRON's INT8 GEMM, targeting the Strix Halo XDNA2 NPU for BitNet prefill. Source reference: amd/IRON @ devel (cloned 2026-04-20 to /tmp/IRON-read).</p></a>
 <a class="doc-card" href="/docs/peak-performance-projection.html"><h3>Peak Performance Projection</h3><p>Quantitative projection of halo-ai end-state throughput on Strix Halo (Ryzen AI MAX+ 395) once all seven planned lanes ship. Every number has a derivation or a citation. All projections carry a ±20% band unless stated otherwise.</p></a>
