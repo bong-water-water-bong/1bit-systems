@@ -624,6 +624,12 @@ impl Mapped {
         Ok(Mapped::Mmap(mm))
     }
 
+    /// Crate-public alias — other modules in `halo-core` (e.g. `gguf`) reuse
+    /// the same mmap machinery. Same safety rules as [`Self::from_file`].
+    pub(crate) fn from_file_public(file: &File) -> std::io::Result<Self> {
+        Self::from_file(file)
+    }
+
     pub(crate) fn as_slice(&self) -> &[u8] {
         match self {
             Mapped::Mmap(m) => m.as_ref(),

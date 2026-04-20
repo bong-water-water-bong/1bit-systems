@@ -7,6 +7,9 @@
 //! Scope
 //! -----
 //! * [`h1b`]    — `.h1b` ternary-BitNet model format (parser + writer).
+//! * [`gguf`]   — GGUF v3 parser (mmap + metadata KVs + tensor directory).
+//!                Drop-in compat with public BitNet GGUFs (e.g.
+//!                `microsoft/bitnet-b1.58-2B-4t-gguf`); no dequantization.
 //! * [`htok`]   — `.htok` tokenizer file format (parser + writer).
 //! * [`sampler`] — host-side logits sampler (temperature, top-k, top-p,
 //!                 repetition penalty). Ported from `bitnet_decode.cpp`'s
@@ -23,12 +26,17 @@
 //! [`h1b::Mapped`]; every other public API is safe Rust.
 
 pub mod error;
+pub mod gguf;
 pub mod h1b;
 pub mod htok;
 pub mod sampler;
 pub mod types;
 
 pub use error::HaloError;
+pub use gguf::{
+    BitnetHeader, GgufArray, GgufFile, GgufTensorInfo, GgufTensorType, GgufValue,
+    GgufValueType, GGUF_MAGIC, GGUF_MIN_VERSION,
+};
 pub use h1b::{H1bConfig, H1bFile, H1bLayerOffsets, H1bWeightFormat, H1B_MAGIC};
 pub use htok::{HtokFile, Merge, HTOK_MAGIC};
 pub use sampler::{Sampler, SamplerConfig};
