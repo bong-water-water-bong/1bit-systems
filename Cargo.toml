@@ -12,6 +12,7 @@ members = [
     "crates/halo-lemonade",
     "crates/halo-gaia",
     "crates/halo-landing",
+    "crates/halo-voice",
 ]
 
 [workspace.package]
