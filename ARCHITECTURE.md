@@ -7,7 +7,7 @@ This document is the long-form companion to the [README](./README.md). It descri
 | # | pillar | repo | language | role |
 |---|---|---|---|---|
 | 1 | Rust orchestration | this workspace (`halo-workspace`) | Rust | CLI, HTTP, router, MCP, agents |
-| 2 | AMD HIP kernels | `bong-water-water-bong/rocm-cpp` (private) / `stampby/rocm-cpp` (public gen 1) | C++ / HIP | ternary GEMV, RMSNorm, RoPE, split-KV FD attention |
+| 2 | AMD HIP kernels | `bong-water-water-bong/rocm-cpp` (private) / `bong-water-water-bong/rocm-cpp` (public gen 1) | C++ / HIP | ternary GEMV, RMSNorm, RoPE, split-KV FD attention |
 | 3 | Apple Silicon MLX | `bong-water-water-bong/bitnet-mlx-rs` (fork of `leizerowicz/bitnet-mlx.rs`) | Rust + MLX | Apple-Silicon backend, feature-gated |
 | 4 | Lemonade reference | `bong-water-water-bong/lemonade-sdk` (mirror of `lemonade-sdk/lemonade`) | Python | **not runtime** — reference for OpenAI-compat + Gaia UI we're porting |
 

@@ -60,7 +60,7 @@ progress_pipe() {
 
 # ── configuration ────────────────────────────────────────────
 REPO_ROOT="${REPO_ROOT:-$HOME/repos}"
-ROCM_CPP_URL="${ROCM_CPP_URL:-https://github.com/stampby/rocm-cpp.git}"
+ROCM_CPP_URL="${ROCM_CPP_URL:-https://github.com/bong-water-water-bong/rocm-cpp.git}"
 ROCM_CPP_DIR="${ROCM_CPP_DIR:-$REPO_ROOT/rocm-cpp}"
 WORKSPACE_DIR="${WORKSPACE_DIR:-$(cd "$(dirname "$0")" && pwd)}"
 ROCM_ROOT="${ROCM_ROOT:-/opt/rocm}"

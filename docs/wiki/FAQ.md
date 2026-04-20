@@ -18,7 +18,7 @@ AMD Ryzen AI MAX+ 395 (Strix Halo) mini-PC, $2-3k. 128 GB LPDDR5 unified memory,
 ## How do I install it?
 
 ```
-git clone git@github.com:stampby/halo-ai-core.git
+git clone git@github.com:bong-water-water-bong/halo-ai-core.git
 cd halo-ai-core
 ./install-strixhalo.sh
 ```
@@ -80,7 +80,7 @@ Also: none of them ship an MCP server, self-maintaining agents, Lemonade-compat 
 
 ## Is it open source?
 
-- Kernels (`stampby/rocm-cpp`) — MIT, public.
+- Kernels (`bong-water-water-bong/rocm-cpp`) — MIT, public.
 - Rust monorepo (`halo-ai-rs`) — private until launch. Collaborator invites available.
 - Everything we fork or borrow is credited in [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md).
 

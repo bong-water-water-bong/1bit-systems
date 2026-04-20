@@ -90,7 +90,7 @@ Total wall-clock: ~200ms for a 10-token prompt + 10-token reply. Scales linearly
 
 17 halo-agents run in the background on tokio. Each is a `Specialist` impl with typed I/O (serde + schemars). They're exposed over MCP so Claude Code and DSPy can invoke them as tools. Four relevant to ops:
 
-- **anvil** — polls `stampby/rocm-cpp`. On new commit: git fetch + cmake build + bench_kv_fd. Posts the build+bench summary to `#changelog` via Discord. If build fails, the tail of the log is posted so you see it when you check your phone.
+- **anvil** — polls `bong-water-water-bong/rocm-cpp`. On new commit: git fetch + cmake build + bench_kv_fd. Posts the build+bench summary to `#changelog` via Discord. If build fails, the tail of the log is posted so you see it when you check your phone.
 - **librarian** — scans commit history across halo-ai-core + rocm-cpp + agent-cpp. Appends Conventional-Commits-formatted lines to `CHANGELOG.md` + posts the delta.
 - **quartermaster** — polls GitHub for issues with zero labels across our repos. Adds `needs-triage`. State file tracks which issues have been handled so it doesn't re-label.
 - **magistrate** — scans open PRs for Conventional-Commits titles + secret patterns in the diff. Flags violations. Never silently drops a `gh pr diff` failure — we learned that lesson.
@@ -125,7 +125,7 @@ We're watching, not building. The iGPU path has too much runway left — Sherry,
 One script. What it does:
 
 1. Check GPU is gfx1151, kernel is 7.x, `amdxdna` + `rocm-hip-sdk` installed.
-2. Clone (or pull) `stampby/rocm-cpp`, build kernels with `cmake --build`. Takes ~2 minutes on a Strix Halo.
+2. Clone (or pull) `bong-water-water-bong/rocm-cpp`, build kernels with `cmake --build`. Takes ~2 minutes on a Strix Halo.
 3. `cargo build --release --workspace` in halo-workspace. Another ~1 minute.
 4. `cargo install --path crates/halo-cli` + `...halo-server` + `...halo-lemonade` + `...halo-gaia` + `...halo-landing`. All five binaries land in `~/.cargo/bin/`.
 5. `systemctl --user enable --now strix-server strix-lemonade strix-landing`.

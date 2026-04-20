@@ -8,7 +8,7 @@ set -euo pipefail
 CHANNEL_ID="1488836467039010936"   # #changelog
 MCP_WRAPPER="$HOME/repos/halo-ai-core/discord-mcp/bin/halo-discord.sh"
 STATE_FILE="$HOME/.local/share/halo-ai/quartermaster.state"
-REPOS=(stampby/rocm-cpp stampby/halo-ai-core stampby/agent-cpp stampby/halo-1bit)
+REPOS=(bong-water-water-bong/rocm-cpp bong-water-water-bong/halo-ai-core bong-water-water-bong/agent-cpp bong-water-water-bong/halo-1bit)
 
 mkdir -p "$(dirname "$STATE_FILE")"
 touch "$STATE_FILE"

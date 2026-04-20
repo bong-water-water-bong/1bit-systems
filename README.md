@@ -60,7 +60,7 @@ Ternary GEMV is sitting at 92% of LPDDR5 peak bandwidth. Next frontier is bytes-
 halo-ai gen 2 is four repos working together. This workspace is pillar 1.
 
 1. **Rust orchestration** — this monorepo. Everything above the kernels, all Rust, Rule A safe (no Python at runtime).
-2. **AMD HIP kernels** — [bong-water-water-bong/rocm-cpp](https://github.com/bong-water-water-bong/rocm-cpp) (private mirror) and [stampby/rocm-cpp](https://github.com/stampby/rocm-cpp) (public gen 1). Ternary GEMV, RMSNorm, RoPE, split-KV Flash-Decoding attention. Linked through `halo-bitnet-hip`.
+2. **AMD HIP kernels** — [bong-water-water-bong/rocm-cpp](https://github.com/bong-water-water-bong/rocm-cpp) (canonical). Ternary GEMV, RMSNorm, RoPE, split-KV Flash-Decoding attention, rotorquant PlanarQuant-3 KV compression. Linked through `halo-bitnet-hip`. The old `stampby/rocm-cpp` is archived; `stampby` handle is retired.
 3. **Apple Silicon MLX backend** — [bong-water-water-bong/bitnet-mlx-rs](https://github.com/bong-water-water-bong/bitnet-mlx-rs) (fork of `leizerowicz/bitnet-mlx.rs`). Feature-gated behind `--features mlx-apple`, keeps the workspace cross-platform on a single codebase.
 4. **Lemonade reference** — [bong-water-water-bong/lemonade-sdk](https://github.com/bong-water-water-bong/lemonade-sdk) (mirror of `lemonade-sdk/lemonade`, Python). **Not run at runtime.** Kept as the reference for OpenAI-compat surface area and Gaia desktop-app features we're porting to Rust.
 

@@ -85,8 +85,8 @@ Takes under 10 seconds.
 - Drop gen-1 from shadow-burnin (no longer useful as baseline; replace
   with halo-router itself on a second GPU once we have one).
 - Update README.md's "Quickstart" to point at `:8180` by default.
-- Archive `stampby/rocm-cpp` gen-1 branch; canonical kernel work lives
-  under bong-water-water-bong/rocm-cpp from then on.
+- Tag a `pre-cutover` snapshot on `bong-water-water-bong/rocm-cpp` so
+  we can roll back to the gen-1-compatible kernel set if needed.
 
 ## Fire-drill test (recommended before the real cutover)
 

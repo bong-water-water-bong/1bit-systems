@@ -10,12 +10,13 @@ Keep terse; when in doubt, follow `ARCHITECTURE.md`.
   systemd unit or a path that serves HTTP. If a component needs orchestration,
   write it in Rust.
 - **Rule B — C++20 only for kernels.** All HIP kernels stay in
-  `stampby/rocm-cpp` (public) or `bong-water-water-bong/rocm-cpp` (private
-  mirror). Do NOT reimplement kernels in Rust. FFI through `halo-bitnet-hip`.
+  `bong-water-water-bong/rocm-cpp`. Do NOT reimplement kernels in Rust.
+  FFI through `halo-bitnet-hip`. (Old `stampby/rocm-cpp` is archived,
+  `stampby` handle retired.)
 - **Rule C — hipBLAS is banned** in the runtime path. Native Tensile kernels
   only. If you find yourself reaching for hipBLAS, step back and port the
   kernel to `rocm-cpp` instead.
-- **Rule D — Rust 1.85, edition 2024.** `rust-version` is pinned in the
+- **Rule D — Rust 1.86, edition 2024.** `rust-version` is pinned in the
   workspace `Cargo.toml`. Don't bump without a reason.
 
 ## Layout
@@ -61,9 +62,8 @@ install.sh           fresh-box bootstrap
 - **Messages have a "why" line.** Not "add tokenizer" — "add tokenizer
   special-token handling; gen-1 expects 128009 on EOT boundary and argmax
   diverges without it."
-- **Always push to `bong` remote** (`git@github-bong:...`). `origin` points
-  at the older `strix-ai-rs/halo-workspace` org; pushes there are optional
-  archival, not the primary.
+- **Always push to `bong` remote** (`git@github-bong:...`).
+  `bong-water-water-bong` is the canonical handle. `stampby` is retired.
 
 ## What NOT to do
 

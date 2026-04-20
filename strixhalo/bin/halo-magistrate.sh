@@ -13,7 +13,7 @@ set -euo pipefail
 CHANNEL_ID="1488836467039010936"   # #changelog
 MCP_WRAPPER="$HOME/repos/halo-ai-core/discord-mcp/bin/halo-discord.sh"
 STATE_FILE="$HOME/.local/share/halo-ai/magistrate.state"
-REPOS=(stampby/rocm-cpp stampby/halo-ai-core stampby/agent-cpp stampby/halo-1bit)
+REPOS=(bong-water-water-bong/rocm-cpp bong-water-water-bong/halo-ai-core bong-water-water-bong/agent-cpp bong-water-water-bong/halo-1bit)
 
 CC_RE='^(feat|fix|perf|docs|refactor|build|ci|chore|test|style|revert)(\([^)]+\))?: '
 # Secret sniffers (keep permissive; false positives are OK, we just flag).
