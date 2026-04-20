@@ -67,12 +67,15 @@ add_library(rocm_cpp SHARED
     src/kv_cache_attn.hip
     src/kv_cache_attn_i8.hip
     src/kv_cache_attn_fd.hip
+    src/kv_cache_attn_fd_rotor.hip
+    src/kv_rotorquant.cpp
     src/h1b_loader.cpp
     src/tokenizer.cpp
     kernels/ternary_gemv_phase5_dot4.hip
     kernels/ternary_gemv_phase5_halo.hip
     kernels/ternary_gemv_sherry.hip
-    kernels/ternary_gemv_tq1_halo.hip)
+    kernels/ternary_gemv_tq1_halo.hip
+    kernels/rotorquant_pack.hip)
 set_source_files_properties(
     src/ck_gemm.cpp
     src/prefill_standalone.hip
@@ -81,10 +84,12 @@ set_source_files_properties(
     src/kv_cache_attn.hip
     src/kv_cache_attn_i8.hip
     src/kv_cache_attn_fd.hip
+    src/kv_cache_attn_fd_rotor.hip
     kernels/ternary_gemv_phase5_dot4.hip
     kernels/ternary_gemv_phase5_halo.hip
     kernels/ternary_gemv_sherry.hip
     kernels/ternary_gemv_tq1_halo.hip
+    kernels/rotorquant_pack.hip
     PROPERTIES LANGUAGE HIP)
 target_include_directories(rocm_cpp PUBLIC
     $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
@@ -159,6 +164,14 @@ target_compile_options(bench_kv_fd PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
 target_link_libraries(bench_kv_fd PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(bench_kv_fd PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+
+# -- tools/bench_rotor : rotorquant PlanarQuant-3 KV compression microbench --
+add_executable(bench_rotor tools/bench_rotor.cpp)
+set_source_files_properties(tools/bench_rotor.cpp PROPERTIES LANGUAGE HIP)
+target_compile_options(bench_rotor PRIVATE
+    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_link_libraries(bench_rotor PRIVATE rocm_cpp hip::host hip::device)
+set_target_properties(bench_rotor PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
 # -- tools/bitnet_tui : FTXUI terminal UI (talks to bitnet_decode --server) ---
 add_executable(bitnet_tui tools/bitnet_tui.cpp)

@@ -20,6 +20,7 @@
 #include "rocm_cpp/ck_gemm.h"
 #include "rocm_cpp/bitnet_model.h"
 #include "rocm_cpp/tokenizer.h"
+#include "rocm_cpp/kv_rotorquant.h"
 
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
@@ -92,6 +93,7 @@ int main(int argc, char** argv) {
     int         server_port = 0;       // >0 enables HTTP server mode
     std::string server_bind = "127.0.0.1";
     bool        kv_int8 = false;       // --kv-int8 : halve KV DRAM + bandwidth
+    bool        kv_rotor = false;      // --kv-rotor : PQ3 rotorquant KV (5.33x DRAM)
     int argc_use = argc;
     for (int i = 3; i < argc; ++i) {
         std::string a = argv[i];
@@ -106,6 +108,7 @@ int main(int argc, char** argv) {
         else if (a == "--bind"         && i + 1 < argc) { server_bind  = argv[++i]; }
         else if (a == "--tokenizer"    && i + 1 < argc) { tok_path     = argv[++i]; }
         else if (a == "--kv-int8")                      { kv_int8      = true; if (argc_use > i) argc_use = i; continue; }
+        else if (a == "--kv-rotor")                     { kv_rotor     = true; if (argc_use > i) argc_use = i; continue; }
         else continue;
         if (argc_use > i - 1) argc_use = i - 1;
     }
@@ -341,19 +344,34 @@ int main(int argc, char** argv) {
 
     // ---- KV cache (per layer) ----
     // Default: FP16 per-token per-kv-head per-head-dim.
-    // --kv-int8: INT8 tensor + per-(pos, kv_head) FP16 scale. Halves DRAM/BW.
+    // --kv-int8  : INT8 tensor + per-(pos, kv_head) FP16 scale. Halves DRAM/BW.
+    // --kv-rotor : PQ3 packed-3bit (8 idx / 3 bytes). 5.33x DRAM vs fp16.
+    if (kv_int8 && kv_rotor) {
+        fprintf(stderr, "[bitnet_decode] --kv-int8 and --kv-rotor are mutually exclusive\n");
+        return 1;
+    }
     std::vector<_Float16*> K_caches(L, nullptr), V_caches(L, nullptr);
     std::vector<int8_t*>   K_caches_i8(L, nullptr), V_caches_i8(L, nullptr);
     std::vector<_Float16*> K_scales(L, nullptr),   V_scales(L, nullptr);
-    const size_t kv_size    = (size_t)max_len * nkv * hd * sizeof(_Float16);
-    const size_t kv_size_i8 = (size_t)max_len * nkv * hd * sizeof(int8_t);
-    const size_t sc_size    = (size_t)max_len * nkv * sizeof(_Float16);
+    std::vector<uint8_t*>  K_caches_pq3(L, nullptr), V_caches_pq3(L, nullptr);
+    const size_t kv_size     = (size_t)max_len * nkv * hd * sizeof(_Float16);
+    const size_t kv_size_i8  = (size_t)max_len * nkv * hd * sizeof(int8_t);
+    const size_t sc_size     = (size_t)max_len * nkv * sizeof(_Float16);
+    const size_t kv_size_pq3 = (size_t)max_len * nkv * ((size_t)hd * 3 / 8);
+    // PQ3 requires head_dim % 8 == 0.
+    if (kv_rotor && (hd & 7) != 0) {
+        fprintf(stderr, "[kv-rotor] head_dim=%d not a multiple of 8; bailing\n", hd);
+        return 1;
+    }
     for (int l = 0; l < L; ++l) {
         if (kv_int8) {
             HIP_OK(hipMalloc(&K_caches_i8[l], kv_size_i8));
             HIP_OK(hipMalloc(&V_caches_i8[l], kv_size_i8));
             HIP_OK(hipMalloc(&K_scales[l],    sc_size));
             HIP_OK(hipMalloc(&V_scales[l],    sc_size));
+        } else if (kv_rotor) {
+            HIP_OK(hipMalloc(&K_caches_pq3[l], kv_size_pq3));
+            HIP_OK(hipMalloc(&V_caches_pq3[l], kv_size_pq3));
         } else {
             HIP_OK(hipMalloc(&K_caches[l], kv_size));
             HIP_OK(hipMalloc(&V_caches[l], kv_size));
@@ -364,6 +382,12 @@ int main(int argc, char** argv) {
         const double i8_mb   = (double)(kv_size_i8 + sc_size) * L * 2 / (1024.0 * 1024.0);
         fprintf(stderr, "[kv-int8] KV cache: %.1f MB (vs %.1f MB fp16, %.2fx)\n",
                 i8_mb, fp16_mb, fp16_mb / std::max(i8_mb, 1e-9));
+    }
+    if (kv_rotor) {
+        const double fp16_mb = (double)(kv_size) * L * 2 / (1024.0 * 1024.0);
+        const double pq3_mb  = (double)(kv_size_pq3) * L * 2 / (1024.0 * 1024.0);
+        fprintf(stderr, "[kv-rotor] KV cache: %.1f MB (vs %.1f MB fp16, %.2fx)\n",
+                pq3_mb, fp16_mb, fp16_mb / std::max(pq3_mb, 1e-9));
     }
 
     // History the sampler sees — used for repetition penalty. Grows as
@@ -497,6 +521,24 @@ int main(int argc, char** argv) {
                     K_caches_i8[l], V_caches_i8[l],
                     K_scales[l],    V_scales[l],
                     o_fp16, nh, nkv, hd, pos+1, scale, nullptr));
+            } else if (kv_rotor) {
+                // Rotorquant PQ3 — one (pos, kv_head) row per new token. The
+                // requantize kernel writes exactly nkv rows of (hd*3/8) bytes
+                // at the tail of the cache; a seq_len=1 launch with per-layer
+                // layer_idx gives the right rotation seed.
+                const size_t pq3_row = (size_t)hd * 3 / 8;
+                RC_OK((rcpp_status_t)0);  // keep macro symmetry; no status here
+                rcpp_kv_requantize_pq3  (k_fp16,
+                    K_caches_pq3[l] + (size_t)pos * nkv * pq3_row,
+                    /*seq_len=*/1, nkv, hd, /*layer_idx=*/l, nullptr);
+                rcpp_kv_requantize_pq3_v(v_fp16,
+                    V_caches_pq3[l] + (size_t)pos * nkv * pq3_row,
+                    1, nkv, hd, l, nullptr);
+                int rrc = rcpp_kv_cache_attn_decode_fd_pq3(
+                    q_fp16,
+                    K_caches_pq3[l], V_caches_pq3[l],
+                    o_fp16, nh, nkv, hd, pos+1, /*layer_idx=*/l, scale, nullptr);
+                if (rrc != 0) { fprintf(stderr, "kv-rotor rc=%d layer=%d\n", rrc, l); return 1; }
             } else {
                 HIP_OK(hipMemcpy(K_caches[l] + (size_t)pos * nkv * hd, k_fp16, nkv*hd*2, hipMemcpyDeviceToDevice));
                 HIP_OK(hipMemcpy(V_caches[l] + (size_t)pos * nkv * hd, v_fp16, nkv*hd*2, hipMemcpyDeviceToDevice));
@@ -710,6 +752,8 @@ int main(int argc, char** argv) {
             if (kv_int8) {
                 hipFree(K_caches_i8[l]); hipFree(V_caches_i8[l]);
                 hipFree(K_scales[l]);    hipFree(V_scales[l]);
+            } else if (kv_rotor) {
+                hipFree(K_caches_pq3[l]); hipFree(V_caches_pq3[l]);
             } else {
                 hipFree(K_caches[l]); hipFree(V_caches[l]);
             }
@@ -970,6 +1014,8 @@ int main(int argc, char** argv) {
         if (kv_int8) {
             hipFree(K_caches_i8[l]); hipFree(V_caches_i8[l]);
             hipFree(K_scales[l]);    hipFree(V_scales[l]);
+        } else if (kv_rotor) {
+            hipFree(K_caches_pq3[l]); hipFree(V_caches_pq3[l]);
         } else {
             hipFree(K_caches[l]); hipFree(V_caches[l]);
         }
