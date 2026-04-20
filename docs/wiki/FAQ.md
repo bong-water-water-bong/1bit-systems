@@ -32,7 +32,7 @@ Anything that accepts an OpenAI-compatible `base_url`:
 - **LibreChat** — yaml-configured OpenAI alternative
 - **DSPy** (Stanford) — compile declarative LM programs against halo-server
 - **Claude Code** — halo-mcp registers as MCP server; 17 specialists appear as tools
-- **halo-gaia** — our own terminal TUI
+- **halo-helm** — our own native-Rust egui desktop client (renamed from halo-gaia 2026-04-20)
 - **lemonade-python-sdk** via the Lemonade-compat shim on `:8200`
 
 ## Why 1.58-bit and not 1-bit?

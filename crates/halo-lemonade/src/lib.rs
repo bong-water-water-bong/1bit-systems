@@ -8,9 +8,11 @@
 
 pub mod config;
 pub mod dispatch;
+pub mod metrics;
 pub mod registry;
 pub mod routes;
 
 pub use config::LemonadeConfig;
-pub use dispatch::Dispatch;
+pub use dispatch::{Dispatch, HaloServer, Upstream, UpstreamRequest, UpstreamResponse};
+pub use metrics::Metrics;
 pub use registry::{ModelEntry, ModelRegistry};

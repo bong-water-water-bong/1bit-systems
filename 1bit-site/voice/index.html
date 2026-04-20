@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="1bit voice">
+<title>voice · 1bit.systems</title>
+<meta name="description" content="halo-voice — sub-second mouth-to-ear voice loop on your own Strix Halo box.">
+<link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+<link rel="apple-touch-icon" href="/assets/logo.svg">
+<link rel="stylesheet" href="/assets/style.css">
+<link rel="stylesheet" href="/voice/voice.css">
+</head>
+<body class="voice-body">
+
+<div id="splash" class="voice-splash">
+  <img src="/assets/logo.svg" alt="" width="96" height="96">
+  <h1>1bit<span class="dot">.</span>voice</h1>
+  <p class="eyebrow">mouth to ear, local, 1.23 s first audio</p>
+  <button id="splash-go" class="btn">tap to start</button>
+  <p class="voice-sub">microphone + audio playback required · same-origin to your halo box</p>
+</div>
+
+<main id="app" class="voice-app" hidden>
+
+  <header class="voice-top">
+    <a class="brand" href="/"><img src="/assets/logo.svg" alt="" width="24" height="24"><span><b>1</b>bit<span class="dot">.</span>voice</span></a>
+    <nav>
+      <a href="/">home</a>
+      <a href="/docs/">docs</a>
+      <a href="/audio/">audio</a>
+      <a href="/join/">join</a>
+    </nav>
+  </header>
+
+  <section class="voice-hud">
+    <div class="voice-status" id="status">idle</div>
+    <div class="voice-meter" id="meter"><span></span></div>
+  </section>
+
+  <section class="voice-picker">
+    <label for="voice-sel">tts voice</label>
+    <select id="voice-sel">
+      <option value="af_sky">af_sky</option>
+      <option value="am_michael">am_michael</option>
+      <option value="bf_emma">bf_emma</option>
+      <option value="bm_george">bm_george</option>
+    </select>
+    <label for="model-sel">model</label>
+    <select id="model-sel">
+      <option value="bitnet-b1.58-2B-4T">bitnet-b1.58-2B-4T</option>
+    </select>
+  </section>
+
+  <section class="voice-transcript" id="transcript" aria-live="polite">
+    <p class="voice-placeholder">Press and hold the orb to speak. Release to send.</p>
+  </section>
+
+  <div class="voice-controls">
+    <button id="mic" class="voice-orb" aria-label="press and hold to speak">
+      <svg viewBox="0 0 24 24" width="48" height="48" aria-hidden="true">
+        <path fill="currentColor" d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zm5 9a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V22h2v-3.08A7 7 0 0 0 19 12z"/>
+      </svg>
+    </button>
+    <p class="voice-hint">hold to talk · release to send · tap again to cancel</p>
+  </div>
+
+</main>
+
+<script src="/voice/app.js" defer></script>
+
+</body>
+</html>

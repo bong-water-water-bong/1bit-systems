@@ -21,6 +21,8 @@ reqwest            = { workspace = true }
 serde              = { workspace = true }
 serde_json         = { workspace = true }
 anyhow             = { workspace = true }
+futures            = { workspace = true }
+async-stream       = { workspace = true }
 
 [dev-dependencies]
 tower              = { workspace = true }

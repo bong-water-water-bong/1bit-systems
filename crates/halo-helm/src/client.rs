@@ -12,12 +12,12 @@ use futures::StreamExt;
 use futures::stream::Stream;
 use serde_json::{Value, json};
 
-pub struct GaiaClient {
+pub struct HelmClient {
     pub cfg: SessionConfig,
     pub http: reqwest::Client,
 }
 
-impl GaiaClient {
+impl HelmClient {
     pub fn new(cfg: SessionConfig) -> Self {
         Self {
             cfg,
@@ -124,7 +124,7 @@ mod tests {
     fn build_body_injects_system_prompt_first() {
         let mut cfg = SessionConfig::new("http://x", "m");
         cfg.system_prompt = Some("be brief".into());
-        let client = GaiaClient::new(cfg);
+        let client = HelmClient::new(cfg);
         let mut conv = Conversation::new();
         conv.push_user("hi".into());
         let body = client.build_body(&conv);
@@ -138,7 +138,7 @@ mod tests {
 
     #[test]
     fn build_body_without_system_prompt() {
-        let client = GaiaClient::new(SessionConfig::new("http://x", "m"));
+        let client = HelmClient::new(SessionConfig::new("http://x", "m"));
         let mut conv = Conversation::new();
         conv.push_user("hi".into());
         let body = client.build_body(&conv);

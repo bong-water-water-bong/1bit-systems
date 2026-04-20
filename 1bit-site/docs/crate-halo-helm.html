@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0d1117">
+<title>Crate: halo-helm · 1bit.systems docs</title>
+<link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+<link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/"><img src="/assets/logo.svg" alt="" width="28" height="28"><span><b>1</b>bit<span class="dot">.</span>systems</span></a>
+  <nav>
+    <a href="/docs/">docs</a>
+    <a href="/voice/">voice</a>
+    <a href="/audio/">audio</a>
+    <a href="/join/">join</a>
+    <a href="https://github.com/bong-water-water-bong" rel="noopener" class="gh-btn">GitHub</a>
+  </nav>
+</header>
+<div class="docs-shell">
+<aside class="docs-side">
+<h4>decisions</h4>
+<a href="/docs/why-ternary.html">Why Ternary</a>
+<a href="/docs/why-rust.html">Why Rust</a>
+<a href="/docs/why-strix-halo.html">Why Strix Halo</a>
+<a href="/docs/why-shadow-burnin.html">Why Shadow-Burnin</a>
+<a href="/docs/why-h1b-format.html">Why H1b Format</a>
+<a href="/docs/why-caddy-systemd.html">Why Caddy + Systemd</a>
+<a href="/docs/why-halo-agents.html">Why halo-agents</a>
+<a href="/docs/why-no-python.html">Why No Python</a>
+<a href="/docs/why-parity-gates.html">Why Parity Gates</a>
+<a href="/docs/why-no-npu-yet.html">Why No NPU Yet</a>
+<a href="/docs/why-halo-power.html">Why halo-power</a>
+<a href="/docs/why-this-way-how.html">Why This Way + How</a>
+<h4>integrations</h4>
+<a href="/docs/hermes-integration.html">Hermes</a>
+<a href="/docs/amd-gaia-integration.html">AMD GAIA</a>
+<a href="/docs/medusa-integration-plan.html">Medusa plan</a>
+<a href="/docs/rotorquant-default-decision.html">Rotorquant</a>
+<a href="/docs/halo-whisper-streaming-plan.html">Whisper streaming</a>
+<a href="/docs/npu-kernel-design.html">NPU kernel</a>
+<a href="/docs/ternary-on-aie-pack-plan.html">Ternary on AIE</a>
+<a href="/docs/peak-performance-projection.html">Peak projection</a>
+<a href="/docs/cpu-lane-plan.html">CPU lane</a>
+<a href="/docs/cloudflare-tunnel-setup.html">Cloudflare tunnel</a>
+<a href="/docs/vpn-only-api.html">VPN-only API</a>
+<a href="/docs/beta-10-day-ttl.html">Beta 10-day TTL</a>
+<a href="/docs/sdd-workflow.html">SDD workflow</a>
+<h4>crates</h4>
+<a href="/docs/crate-halo-echo.html">halo-echo</a>
+<a href="/docs/crate-halo-helm.html">halo-helm</a>
+<a href="/docs/crate-halo-landing.html">halo-landing</a>
+<a href="/docs/crate-halo-lemonade.html">halo-lemonade</a>
+<a href="/docs/crate-halo-agents-watch.html">halo-agents-watch</a>
+<h4>amd scans</h4>
+<a href="/docs/amd-ai-ml-tools-scan.html">AI/ML tools</a>
+<a href="/docs/amd-compilers-analyzers-scan.html">Compilers</a>
+<a href="/docs/amd-manageability-scan.html">Manageability</a>
+<a href="/docs/amd-platform-driver-scan.html">Platform driver</a>
+<a href="/docs/amd-rocm-ai-hub-scan.html">ROCm AI hub</a>
+<h4>reference</h4>
+<a href="/docs/home.html">Home</a>
+<a href="/docs/faq.html">FAQ</a>
+<a href="/docs/benchmarks.html">Benchmarks</a>
+
+</aside>
+<main class="docs-body">
+<h1>Crate: halo-helm</h1>
+<hr>
+<p>phase: solutioning owner: cartograph renamed_from: halo-gaia rename_date: 2026-04-20 ---</p>
+<h1 id="crate-halo-helm">Crate: halo-helm</h1>
+<blockquote>
+<p>Renamed from <code>halo-gaia</code> on 2026-04-20 to avoid clash with AMD GAIA (amd-gaia.ai). See <code>docs/wiki/AMD-GAIA-Integration.md</code>. The old name is retained as an install alias in <code>packages.toml</code> (<code>[component.gaia]</code> → <code>helm</code>) but no source tree reference to <code>halo-gaia</code> / <code>halo_gaia</code> should remain outside the AMD-GAIA comparison doc.</p>
+</blockquote>
+<h2 id="problem">Problem</h2>
+<p>Operator + end-user desktop client for halo-ai. Today the paths are (a) browser at <code>/studio/voice/</code> (Apple watch to Android phone to laptop), (b) <code>halo</code> CLI (terse, power-user). Nothing pulls everything into one pane: live metrics + voice chat + skill + memory inspection + remote mesh peers. halo-helm is that pane.</p>
+<p>Name: a ship's helm is the single surface where the pilot reads instruments and applies control. Fits the role better than the original &quot;halo-gaia&quot; once AMD shipped their own GAIA.</p>
+<h2 id="invariants">Invariants</h2>
+<ol>
+<li><strong>Single binary, no runtime deps.</strong> Native Rust GUI on egui/eframe (glow backend). Ships as one ELF, runs on Linux first, macOS later. No Electron, no web-view shell. No Python, no node. Rule A applies all the way to the user's desktop.</li>
+<li><strong>Works offline.</strong> Must render + let the user manage local skills / memory / models even when halo-server is down.</li>
+<li><strong>Mesh-aware.</strong> The same binary running on any mesh peer (laptop, second mini-PC, Pi) should see the same halo-ai state by pointing at the mesh IP. No per-device state drift.</li>
+<li><strong>Bearer secrets never land in files.</strong> Tokens live in the system keyring (secret-service / kwallet / libsecret). No plaintext token on disk.</li>
+<li><strong>One keyboard trip equals one user intention.</strong> No popup dialogs for routine ops. CLI power-user can drive every pane with keyboard alone.</li>
+</ol>
+<h2 id="non-goals">Non-goals</h2>
+<ul>
+<li>Not a web-browser shell (use <code>/studio/voice/</code> in Firefox if you want a browser — this is the native client lane).</li>
+<li>Not a model trainer — halo-helm never spawns training jobs. Training happens on Battlemage or a rented box; halo-helm consumes the resulting weights via <code>halo install</code>.</li>
+<li>Not a chat-logging product — conversation history lives in the server-side FTS5 sessions DB (halo-agents::sessions), NOT in halo-helm. halo-helm is a view.</li>
+<li>Not a web-facing product. Distribution is via <code>halo install helm</code> (aliased from legacy <code>halo install gaia</code>) or <code>cargo install halo-helm</code> — no signed installers for Windows / macOS ahead of Linux.</li>
+<li>Not a multi-tenant app — each user runs their own mesh peer.</li>
+</ul>
+<h2 id="interface">Interface</h2>
+<h3 id="binary">Binary</h3>
+<pre><code class="lang-text">halo-helm                # opens the window
+# env:
+HALO_HELM_URL    # default http://127.0.0.1:8180
+HALO_HELM_MODEL  # default halo-1bit-2b
+HALO_HELM_TOKEN  # optional bearer
+# Legacy HALO_GAIA_* env vars are honored as fallbacks.
+</code></pre>
+<h3 id="public-api-crate">Public API (crate)</h3>
+<pre><code class="lang-rust">pub struct HelmApp { /* ...config, panes, transport... */ }
+impl HelmApp {
+    pub fn new(cfg: SessionConfig) -&gt; Self;                       // runtime-free; test-safe
+    pub fn from_cc(cc: &amp;eframe::CreationContext, cfg: SessionConfig) -&gt; Self;
+    pub fn refresh_skills(&amp;mut self);                             // reads ~/.halo/skills
+    pub fn refresh_memory(&amp;mut self);                             // reads ~/.halo/memories
+}
+
+#[derive(Serialize, Deserialize, Copy, Clone, Eq, PartialEq)]
+pub enum Pane { Status, Chat, Skills, Memory, Models }
+</code></pre>
+<p><code>HelmApp</code> implements <code>eframe::App</code>. Panes:</p>
+<table>
+<thead><tr><th>Pane</th><th>Source of truth</th><th>Write path</th></tr></thead>
+<tbody>
+<tr><td>Status</td><td><code>GET /_health</code> + <code>/v1/models</code> + probe metrics</td><td>read-only</td></tr>
+<tr><td>Chat</td><td><code>POST /v1/chat/completions</code>, <code>stream: true</code></td><td>HelmClient stream</td></tr>
+<tr><td>Skills</td><td><code>halo_agents::SkillStore::list</code></td><td>read-only for now</td></tr>
+<tr><td>Memory</td><td>`halo_agents::MemoryStore::list(Memory \</td><td>User)`</td><td>read-only for now</td></tr>
+<tr><td>Models</td><td><code>GET /v1/models</code></td><td>read-only</td></tr>
+</tbody></table>
+<p>Top bar: 5-button pane switcher. Left side panel: the same 5 panes as a radio list, plus a small config summary (default model). Bottom panel: status strip with reachability + tok/s OR last error in red.</p>
+<h3 id="persistence">Persistence</h3>
+<p>eframe's <code>persistence</code> feature stores state in the platform config dir (<code>~/.config/halo-helm/</code> on Linux, via eframe's default). Today we persist the last-open pane under key <code>helm.current_pane</code>; window size is handled by eframe's own viewport save. Schema is <code>serde_json</code>-compatible so we can change the backing ron later without a migration.</p>
+<h2 id="test-matrix">Test matrix</h2>
+<table>
+<thead><tr><th>Invariant</th><th>Test</th></tr></thead>
+<tbody>
+<tr><td>App constructs without window / tokio / FS access</td><td><code>app::tests::new_constructs_without_panic_...</code></td></tr>
+<tr><td>Status-first default (invariant 5 keyboard-trip)</td><td><code>app::tests::default_pane_is_status</code></td></tr>
+<tr><td>Pane-switcher coverage (tripwire on new variants)</td><td><code>app::tests::pane_all_covers_five_panes...</code></td></tr>
+<tr><td>Stable pane labels (top-bar text contract)</td><td><code>app::tests::pane_labels_are_stable_strings</code></td></tr>
+<tr><td>Persistence round-trip (serde stays wired)</td><td><code>app::tests::pane_round_trips_through_serde</code></td></tr>
+</tbody></table>
+<p>Transport modules (<code>client</code>, <code>conversation</code>, <code>session</code>, <code>stream</code>) keep their pre-rename test coverage.</p>
+<h2 id="phase-solutioning">Phase: solutioning</h2>
+<p>Promoted from <code>analysis</code> on 2026-04-20 alongside the rename. The interface sketch above and the first real <code>HelmApp</code> + <code>Pane</code> types in <code>crates/halo-helm/src/app.rs</code> give magistrate + cartograph something concrete to review.</p>
+<p>Remaining open questions for the jump to <code>implementation</code>:</p>
+<ul>
+<li>Async plumbing for network panes. Today <code>refresh_models</code> / chat streaming are marked <code>not wired yet</code>. Path of least resistance: a <code>tokio</code> runtime handle stashed on <code>HelmApp</code>, a <code>mpsc::UnboundedReceiver&lt;PaneMsg&gt;</code> drained each frame. Keep the runtime out of <code>HelmApp::new</code> so tests stay runtime-free.</li>
+<li>Keyring backend selection per-OS. libsecret on Linux; keychain on macOS.</li>
+<li>Does it own its own halo-server lifecycle (start/stop via systemd --user) or just observe?</li>
+<li>egui theming: go with <code>egui::Visuals::dark</code> default or read the system prefers-colour-scheme hint?</li>
+</ul>
+<h2 id="runtime-system-deps">Runtime system deps</h2>
+<p>eframe's <code>glow</code> backend is OpenGL over <code>winit</code>. On a stock CachyOS / Arch box that means the existing <code>mesa</code> + <code>libxkbcommon</code> + <code>wayland-client</code> + <code>libxcb</code> packages are sufficient — nothing new to add to <code>packages.toml</code>. Noting here so a future PKGBUILD author doesn't need to re-trace:</p>
+<ul>
+<li><code>libxkbcommon</code> (winit keyboard)</li>
+<li><code>libwayland-client</code> / <code>libwayland-egl</code> (Wayland path)</li>
+<li><code>libxcb</code>, <code>libx11</code> (X11 fallback)</li>
+<li><code>libgl</code> (mesa / swrast)</li>
+<li><code>fontconfig</code> (default-fonts feature still bundles its own fonts, but fontconfig is required to render into them on Linux)</li>
+</ul>
+<p>None of these are Python; all ship by default on the supported distros. We do NOT add them to PKGBUILD runtime deps until the first user on a slim Wayland-only machine hits a missing library.</p>
+<h2 id="cross-refs">Cross-refs</h2>
+<ul>
+<li>CLAUDE.md — Rule A (no Python) applies.</li>
+<li><code>docs/wiki/SDD-Workflow.md</code> — phase gate + review specialist mapping.</li>
+<li><code>docs/wiki/VPN-Only-API.md</code> — mesh-awareness requirement (invariant 3).</li>
+<li><code>docs/wiki/AMD-GAIA-Integration.md</code> — rename rationale + AMD GAIA integration story.</li>
+<li><code>crates/halo-helm/</code> — implementation.</li>
+</ul>
+
+</main>
+<aside class="docs-toc">
+<h4>on this page</h4>
+<a href="#problem">Problem</a>
+<a href="#invariants">Invariants</a>
+<a href="#non-goals">Non-goals</a>
+<a href="#interface">Interface</a>
+<a href="#binary" style="padding-left:.8rem">Binary</a>
+<a href="#public-api-crate" style="padding-left:.8rem">Public API (crate)</a>
+<a href="#persistence" style="padding-left:.8rem">Persistence</a>
+<a href="#test-matrix">Test matrix</a>
+<a href="#phase-solutioning">Phase: solutioning</a>
+<a href="#runtime-system-deps">Runtime system deps</a>
+<a href="#cross-refs">Cross-refs</a>
+
+</aside>
+</div>
+<footer class="footer">
+  <p><b>1bit.systems</b> · the 1-bit monster · <a href="/">home</a></p>
+</footer>
+</body>
+</html>

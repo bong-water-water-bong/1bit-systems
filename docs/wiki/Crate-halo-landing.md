@@ -52,9 +52,9 @@ Binds `:8190` loopback by default. Overridable via `HALO_LANDING_BIND` env.
 - [x] `/` HTML shell ships today (via `strix-landing.service` on :8190)
 - [x] `/_health` simple liveness
 - [x] `/metrics` Prometheus endpoint (shape verified by external scrapers)
-- [ ] `/_live/stats` SSE stream — plumbed in code, not fully wired to real data sources yet
-- [ ] SSE status events showing which service just flipped up/down
-- [ ] Tok/s live gauge pulled from halo-server telemetry (today it's a static guess)
+- [x] `/_live/stats` SSE stream wired to real sources (halo-server `/v1/models` + `/metrics`, `rocm-smi`, `xrt-smi`, shadow-burnin jsonl, `systemctl --user`). 1 s cache TTL, 1.5 s SSE cadence. 2026-04-20.
+- [x] `/_live/services` SSE deltas on tracked `strix-*` units — first frame is a full snapshot, subsequent frames only flips.
+- [x] Tok/s live gauge pulled from halo-server telemetry (was static; now `tok_s_decode` from `/metrics` via `/_live/stats`).
 
 ## Spec cross-ref
 
@@ -62,7 +62,8 @@ Binds `:8190` loopback by default. Overridable via `HALO_LANDING_BIND` env.
 |---|---|
 | Interface / routes | `crates/halo-landing/src/main.rs` |
 | Invariant 3 (zero external) | `crates/halo-landing/assets/` — all inline, no CDN refs |
-| Invariant 4 (SSE) | `crates/halo-landing/src/sse.rs` (if exists; may be in routes.rs) |
+| Invariant 4 (SSE) | `crates/halo-landing/src/main.rs` `live_stats_sse` + `live_services_sse` |
+| Telemetry sources | `crates/halo-landing/src/telemetry.rs` (cache + `Sources` struct) |
 
 ## Phase: implementation
 

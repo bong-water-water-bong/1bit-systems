@@ -37,7 +37,7 @@ spec(<crate>): promote from <old> → <new> — <reason>
 ```
 
 Examples:
-- `spec(halo-gaia): promote from analysis → solutioning — API signatures reviewed by cartograph 2026-04-20`
+- `spec(halo-helm): promote from analysis → solutioning — API signatures reviewed by cartograph 2026-04-20` (crate renamed from halo-gaia on the same day)
 - `spec(halo-bitnet-xdna): promote from implementation → verified — 201 tests green, bit-exact parity vs Hip on 10k prompts`
 
 If a spec needs to go BACK a phase (discovered-constraint rewrites the design), commit message says `spec(<crate>): demote from <old> → <new> — <reason>`. Demotions are normal; they're a sign the spec is learning.
@@ -65,7 +65,7 @@ If a spec needs to go BACK a phase (discovered-constraint rewrites the design), 
 
 When I spawn a background agent (research or build), the prompt points at the spec file rather than re-describing the problem. Agents diff their output against the spec sections. Example prompt framing:
 
-> Implement `crates/halo-gaia/src/view/mod.rs` per `docs/wiki/Crate-halo-gaia.md` § Interface. Keep invariants §2 + §3 green. Non-goals in §5 are out of scope.
+> Implement `crates/halo-helm/src/view/mod.rs` per `docs/wiki/Crate-halo-helm.md` § Interface. Keep invariants §2 + §3 green. Non-goals in §5 are out of scope.
 
 ## Retroactive application
 
@@ -73,7 +73,7 @@ Modules already in tree without a matching spec file get one **the next time the
 
 - halo-echo — `phase: implementation` already (Opus path, 10 tests). Needs a retrospective spec.
 - halo-lemonade — `phase: implementation` already. Retrospective spec needed.
-- halo-gaia — scaffold-only. Spec should land BEFORE the first real UI commit (`phase: analysis`).
+- halo-helm — renamed from halo-gaia on 2026-04-20 (AMD GAIA clash). Spec promoted analysis → solutioning alongside first egui/eframe scaffold.
 - halo-landing — `phase: implementation` already. Retrospective spec needed.
 
 Well-spec'd (templates for the above):

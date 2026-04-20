@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0d1117">
+<title>FAQ · 1bit.systems docs</title>
+<link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+<link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/"><img src="/assets/logo.svg" alt="" width="28" height="28"><span><b>1</b>bit<span class="dot">.</span>systems</span></a>
+  <nav>
+    <a href="/docs/">docs</a>
+    <a href="/voice/">voice</a>
+    <a href="/audio/">audio</a>
+    <a href="/join/">join</a>
+    <a href="https://github.com/bong-water-water-bong" rel="noopener" class="gh-btn">GitHub</a>
+  </nav>
+</header>
+<div class="docs-shell">
+<aside class="docs-side">
+<h4>decisions</h4>
+<a href="/docs/why-ternary.html">Why Ternary</a>
+<a href="/docs/why-rust.html">Why Rust</a>
+<a href="/docs/why-strix-halo.html">Why Strix Halo</a>
+<a href="/docs/why-shadow-burnin.html">Why Shadow-Burnin</a>
+<a href="/docs/why-h1b-format.html">Why H1b Format</a>
+<a href="/docs/why-caddy-systemd.html">Why Caddy + Systemd</a>
+<a href="/docs/why-halo-agents.html">Why halo-agents</a>
+<a href="/docs/why-no-python.html">Why No Python</a>
+<a href="/docs/why-parity-gates.html">Why Parity Gates</a>
+<a href="/docs/why-no-npu-yet.html">Why No NPU Yet</a>
+<a href="/docs/why-halo-power.html">Why halo-power</a>
+<a href="/docs/why-this-way-how.html">Why This Way + How</a>
+<h4>integrations</h4>
+<a href="/docs/hermes-integration.html">Hermes</a>
+<a href="/docs/amd-gaia-integration.html">AMD GAIA</a>
+<a href="/docs/medusa-integration-plan.html">Medusa plan</a>
+<a href="/docs/rotorquant-default-decision.html">Rotorquant</a>
+<a href="/docs/halo-whisper-streaming-plan.html">Whisper streaming</a>
+<a href="/docs/npu-kernel-design.html">NPU kernel</a>
+<a href="/docs/ternary-on-aie-pack-plan.html">Ternary on AIE</a>
+<a href="/docs/peak-performance-projection.html">Peak projection</a>
+<a href="/docs/cpu-lane-plan.html">CPU lane</a>
+<a href="/docs/cloudflare-tunnel-setup.html">Cloudflare tunnel</a>
+<a href="/docs/vpn-only-api.html">VPN-only API</a>
+<a href="/docs/beta-10-day-ttl.html">Beta 10-day TTL</a>
+<a href="/docs/sdd-workflow.html">SDD workflow</a>
+<h4>crates</h4>
+<a href="/docs/crate-halo-echo.html">halo-echo</a>
+<a href="/docs/crate-halo-helm.html">halo-helm</a>
+<a href="/docs/crate-halo-landing.html">halo-landing</a>
+<a href="/docs/crate-halo-lemonade.html">halo-lemonade</a>
+<a href="/docs/crate-halo-agents-watch.html">halo-agents-watch</a>
+<h4>amd scans</h4>
+<a href="/docs/amd-ai-ml-tools-scan.html">AI/ML tools</a>
+<a href="/docs/amd-compilers-analyzers-scan.html">Compilers</a>
+<a href="/docs/amd-manageability-scan.html">Manageability</a>
+<a href="/docs/amd-platform-driver-scan.html">Platform driver</a>
+<a href="/docs/amd-rocm-ai-hub-scan.html">ROCm AI hub</a>
+<h4>reference</h4>
+<a href="/docs/home.html">Home</a>
+<a href="/docs/faq.html">FAQ</a>
+<a href="/docs/benchmarks.html">Benchmarks</a>
+
+</aside>
+<main class="docs-body">
+<h1>FAQ</h1>
+<h2 id="what-is-halo-ai">What is halo-ai?</h2>
+<p>The 1-bit inference engine. A Rust orchestration stack running Microsoft's BitNet-b1.58-2B-4T on an AMD Strix Halo mini-PC with native HIP kernels. OpenAI-compatible API, MCP server, 17 specialist agents, live landing page. Bring any OpenAI-compat client, plug it in, the agents keep the stack running while you work.</p>
+<h2 id="what-does-it-run-on">What does it run on?</h2>
+<p>AMD Ryzen AI MAX+ 395 (Strix Halo) mini-PC, $2-3k. 128 GB LPDDR5 unified memory, Radeon 8060S iGPU (gfx1151, RDNA 3.5), 256 GB/s bandwidth, &lt;150 W under load. CachyOS for the kernel-7 NPU driver support.</p>
+<h2 id="how-fast">How fast?</h2>
+<ul>
+<li>83 tok/s at 64-token generation</li>
+<li>68 tok/s at 1024-token generation</li>
+<li>Perplexity 9.18 on wikitext-103 (matches Microsoft paper's 9.1607 within ±0.05)</li>
+<li>96.66% byte-identical output vs the reference C++ server after ~10 000 side-by-side rounds</li>
+</ul>
+<h2 id="how-do-i-install-it">How do I install it?</h2>
+<pre><code>git clone git@github.com:bong-water-water-bong/halo-ai-core.git
+cd halo-ai-core
+./install-strixhalo.sh
+</code></pre>
+<p>One script, ~5 minutes on a fresh CachyOS box. After: <code>halo doctor</code>, <code>halo chat</code>, <code>halo say &quot;hello&quot;</code>.</p>
+<h2 id="what-clients-work-with-it">What clients work with it?</h2>
+<p>Anything that accepts an OpenAI-compatible <code>base_url</code>:</p>
+<ul>
+<li><strong>Open WebUI</strong> — polished desktop-style chat, full RAG + MCP</li>
+<li><strong>LibreChat</strong> — yaml-configured OpenAI alternative</li>
+<li><strong>DSPy</strong> (Stanford) — compile declarative LM programs against halo-server</li>
+<li><strong>Claude Code</strong> — halo-mcp registers as MCP server; 17 specialists appear as tools</li>
+<li><strong>halo-helm</strong> — our own native-Rust egui desktop client (renamed from halo-gaia 2026-04-20)</li>
+<li><strong>lemonade-python-sdk</strong> via the Lemonade-compat shim on <code>:8200</code></li>
+</ul>
+<h2 id="why-1-58-bit-and-not-1-bit">Why 1.58-bit and not 1-bit?</h2>
+<p>See <a href="why-ternary.html"><code>Why-Ternary.md</code></a>. Summary: ternary has a load-bearing zero that maps to activation sparsity, hardware efficiency, and 10× memory reduction with near-zero accuracy loss.</p>
+<h2 id="why-rust-and-not-python">Why Rust and not Python?</h2>
+<p>See <a href="why-no-python.html"><code>Why-No-Python.md</code></a>. Summary: 200 ms cold-start vs 10 seconds, 15 MB binary vs 1.2 GB venv, <code>Result&lt;T, E&gt;</code> vs <code>KeyError</code> at line unknown.</p>
+<h2 id="is-it-ready">Is it ready?</h2>
+<p>For private-beta testers, yes. PPL parity proven, shadow-burnin at 96.66% byte-exact, CI green, tester-installable. Public launch (reddit post, Steam-community-style rollout) after the 72-hour burnin gate clears. See <a href="../../cutover.html"><code>../../CUTOVER.md</code></a>.</p>
+<h2 id="can-i-run-it-on-apple-silicon">Can I run it on Apple Silicon?</h2>
+<p>Yes. The workspace is feature-gated — <code>cargo build --workspace --features mlx-apple</code> pulls in <code>bitnet-mlx-rs</code> and targets M-series via MLX. Same code, different kernel backend. AMD is the performance target; Apple is supported but not optimized.</p>
+<h2 id="can-i-run-it-on-nvidia">Can I run it on NVIDIA?</h2>
+<p>Not today. Our kernels are HIP. A future CUDA port is technically doable (HIP → CUDA is mostly mechanical) but not planned. A Windows/NVIDIA build would need a new maintainer.</p>
+<h2 id="can-i-use-my-own-model">Can I use my own model?</h2>
+<p>Partially:</p>
+<ul>
+<li>Any BitNet GGUF with IQ2_S weights should load through our <code>halo-core::gguf</code> path (commit <code>2d1ec89</code>). Currently parse-only; the IQ2_S → <code>.h1b</code> bit-unpack lands next sprint.</li>
+<li>Microsoft's <code>bitnet-b1.58-2B-4T</code> works today via our <code>.h1b</code> format + requantizer.</li>
+<li>Non-BitNet architectures (Llama, Mistral, Qwen) don't run on the ternary kernels. Those models use their own non-1.58-bit formats.</li>
+</ul>
+<h2 id="what-s-halo-agents">What's halo-agents?</h2>
+<p>17 specialist agents running in the background — anvil rebuilds kernels on commit, librarian keeps the changelog, quartermaster triages issues, magistrate scans PRs for secrets + commit-msg compliance. See the <code>halo-agents</code> crate. Exposed via MCP so Claude Code and DSPy can call them as tools.</p>
+<h2 id="what-s-shadow-burnin">What's shadow-burnin?</h2>
+<p>See <a href="why-shadow-burnin.html"><code>Why-Shadow-Burnin.md</code></a>. Continuous parity check between the gen-1 C++ server and gen-2 Rust server so we can cut over with evidence, not faith.</p>
+<h2 id="why-not-just-use-ollama-lm-studio-vllm">Why not just use Ollama / LM Studio / vLLM?</h2>
+<ul>
+<li><strong>Ollama</strong> — CPU-first, runs BitNet via llama.cpp's ternary kernels, no native gfx1151 optimization. We're ~5× faster on the same box.</li>
+<li><strong>LM Studio</strong> — GUI-only, closed-source. Can't drive it from automation.</li>
+<li><strong>vLLM</strong> — NVIDIA-first, CUDA-only. No AMD iGPU path today.</li>
+</ul>
+<p>Also: none of them ship an MCP server, self-maintaining agents, Lemonade-compat gateway, or a recording-ready landing page. halo-ai is the batteries-included bundle, not just the kernel.</p>
+<h2 id="is-it-open-source">Is it open source?</h2>
+<ul>
+<li>Kernels (<code>bong-water-water-bong/rocm-cpp</code>) — MIT, public.</li>
+<li>Rust monorepo (<code>halo-ai-rs</code>) — private until launch. Collaborator invites available.</li>
+<li>Everything we fork or borrow is credited in <a href="../../contributing.html"><code>../../CONTRIBUTING.md</code></a>.</li>
+</ul>
+<h2 id="who-s-behind-it">Who's behind it?</h2>
+<p>One operator, one box, one Claude Code session that won't quit. See <a href="../../contributing.html"><code>../../CONTRIBUTING.md</code></a> for acknowledgements — huge thanks to Light Heart Labs, Microsoft's BitNet team, the llama.cpp/ggml maintainers, and everyone whose shoulders we're standing on.</p>
+
+</main>
+<aside class="docs-toc">
+<h4>on this page</h4>
+<a href="#what-is-halo-ai">What is halo-ai?</a>
+<a href="#what-does-it-run-on">What does it run on?</a>
+<a href="#how-fast">How fast?</a>
+<a href="#how-do-i-install-it">How do I install it?</a>
+<a href="#what-clients-work-with-it">What clients work with it?</a>
+<a href="#why-1-58-bit-and-not-1-bit">Why 1.58-bit and not 1-bit?</a>
+<a href="#why-rust-and-not-python">Why Rust and not Python?</a>
+<a href="#is-it-ready">Is it ready?</a>
+<a href="#can-i-run-it-on-apple-silicon">Can I run it on Apple Silicon?</a>
+<a href="#can-i-run-it-on-nvidia">Can I run it on NVIDIA?</a>
+<a href="#can-i-use-my-own-model">Can I use my own model?</a>
+<a href="#what-s-halo-agents">What's halo-agents?</a>
+<a href="#what-s-shadow-burnin">What's shadow-burnin?</a>
+<a href="#why-not-just-use-ollama-lm-studio-vllm">Why not just use Ollama / LM Studio / vLLM?</a>
+<a href="#is-it-open-source">Is it open source?</a>
+<a href="#who-s-behind-it">Who's behind it?</a>
+
+</aside>
+</div>
+<footer class="footer">
+  <p><b>1bit.systems</b> · the 1-bit monster · <a href="/">home</a></p>
+</footer>
+</body>
+</html>

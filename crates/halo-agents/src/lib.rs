@@ -45,6 +45,12 @@ pub use memory::{
     DELIMITER as MEMORY_DELIMITER, MAX_MEMORY_CHARS, MAX_USER_CHARS, MemoryKind, MemoryStore,
 };
 
+pub mod dialectic;
+pub use dialectic::{
+    DialecticStore, Inference, Observation, ObservationKind, SqliteDialecticStore, UserModel,
+    infer, observe,
+};
+
 pub mod watch;
 
 /// The 17 specialists. Ordering matches agent-cpp/specialists/ for easy diff.

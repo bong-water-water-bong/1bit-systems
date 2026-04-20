@@ -19,7 +19,7 @@ operating envelopes (decode-heavy, chat-interactive, idle) without shelling
 out to `ryzenadj` one-liners by hand every time. A `halo power` subcommand
 is the cheapest way to expose that knob to the rest of the stack (the
 idle-watchdog daemon, the install doctor check, a future
-`halo-gaia`-driven "dim the box" gesture).
+`halo-helm`-driven "dim the box" gesture).
 
 ---
 
@@ -175,7 +175,7 @@ of this doc).
 | halo-ai profile | Intent                                     | stapm | fast | slow | tctl | Notes                                              |
 | --------------- | ------------------------------------------ | ----- | ---- | ---- | ---- | -------------------------------------------------- |
 | `inference`     | Max sustained decode tok/s                 |  65 W | 80 W | 75 W | 95 °C | All headroom to package; CPU cores park on demand. |
-| `chat`          | Interactive, balanced, low fan             |  45 W | 65 W | 55 W | 90 °C | Default after boot. Matches halo-gaia chat load.   |
+| `chat`          | Interactive, balanced, low fan             |  45 W | 65 W | 55 W | 90 °C | Default after boot. Matches halo-helm chat load.   |
 | `idle`          | No active requests for N seconds (>= 60 s) |  20 W | 35 W | 25 W | 80 °C | Watchdog-triggered. Quiet closet mode.             |
 
 Open questions (NOT blockers for this doc, tracked as follow-ups):

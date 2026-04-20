@@ -75,7 +75,7 @@ Takes under 10 seconds.
   Fix: update client to use `jq` / a JSON parser, not string matching.
 - Clients that used `stream: true` with SSE **must** handle the
   `data: [DONE]\n\n` sentinel. halo-server emits it; some gen-1 builds
-  didn't. DSPy, OpenAI SDK, our halo-gaia all handle it; ad-hoc curl
+  didn't. DSPy, OpenAI SDK, our halo-helm all handle it; ad-hoc curl
   consumers should check.
 
 ## Post-cutover (within 7 days)

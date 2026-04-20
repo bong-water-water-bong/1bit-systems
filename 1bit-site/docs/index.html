@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0d1117">
+<title>docs · 1bit.systems</title>
+<meta name="description" content="1bit.systems docs — BitNet-b1.58 on AMD Strix Halo. Architecture decisions, integrations, benchmarks.">
+<link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+<link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="/"><img src="/assets/logo.svg" alt="" width="28" height="28"><span><b>1</b>bit<span class="dot">.</span>systems</span></a>
+  <nav>
+    <a href="/docs/">docs</a>
+    <a href="/voice/">voice</a>
+    <a href="/audio/">audio</a>
+    <a href="/join/">join</a>
+    <a href="https://github.com/bong-water-water-bong" rel="noopener" class="gh-btn">GitHub</a>
+  </nav>
+</header>
+
+<main>
+
+<section class="hero">
+  <p class="eyebrow">docs · decisions · integrations · benchmarks</p>
+  <h1>the <span class="accent">1-bit monster</span> docs</h1>
+  <p class="lede">Plain-English explanations of the architectural calls we made — one page per decision, citations where they exist. Rendered from the <code>docs/wiki/</code> source in the <a href="https://github.com/bong-water-water-bong/halo-ai-rs">halo-ai-rs monorepo</a>.</p>
+</section>
+
+<section class="pillars">
+  <h2>decisions</h2>
+  <p class="note">Why we built it this way, in order of load-bearing-ness.</p>
+  <div class="pillar-grid">
+    <a class="comm-card" href="/docs/why-ternary.html"><b>Why 1.58-bit ternary?</b><span>the weight format and what ternary buys us</span></a>
+    <a class="comm-card" href="/docs/why-rust.html"><b>Why Rust above + C++ below?</b><span>the language split, hard-lined at the HIP boundary</span></a>
+    <a class="comm-card" href="/docs/why-strix-halo.html"><b>Why Strix Halo (gfx1151)?</b><span>the APU bet — 128 GB shared LPDDR5 at 256 GB/s</span></a>
+    <a class="comm-card" href="/docs/why-shadow-burnin.html"><b>Why shadow-burnin?</b><span>continuous parity check, cutover with evidence</span></a>
+    <a class="comm-card" href="/docs/why-h1b-format.html"><b>Why our own .h1b format?</b><span>tilt vs GGUF — mmap-first, ternary-native</span></a>
+    <a class="comm-card" href="/docs/why-caddy-systemd.html"><b>Why Caddy + systemd?</b><span>the ops layer, no containers, no interpreters</span></a>
+    <a class="comm-card" href="/docs/why-halo-agents.html"><b>Why halo-agents?</b><span>self-maintaining mesh of 17 specialists</span></a>
+    <a class="comm-card" href="/docs/why-no-python.html"><b>Why no Python at runtime?</b><span>Rule A — binaries boot in 200 ms, not 10 s</span></a>
+    <a class="comm-card" href="/docs/why-parity-gates.html"><b>Why parity gates?</b><span>PPL + byte-exact before we cut over</span></a>
+    <a class="comm-card" href="/docs/why-no-npu-yet.html"><b>Why no NPU yet?</b><span>XDNA 2 status and the wait for Linux</span></a>
+    <a class="comm-card" href="/docs/why-halo-power.html"><b>Why halo-power?</b><span>the RyzenAdj-based power CLI</span></a>
+    <a class="comm-card" href="/docs/why-this-way-how.html"><b>Why this way + how?</b><span>long-form walkthrough, end-to-end path</span></a>
+  </div>
+</section>
+
+<section class="pillars">
+  <h2>integrations + plans</h2>
+  <div class="pillar-grid">
+    <a class="comm-card" href="/docs/hermes-integration.html"><b>Hermes agent</b><span>Nous Research external client</span></a>
+    <a class="comm-card" href="/docs/amd-gaia-integration.html"><b>AMD GAIA</b><span>Lemonade-compat gateway on :8200</span></a>
+    <a class="comm-card" href="/docs/medusa-integration-plan.html"><b>Medusa heads</b><span>speculative decoding plan</span></a>
+    <a class="comm-card" href="/docs/peak-performance-projection.html"><b>peak projection</b><span>~280 tok/s, NPU prefill crossover at L≥33</span></a>
+    <a class="comm-card" href="/docs/halo-whisper-streaming-plan.html"><b>whisper streaming</b><span>STT partials plan</span></a>
+    <a class="comm-card" href="/docs/npu-kernel-design.html"><b>NPU kernel design</b><span>Peano C++ + libxrt + aie-rt</span></a>
+    <a class="comm-card" href="/docs/ternary-on-aie-pack-plan.html"><b>ternary on AIE</b><span>packing plan for XDNA 2</span></a>
+    <a class="comm-card" href="/docs/cpu-lane-plan.html"><b>CPU lane plan</b><span>sampler + dispatcher off the iGPU</span></a>
+  </div>
+</section>
+
+<section class="pillars">
+  <h2>reference</h2>
+  <div class="pillar-grid">
+    <a class="comm-card" href="/docs/home.html"><b>Wiki home</b><span>full index, as rendered from Home.md</span></a>
+    <a class="comm-card" href="/docs/faq.html"><b>FAQ</b><span>short answers to common questions</span></a>
+    <a class="comm-card" href="/docs/benchmarks.html"><b>Benchmarks</b><span>live tok/s, PPL, what we measure</span></a>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <p><b>1bit.systems</b> · the 1-bit monster · built by <a href="https://github.com/bong-water-water-bong" rel="noopener">bong-water-water-bong</a>. MIT licensed.</p>
+  <p class="tag">v3 · honest numbers · parity-gated · bare metal · unified APU</p>
+</footer>
+
+</body>
+</html>

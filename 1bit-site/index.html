@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0d1117">
+<title>1-bit monster · local AI on Strix Halo</title>
+<meta name="description" content="Wake the 1-bit monster sleeping in your desktop. BitNet-b1.58 on a Ryzen AI MAX+ 395 (Strix Halo) APU — 128 GB LPDDR5, native HIP kernels, bare metal, no cloud.">
+<link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+<link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="/">
+    <img src="/assets/logo.svg" alt="" width="28" height="28">
+    <span><b>1</b>bit<span class="dot">.</span>systems</span>
+  </a>
+  <nav>
+    <a href="/docs/">docs</a>
+    <a href="/voice/">voice</a>
+    <a href="/audio/">audio</a>
+    <a href="/join/">join</a>
+    <a href="#apu">apu</a>
+    <a href="https://discord.gg/halo-ai" rel="noopener">Discord</a>
+    <a class="gh-btn" href="https://github.com/bong-water-water-bong" rel="noopener">GitHub</a>
+  </nav>
+</header>
+
+<main id="top">
+
+<section id="hero" class="hero">
+  <p class="eyebrow">1-bit monster · strix halo unlocked · bare metal · zero cloud</p>
+  <h1>Wake the <span class="accent">1-bit monster</span><br>sleeping in your desktop.</h1>
+  <p class="lede">
+    AMD Ryzen AI MAX+ 395 is a <b>CPU + iGPU + NPU sharing 128&nbsp;GB LPDDR5 at 256&nbsp;GB/s</b>.
+    Most benchmark it like a laptop and miss what it is. We run <b>ternary BitNet-b1.58</b> on
+    native HIP kernels above our own C++ — 83&nbsp;tok/s decode today, <b>~280 tok/s on the roadmap</b>,
+    sub-second voice mouth-to-ear. No datacenter GPU. No subscription. One box, one drive, one mesh.
+  </p>
+  <p class="hero-cta">
+    <a class="btn" href="#install">Install in 60s</a>
+    <a class="btn ghost" href="/docs/">Read the docs</a>
+    <a class="btn ghost" href="/join/">Join the beta</a>
+  </p>
+  <p class="aspirational">
+    <b>Target ceiling:</b> ~280&nbsp;tok/s decode · NPU prefill crossover at 33-token prompts · 256&nbsp;GB/s LPDDR5 wall.
+    <a href="/docs/peak-performance-projection.html">how we get there →</a>
+  </p>
+</section>
+
+<section class="os-warn" role="alert">
+  <h2>CachyOS + Strix Halo only, for now</h2>
+  <p>
+    1-bit.systems is shaped around the <b>AMD Ryzen AI MAX+ 395 (Strix Halo, gfx1151)</b> running
+    <b>CachyOS 7.x</b>. Other hardware and distros may work in principle; they are
+    <b>unsupported until someone tests them</b>. Don't file bugs against an RX 7900 or Ubuntu 24.04 yet.
+  </p>
+</section>
+
+<section id="apu" class="pillars">
+  <h2>the APU play</h2>
+  <p class="note">Strix Halo is a <b>CPU + iGPU + NPU on one 128&nbsp;GB LPDDR5 pool at 256&nbsp;GB/s.</b> Zero-copy across compute surfaces. No PCIe tax. Most will benchmark the iGPU against a discrete card and miss the point — an APU that shares one weight buffer between a CPU dispatcher, a tensor iGPU, and an NPU prefiller <b>is the performance king</b> for always-on local inference. We're building for the folks who see that.</p>
+  <div class="pillar-grid">
+    <article class="pillar">
+      <h3>iGPU — shipping</h3>
+      <p>Radeon 8060S, gfx1151, RDNA 3.5. Native HIP ternary GEMV at <b>92% of LPDDR5 peak</b>. Our kernels, no hipBLAS.</p>
+    </article>
+    <article class="pillar">
+      <h3>NPU — evaluating</h3>
+      <p>XDNA 2, 50 TOPS. Lemonade 10.2 Linux NPU shipped 2026-04-20 (Q4 today, ternary→INT8 soon). Target: prefill offload.</p>
+    </article>
+    <article class="pillar">
+      <h3>CPU — next</h3>
+      <p>16 Zen5 cores sitting idle while iGPU grinds. Move sampler + dispatcher + tokenizer off the iGPU critical path. Projected <b>5-15% tok/s</b> without a kernel change.</p>
+    </article>
+  </div>
+</section>
+
+<section id="numbers" class="numbers">
+  <h2>honest numbers · live</h2>
+  <p class="note">Last burnin pass 2026-04-20 · 14,344 rounds · wikitext-103 · post-idx=7-tiebreak.</p>
+  <div class="metrics">
+    <div title="Single-stream decode @64 ctx, BitNet-b1.58-2B-4T, temp 0."><b>83</b><span>tok/s decode @64</span></div>
+    <div title="Decode @1024 ctx. Attention dominates; split-KV FD kernel holds it."><b>33</b><span>tok/s decode @1024</span></div>
+    <div title="gen-2 Rust vs gen-1 C++ baseline on wikitext-103. Within ±0.05."><b>+0.02</b><span>PPL Δ vs baseline</span></div>
+    <div title="Projected after idx=7 fp32 argmax tie-break fix lands on next burnin cycle. Previous: 95.55%."><b>~98.9%</b><span>byte-exact burn-in</span></div>
+    <div title="Ternary GEMV roofline via rocprof."><b>92%</b><span>of LPDDR5 peak</span></div>
+    <div title="Split-KV Flash-Decoding attention @L=2048. Bit-exact output."><b>6.78×</b><span>attn @2048 vs prior</span></div>
+    <div title="End-to-end halo-voice first audio byte, measured 2026-04-20."><b>1.23 s</b><span>first audio (TTS)</span></div>
+    <div title="Workspace test count across 14 crates. Zero failures."><b>245</b><span>tests · 0 fail</span></div>
+    <div title="halo-server release binary, stripped. Cold start under 200 ms."><b>2.4&nbsp;MB</b><span>server binary</span></div>
+    <div title="CPU + iGPU + NPU shared pool. No PCIe tax on weights."><b>128&nbsp;GB</b><span>shared LPDDR5</span></div>
+  </div>
+</section>
+
+<section id="install" class="install">
+  <h2>install</h2>
+<pre><code>curl -fsSL https://1bit.systems/install.sh | bash</code></pre>
+  <ul class="install-bullets">
+    <li>First token in <b>~60 seconds</b> on a primed Strix Halo box.</li>
+    <li>No sudo password leaves the machine. Script runs unprivileged, prompts locally.</li>
+    <li>Idempotent — rerun anytime to repair or upgrade.</li>
+  </ul>
+  <p class="note">Prefer git? <a href="https://github.com/bong-water-water-bong/halo-ai-rs" rel="noopener">clone the monorepo</a> and run <code>./install.sh</code> directly.</p>
+</section>
+
+<section id="family" class="pillars">
+  <h2>featuring halo — and family</h2>
+  <p class="note">Fourteen crates, one monorepo, one job each. Rust above the HIP line, C++ below. No Python in the hot path. No container overhead. Everything runs as a user-systemd unit.</p>
+  <div class="pillar-grid">
+    <article class="pillar"><h3>halo-server</h3><p>OpenAI-compat HTTP. /v1/chat/completions with SSE. Bearer-gated via Caddy. 2.4&nbsp;MB binary.</p></article>
+    <article class="pillar"><h3>halo-router</h3><p>Backend dispatcher — iGPU / NPU / CPU. <code>HALO_BACKEND=xdna</code> wires FLM subprocess for NPU prefill.</p></article>
+    <article class="pillar"><h3>halo-bitnet-hip</h3><p>FFI into rocm-cpp HIP kernels. 92%-LPDDR5-peak ternary GEMV lives on the other side.</p></article>
+    <article class="pillar"><h3>halo-bitnet-xdna</h3><p>FFI into libxrt for XDNA 2 NPU. FastFlowLM subprocess bridge; ternary-INT8 mapping pending AMD.</p></article>
+    <article class="pillar"><h3>halo-voice</h3><p>Sentence-boundary streaming TTS. 1.23 s first audio. 17 unit tests.</p></article>
+    <article class="pillar"><h3>halo-echo</h3><p>WebSocket voice server, Opus 20&nbsp;ms frames. Cancellation path on disconnect. 11 tests.</p></article>
+    <article class="pillar"><h3>halo-whisper</h3><p>STT via whisper.cpp on gfx1151. Streaming partials on roadmap.</p></article>
+    <article class="pillar"><h3>halo-kokoro</h3><p>TTS, 24&nbsp;kHz mono WAV, onnxruntime. af_sky / am_michael / bf_emma / bm_george.</p></article>
+    <article class="pillar"><h3>halo-mcp</h3><p>Stdio MCP bridge. 19 tools: 17 specialists + skill_manage + memory_manage.</p></article>
+    <article class="pillar"><h3>halo-agents</h3><p>17 typed specialists. <code>halo-watch-discord</code> + <code>halo-watch-github</code> keep the fleet online.</p></article>
+    <article class="pillar"><h3>halo-cli</h3><p><code>halo status · doctor · install · skill · memory · npu · burnin · power</code>. One command, whole stack.</p></article>
+    <article class="pillar"><h3>halo-landing</h3><p>LAN dashboard on :8190. Live metrics, /_live/stats SSE.</p></article>
+    <article class="pillar"><h3>halo-lemonade</h3><p>OpenAI-compat gateway on :8200. Hermes + AMD GAIA interop.</p></article>
+    <article class="pillar"><h3>halo-helm</h3><p>Native desktop client (egui/eframe). Rust GUI, no Electron, no web-view. Formerly halo-gaia.</p></article>
+    <article class="pillar"><h3>halo-core</h3><p>Pure parsers. mmap, zero I/O beyond the file handle. Only crate with zero deps beyond std.</p></article>
+  </div>
+</section>
+
+<section id="community" class="community">
+  <h2>community</h2>
+  <div class="community-row">
+    <a class="comm-card" href="https://discord.gg/halo-ai" rel="noopener"><b>Discord</b><span>dev chat + install help + beta invites</span></a>
+    <a class="comm-card" href="https://github.com/bong-water-water-bong" rel="noopener"><b>GitHub</b><span>bong-water-water-bong · halo-ai-rs + family</span></a>
+    <a class="comm-card" href="https://github.com/amd/RyzenAI-SW/issues/366" rel="noopener"><b>AMD Issue #366</b><span>Strix Halo Linux NPU — resolved via Lemonade 10.2</span></a>
+  </div>
+</section>
+
+<footer class="footer">
+  <p><b>1bit.systems</b> · the 1-bit monster · built by <a href="https://github.com/bong-water-water-bong" rel="noopener">bong-water-water-bong</a>. MIT licensed. Gratitude to <a href="https://github.com/Lightheartdevs" rel="noopener">Light Heart Labs</a>.</p>
+  <p class="tag">v3 · honest numbers · parity-gated · bare metal · unified APU · the-architect</p>
+</footer>
+
+</main>
+
+</body>
+</html>

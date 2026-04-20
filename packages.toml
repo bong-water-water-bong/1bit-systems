@@ -8,14 +8,14 @@
 #   check       — optional HTTP healthcheck; 2xx = installed OK
 
 [component.core]
-description = "halo-ai core — halo CLI + halo-server + halo-lemonade gateway + halo-gaia TUI + landing page + voice/echo/mcp + npu userspace"
+description = "halo-ai core — halo CLI + halo-server + halo-lemonade gateway + halo-helm desktop + landing page + voice/echo/mcp + npu userspace"
 deps        = ["voice", "echo", "mcp", "npu"]
 build = [
     ["cargo", "install", "--path", "crates/halo-cli",      "--force", "--quiet"],
     ["cargo", "install", "--path", "crates/halo-server",   "--force", "--quiet",
      "--features", "real-backend"],
     ["cargo", "install", "--path", "crates/halo-lemonade", "--force", "--quiet"],
-    ["cargo", "install", "--path", "crates/halo-gaia",     "--force", "--quiet"],
+    ["cargo", "install", "--path", "crates/halo-helm",     "--force", "--quiet"],
     ["cargo", "install", "--path", "crates/halo-landing",  "--force", "--quiet"],
 ]
 units = [
@@ -141,9 +141,19 @@ build       = []
 units       = []
 check       = "http://127.0.0.1:8190/_health"
 
-[component.gaia]
-description = "halo-gaia terminal chat client (bundled in core — alias for back-compat)"
+[component.helm]
+description = "halo-helm egui desktop client (bundled in core — alias for back-compat)"
 deps        = ["core"]
+build       = []
+units       = []
+check       = ""
+
+# Alias: `halo install gaia` still works, points at the renamed helm component.
+# The crate rename (halo-gaia → halo-helm, 2026-04-20) was a rebrand only;
+# the component name survives as an alias for anyone with old shell history.
+[component.gaia]
+description = "alias for halo-helm (renamed 2026-04-20; was halo-gaia)"
+deps        = ["helm"]
 build       = []
 units       = []
 check       = ""

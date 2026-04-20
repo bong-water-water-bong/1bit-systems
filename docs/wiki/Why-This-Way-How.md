@@ -10,7 +10,7 @@ If you've read the landing page and want the engineering story, this is that pag
                  ┌─────────────────────────────────────────────────┐
                  │                your laptop                       │
                  │  Open WebUI · LibreChat · DSPy · Claude Code     │
-                 │  halo-gaia (TUI) · your python notebook          │
+                 │  halo-helm (egui) · your python notebook         │
                  └──────────────────────┬───────────────────────────┘
                                         │ OpenAI-compatible HTTP
                                         │
@@ -24,7 +24,7 @@ If you've read the landing page and want the engineering story, this is that pag
          │                                                          │
          │  ┌────────────────── halo-workspace (rust) ─────────────┐│
          │  │ halo-cli  · halo-server  · halo-router · halo-mcp    ││
-         │  │ halo-core · halo-agents  · halo-landing · halo-gaia  ││
+         │  │ halo-core · halo-agents  · halo-landing · halo-helm  ││
          │  │ halo-lemonade · halo-bitnet-hip · halo-bitnet-mlx    ││
          │  └──────────────────────┬───────────────────────────────┘│
          │                         │ extern "C" FFI                 │
@@ -127,7 +127,7 @@ One script. What it does:
 1. Check GPU is gfx1151, kernel is 7.x, `amdxdna` + `rocm-hip-sdk` installed.
 2. Clone (or pull) `bong-water-water-bong/rocm-cpp`, build kernels with `cmake --build`. Takes ~2 minutes on a Strix Halo.
 3. `cargo build --release --workspace` in halo-workspace. Another ~1 minute.
-4. `cargo install --path crates/halo-cli` + `...halo-server` + `...halo-lemonade` + `...halo-gaia` + `...halo-landing`. All five binaries land in `~/.cargo/bin/`.
+4. `cargo install --path crates/halo-cli` + `...halo-server` + `...halo-lemonade` + `...halo-helm` + `...halo-landing`. All five binaries land in `~/.cargo/bin/`.
 5. `systemctl --user enable --now strix-server strix-lemonade strix-landing`.
 6. Symlink `/home/bcloud/halo-1bit/models/halo-1bit-2b.{h1b,htok}` to the real model dir (compat shim for a hardcoded path in the release binary — will be removed after next rebuild).
 7. Run `halo doctor`. Green means you're live.

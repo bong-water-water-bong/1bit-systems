@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0d1117">
+<title>BitNet v2 — Hadamard rotation plan (halo-ai-rs / gen-2) · 1bit.systems docs</title>
+<link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+<link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/"><img src="/assets/logo.svg" alt="" width="28" height="28"><span><b>1</b>bit<span class="dot">.</span>systems</span></a>
+  <nav>
+    <a href="/docs/">docs</a>
+    <a href="/voice/">voice</a>
+    <a href="/audio/">audio</a>
+    <a href="/join/">join</a>
+    <a href="https://github.com/bong-water-water-bong" rel="noopener" class="gh-btn">GitHub</a>
+  </nav>
+</header>
+<div class="docs-shell">
+<aside class="docs-side">
+<h4>decisions</h4>
+<a href="/docs/why-ternary.html">Why Ternary</a>
+<a href="/docs/why-rust.html">Why Rust</a>
+<a href="/docs/why-strix-halo.html">Why Strix Halo</a>
+<a href="/docs/why-shadow-burnin.html">Why Shadow-Burnin</a>
+<a href="/docs/why-h1b-format.html">Why H1b Format</a>
+<a href="/docs/why-caddy-systemd.html">Why Caddy + Systemd</a>
+<a href="/docs/why-halo-agents.html">Why halo-agents</a>
+<a href="/docs/why-no-python.html">Why No Python</a>
+<a href="/docs/why-parity-gates.html">Why Parity Gates</a>
+<a href="/docs/why-no-npu-yet.html">Why No NPU Yet</a>
+<a href="/docs/why-halo-power.html">Why halo-power</a>
+<a href="/docs/why-this-way-how.html">Why This Way + How</a>
+<h4>integrations</h4>
+<a href="/docs/hermes-integration.html">Hermes</a>
+<a href="/docs/amd-gaia-integration.html">AMD GAIA</a>
+<a href="/docs/medusa-integration-plan.html">Medusa plan</a>
+<a href="/docs/rotorquant-default-decision.html">Rotorquant</a>
+<a href="/docs/halo-whisper-streaming-plan.html">Whisper streaming</a>
+<a href="/docs/npu-kernel-design.html">NPU kernel</a>
+<a href="/docs/ternary-on-aie-pack-plan.html">Ternary on AIE</a>
+<a href="/docs/peak-performance-projection.html">Peak projection</a>
+<a href="/docs/cpu-lane-plan.html">CPU lane</a>
+<a href="/docs/cloudflare-tunnel-setup.html">Cloudflare tunnel</a>
+<a href="/docs/vpn-only-api.html">VPN-only API</a>
+<a href="/docs/beta-10-day-ttl.html">Beta 10-day TTL</a>
+<a href="/docs/sdd-workflow.html">SDD workflow</a>
+<h4>crates</h4>
+<a href="/docs/crate-halo-echo.html">halo-echo</a>
+<a href="/docs/crate-halo-helm.html">halo-helm</a>
+<a href="/docs/crate-halo-landing.html">halo-landing</a>
+<a href="/docs/crate-halo-lemonade.html">halo-lemonade</a>
+<a href="/docs/crate-halo-agents-watch.html">halo-agents-watch</a>
+<h4>amd scans</h4>
+<a href="/docs/amd-ai-ml-tools-scan.html">AI/ML tools</a>
+<a href="/docs/amd-compilers-analyzers-scan.html">Compilers</a>
+<a href="/docs/amd-manageability-scan.html">Manageability</a>
+<a href="/docs/amd-platform-driver-scan.html">Platform driver</a>
+<a href="/docs/amd-rocm-ai-hub-scan.html">ROCm AI hub</a>
+<h4>reference</h4>
+<a href="/docs/home.html">Home</a>
+<a href="/docs/faq.html">FAQ</a>
+<a href="/docs/benchmarks.html">Benchmarks</a>
+
+</aside>
+<main class="docs-body">
+<h1>BitNet v2 — Hadamard rotation plan (halo-ai-rs / gen-2)</h1>
+<p>Tracker for the <strong>H-BitLinear</strong> activation path (paper: arXiv 2504.18415, Wang/Ma/Huang/Wei, Microsoft, April 2025). Replaces the BitNet-a4.8 staged A8→A4 recipe we had queued after Sherry lands.</p>
+<p><strong>Landed</strong>: 2026-04-20 — skeleton kernel + plan only. No forward-pass wiring, no weight pipeline, no PPL runs yet.</p>
+<hr>
+<h2 id="1-algorithm-summary">1. Algorithm summary</h2>
+<p>H-BitLinear applies an online block-diagonal <strong>Walsh-Hadamard</strong> rotation <code>H_B</code> to every activation tensor <strong>immediately before</strong> the quantizer in a ternary linear (Q/K/V/O/gate/up/down). Because <code>H</code> is orthogonal (<code>H^T H = B · I</code>; we use <code>H / sqrt(B)</code> to make it unitary), it preserves L2 norm and therefore does not disturb the upstream RMSNorm invariant. What it <em>does</em> do is <strong>smear outlier channels across the block</strong> so that the post-rotation distribution is near-Gaussian — at which point symmetric per-token int4 quantization (<code>scale = max(|x|) / 7</code>, values in <code>[-8, +7]</code>) becomes viable with a &lt;0.1 PPL regression vs fp16 activations on the 2B4T base. The rotation is <strong>absorbed into the ternary weights offline</strong> (<code>W' = W @ H^T</code>), so online inference pays for the rotate but <em>not</em> for an inverse rotate on the output side. Native W1.58A4 training, no staged hand-off, no a4.8-style gradual-bit schedule.</p>
+<h2 id="2-hadamard-block-size-choice-b-128">2. Hadamard block size choice: <strong>B = 128</strong></h2>
+<p>Rationale:</p>
+<ul>
+<li><strong>Shape math</strong>: BitNet-2B-4T <code>hidden_size = 2560 = 20*128</code>,</li>
+</ul>
+<p><code>intermediate_size = 6912 = 54*128</code>, <code>head_dim = 128</code>. Every GEMV input size in the decode forward pass is cleanly divisible. B=256 would not divide 2560; B=64 would leave outlier mixing incomplete on the 6912-wide FFN intermediate (the most outlier-heavy tensor per the paper's Table 3).</p>
+<ul>
+<li><strong>Register/LDS budget</strong>: <code>128 * 4 B (fp32 accumulator) = 512 B</code> per block</li>
+</ul>
+<p>in LDS. At 4 workgroups per CU we use 2 KiB LDS — well below the 64 KiB gfx1151 per-CU limit; leaves headroom to co-resident with the ternary GEMV or the RMSNorm kernel when we fuse.</p>
+<ul>
+<li><strong>Butterfly depth</strong>: <code>log2(128) = 7</code> stages. Each stage is a single</li>
+</ul>
+<p><code>__shfl_xor</code> on wave32 (per Sylvester's <code>H_{2n} = [[H_n, H_n], [H_n, -H_n]]</code>, stage <code>s</code> pairs lanes <code>i</code> and <code>i^(1&lt;&lt;s)</code>). 7 wave-wide shuffles vs. the B² scalar reference (<code>16384</code> adds per block) is a ~1000× speedup before any further WMMA packing.</p>
+<ul>
+<li><strong>Paper ablation</strong>: Table 5 of 2504.18415 shows B=128 at the knee of the</li>
+</ul>
+<p>PPL-vs-cost curve; B=256 returns ~0.03 PPL more improvement at 2× the kernel cost, B=64 gives up ~0.1 PPL. B=128 is what Microsoft ships.</p>
+<p>Implementation note: the kernel is <strong>parameterized on B</strong> as a template / constexpr so we can run B=256 and B=64 in our PPL sweep before committing.</p>
+<h2 id="3-insertion-points-in-our-forward-pass">3. Insertion points in our forward pass</h2>
+<p>All sites are in <code>crates/halo-router/src/backend_impl.rs</code> (gen-2 Rust forward driver). Line numbers are as of commit HEAD on 2026-04-20:</p>
+<table>
+<thead><tr><th>#</th><th>site</th><th>line</th><th>pre-state</th><th>post-rotate step</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>input_norm → Q/K/V</td><td>530</td><td><code>quantize_fp16_to_i8(normed, x_i8, x_scale)</code></td><td><strong>insert</strong> <code>hadamard_rotate_fp16(normed, normed_rot, hs)</code> before, then replace i8 path with i4 path</td></tr>
+<tr><td>2</td><td>attn_sub_norm → O</td><td>640</td><td>same pattern</td><td>same</td></tr>
+<tr><td>3</td><td>post_attn_norm → gate/up</td><td>674</td><td>same pattern</td><td>same</td></tr>
+<tr><td>4</td><td>ffn_sub_norm → down</td><td>714</td><td><code>quantize_fp16_to_i8(silu_out, ...)</code></td><td>same, on <code>silu_out</code></td></tr>
+</tbody></table>
+<p>Four rotate sites per layer × 28 layers = <strong>112 Hadamard launches per decode token</strong>. At B=128 butterfly-optimized, each rotate is a single wave32 kernel with 7 LDS-free shfl stages plus a load/store pair. Budget: ~1-2 µs per rotate on gfx1151 = ~150-200 µs per token added → ≤2% decode time if current token budget is ~12 ms (83 tok/s). Acceptable.</p>
+<p>We explicitly do <strong>not</strong> rotate the residual stream itself, and we do <strong>not</strong> rotate between RoPE and attention — only the four pre-GEMV sites above. RoPE's Givens pairs and Hadamard's ±1 signs don't commute; mixing them is a correctness bug.</p>
+<h2 id="4-kernel-list">4. Kernel list</h2>
+<h3 id="new">New</h3>
+<ol>
+<li><strong><code>src/hadamard_rotate.hip</code></strong> — prototype scalar reference landed today</li>
+</ol>
+<p>(<code>rcpp_hadamard_rotate_fp16_ref_launch</code>). B=128 hardcoded, O(B²) inner loop. Purpose: diff-testable oracle for the butterfly variant.</p>
+<ol>
+<li><strong><code>kernels/hadamard_rotate_butterfly.hip</code></strong> <em>(follow-up)</em> — wave32</li>
+</ol>
+<p>butterfly, 7 <code>__shfl_xor</code> stages, one block per B-sized chunk, fused <code>1/sqrt(B)</code> scaling into the final stage. This is the production kernel.</p>
+<ol>
+<li><strong><code>kernels/hadamard_rotate_fused_quant.hip</code></strong> <em>(follow-up)</em> — fuses</li>
+</ol>
+<p>the butterfly with per-token i4 symmetric quantization (max-reduce → scale → quantize → pack) in a single launch. Replaces two separate kernel launches per site. Target: single kernel with both the rotate and the <code>quantize_fp16_to_i4</code> emitted in one grid.</p>
+<h3 id="modified">Modified</h3>
+<ol>
+<li><strong><code>kernels/ternary_gemv_phase5_i4a.hip</code></strong> — already consumes <code>i4</code></li>
+</ol>
+<p>activations with a <strong>per-tensor</strong> scale (halo-ai Lane A predecessor). Needs: per-token scale path parameterized in (we quantize fresh every forward pass, so the scale is per-site-per-token — which is what the kernel already handles via the <code>x_scale</code> scalar; just re-plumb from <code>x_scale_dev</code> on the Rust side). No kernel restructure required. Add <code>ternary_gemv_halo_i4a_f16</code> fp16-output twin mirroring the <code>halo_f16</code> suffix pattern.</p>
+<ol>
+<li><strong>Offline requantizer</strong> — <code>halo-core</code> / tools path. <code>W' = W @ H^T</code></li>
+</ol>
+<p>applied once at <code>.h1b</code> export time. Since <code>H ∈ {+1, -1}</code> the matmul reduces to sign-flipped adds; no multiplies. Output is still ternary because <code>H^T</code> is ±1 and the ternary weight space is closed under sign flip. <strong>Important</strong>: this means model weights re-ship as a new <code>.h1b</code> variant flag (<code>H1B_FLAG_HADAMARD_ROTATED</code>) — existing rocm-cpp consumers must reject a non-matching flag cleanly (loader bounds check as always).</p>
+<h3 id="untouched">Untouched</h3>
+<ul>
+<li><code>ternary_gemv_halo.hip</code> (i8 A path) — stays as the fallback lane; don't</li>
+</ul>
+<p>touch per CLAUDE.md Rule.</p>
+<ul>
+<li><code>prim_kernels.hip</code> RMSNorm variants — unchanged. Hadamard lives</li>
+</ul>
+<p>between RMSNorm and quant, not inside either.</p>
+<ul>
+<li><code>kv_rotorquant.cpp</code> + <code>rotorquant_pack.hip</code> — orthogonal lane. KV-side</li>
+</ul>
+<p>Givens rotation is unrelated to the activation-side Hadamard (different matrices, different tensors).</p>
+<h2 id="5-ppl-budget-validation">5. PPL budget + validation</h2>
+<p>Gate: <strong><code>benchmarks/ppl-gen2.sh</code> wikitext-103 ≤ 9.30</strong> (gen-1 baseline 9.1607, gen-2 current 9.1805, i4a acceptance tolerance +0.12 PPL). Per paper Table 2, 2B4T W1.58A4 vs W1.58A8: +0.05–0.08 PPL on wikitext. We budget 2× paper margin (measurement variance on our PPL harness is ~0.04 per run) → gate at +0.12.</p>
+<p>Validation ladder:</p>
+<ol>
+<li><strong>Unit test</strong> (<code>tests/test_hadamard.cpp</code>): round-trip</li>
+</ol>
+<p><code>x → H x → H^T (H x) / B = x</code> to ±1 ULP at B=128 over 10k random fp16 vectors. Catches butterfly-implementation bugs.</p>
+<ol>
+<li><strong>Numerical diff</strong> against scalar reference (<code>hadamard_rotate_fp16_ref</code>)</li>
+</ol>
+<p>— bit-exact fp16 at B=128. If butterfly diverges, the reference is the oracle.</p>
+<ol>
+<li><strong>PPL regression run</strong> on wikitext-103 via <code>bitnet_decode --ppl</code></li>
+</ol>
+<p>(landed 2026-04-19 per <code>project_ppl_harness.md</code>). Single-layer A/B (only layer 0 rotated) first to confirm the sign convention and offline requant is correct before re-exporting all 28 layers.</p>
+<ol>
+<li><strong>Shadow-burnin</strong> parity vs the existing i8a path for 10 h, checking</li>
+</ol>
+<p>byte-exact argmax rate stays ≥90% (current baseline post special-token fix). Mismatch rate above ~15% is a correctness bug, not precision.</p>
+<h2 id="6-rank-vs-sherry-medusa">6. Rank vs Sherry + Medusa</h2>
+<p>Current decode headline: <strong>83 tok/s</strong> on gfx1151 decode-1-token, <strong>92% of LPDDR5 peak</strong> per <code>project_bitnet_rocprof_plan.md</code> (memory-bound, not compute-bound).</p>
+<table>
+<thead><tr><th>candidate</th><th>bytes-read reduction</th><th>compute cost</th><th>expected tok/s</th><th>PPL cost</th><th>rank</th></tr></thead>
+<tbody>
+<tr><td><strong>Sherry 1.25-bit</strong></td><td>ternary 1.6 bpw → 1.25 bpw = <strong>22%</strong> fewer weight bytes</td><td>+small (sparse unpack)</td><td>~100 tok/s (1.22× memory-bound ceiling)</td><td>+0.08 PPL @ QAT</td><td><strong>#1</strong></td></tr>
+<tr><td><strong>BitNet v2 (this)</strong></td><td>no weight reduction; activation bytes = hs<em>1B vs hs</em>2B = 50% of act stream</td><td>+Hadamard (small, reg-bound)</td><td>~85-87 tok/s (activation bytes are &lt;3% of total DRAM read per decode)</td><td>+0.05-0.08 PPL</td><td><strong>#3</strong></td></tr>
+<tr><td><strong>Medusa-2 heads</strong></td><td>N/A — latency hides under speculative acceptance</td><td>+verify pass</td><td>~150-180 tok/s (2.0-2.2× on BitNet-2B-4T per existing memory entry)</td><td>0 (exact verify)</td><td><strong>#2</strong></td></tr>
+</tbody></table>
+<p><strong>Promotion ranking: Sherry → Medusa → BitNet v2.</strong></p>
+<p>Why BitNet v2 is rank #3 despite being &quot;the obvious next kernel&quot;:</p>
+<ul>
+<li><strong>Activations are not the bottleneck.</strong> Decode at hidden_size=2560 streams</li>
+</ul>
+<p><code>28 layers × 4 sites × 2560 × 2 B = ~560 KiB</code> of activations per token. Weights stream <code>~1.3 GiB / token</code>. Going fp16→i4 on activations saves ~280 KiB — <strong>~0.02%</strong> of total DRAM read per token. The paper's motivation is training cost + large-batch inference; for our batch=1 memory-bound regime, the payoff is narrower.</p>
+<ul>
+<li><strong>Sherry hits the actual bottleneck</strong> (weight bytes, 22% reduction on</li>
+</ul>
+<p>the 99.96% of DRAM that is weights). Projected 1.2× decode.</p>
+<ul>
+<li><strong>Medusa hides latency entirely</strong> by doing ~2 tokens per backbone pass;</li>
+</ul>
+<p>it's a different axis. Stacks cleanly on top of either of the above.</p>
+<ul>
+<li>BitNet v2 is <strong>still worth doing</strong> because: (a) ~2-3% activation-path</li>
+</ul>
+<p>speedup composes, (b) the <em>same</em> Hadamard rotation is a prerequisite for native W1.58A4 <strong>QAT on Battlemage</strong> (per <code>project_battlemage_distill.md</code> — training-cost win even if inference win is modest), and (c) offline requantizer gives us a cheap &quot;W1.58A4 halo-2B&quot; variant to publish alongside the main W1.58A8 weights as a size-matched checkpoint for tools that can't afford the i8 scratch.</p>
+<p>Land order: finish Sherry → integrate Medusa → then BitNet v2. If Battlemage lands before Sherry ships, promote BitNet v2 to #1 because the training-side win dwarfs the 2-3% inference delta.</p>
+<h2 id="7-open-questions-paper-reading-todo">7. Open questions / paper-reading TODO</h2>
+<ul>
+<li>Per-token vs per-channel int4 scale — paper Sec 3.2 suggests per-token</li>
+</ul>
+<p>is sufficient post-Hadamard (whole point of the rotation is to homogenize). Confirm before committing to per-token in the packer.</p>
+<ul>
+<li>Do we need the Hadamard on the <strong>KV-cache</strong> writes too? If K/V writes</li>
+</ul>
+<p>stay at fp16 we bypass the rotation for KV — but when we eventually ship the int8 KV cache as default we'd want to extend. Out of scope for this plan; revisit when int8-KV graduates from optional to default.</p>
+<ul>
+<li>The paper's &quot;H-BitLinear&quot; module wraps <em>both</em> the quant and the dequant;</li>
+</ul>
+<p>confirm that &quot;absorbed into weights offline&quot; reading matches Microsoft's open-source impl (not public at paper release, check for updates).</p>
+<h2 id="8-memory-references">8. Memory / references</h2>
+<ul>
+<li><code>project_bitnet_frontier_2026_04.md</code> (this item's home row)</li>
+<li><code>project_sherry_spike.md</code> (rank #1 lane — do first)</li>
+<li><code>project_battlemage_distill.md</code> (promotes this if B770 lands early)</li>
+<li><code>project_bitnet_rocprof_plan.md</code> (memory-bound baseline justifying the rank)</li>
+<li><code>docs/wiki/Medusa-Integration-Plan.md</code> (rank #2 lane)</li>
+</ul>
+<h2 id="9-prototype-compile-verification-manual">9. Prototype compile verification (manual)</h2>
+<p>Prototype kernel lives at <code>/home/bcloud/repos/rocm-cpp/src/hadamard_rotate.hip</code>. Agent was sandboxed away from clang invocation; verify with:</p>
+<pre><code class="lang-bash">/opt/rocm/lib/llvm/bin/clang++ -x hip --offload-arch=gfx1151 -O3 \
+    -std=c++17 -c \
+    /home/bcloud/repos/rocm-cpp/src/hadamard_rotate.hip \
+    -o /tmp/hadamard_rotate.o
+</code></pre>
+<p>To wire into the existing build, add the file to <code>rocm_cpp</code> sources and the HIP <code>set_source_files_properties</code> list in <code>/home/bcloud/repos/rocm-cpp/CMakeLists.txt</code> (line 78-ish block). Don't add the public header entry in <code>include/rocm_cpp/ck_gemm.h</code> until the butterfly variant lands — the <code>_ref_</code> launcher is intentionally not in the public API surface.</p>
+
+</main>
+<aside class="docs-toc">
+<h4>on this page</h4>
+<a href="#1-algorithm-summary">1. Algorithm summary</a>
+<a href="#2-hadamard-block-size-choice-b-128">2. Hadamard block size choice: **B = 128**</a>
+<a href="#3-insertion-points-in-our-forward-pass">3. Insertion points in our forward pass</a>
+<a href="#4-kernel-list">4. Kernel list</a>
+<a href="#new" style="padding-left:.8rem">New</a>
+<a href="#modified" style="padding-left:.8rem">Modified</a>
+<a href="#untouched" style="padding-left:.8rem">Untouched</a>
+<a href="#5-ppl-budget-validation">5. PPL budget + validation</a>
+<a href="#6-rank-vs-sherry-medusa">6. Rank vs Sherry + Medusa</a>
+<a href="#7-open-questions-paper-reading-todo">7. Open questions / paper-reading TODO</a>
+<a href="#8-memory-references">8. Memory / references</a>
+<a href="#9-prototype-compile-verification-manual">9. Prototype compile verification (manual)</a>
+
+</aside>
+</div>
+<footer class="footer">
+  <p><b>1bit.systems</b> · the 1-bit monster · <a href="/">home</a></p>
+</footer>
+</body>
+</html>

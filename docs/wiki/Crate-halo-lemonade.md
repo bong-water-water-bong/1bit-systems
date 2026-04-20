@@ -1,5 +1,5 @@
 ---
-phase: implementation
+phase: verified
 owner: anvil
 ---
 
@@ -59,9 +59,9 @@ pub struct GatewayConfig {
 
 - [x] axum routes live (`:8200` active via `strix-lemonade.service`)
 - [x] `/v1/models` + `/v1/chat/completions` + `/healthz`
-- [ ] `/metrics` endpoint — sketched, not wired
+- [x] `/metrics` endpoint — Prometheus text format, counter + histogram + upstream-up gauge wired through the dispatch layer (2026-04-20)
 - [ ] `/v1/embeddings` — not shipped (halo-server doesn't expose embeddings yet)
-- [ ] Dispatch-trait abstraction (today hardcoded to halo-server) — needed when we flip some routes to lemond/flm for Q4 models
+- [x] Dispatch-trait abstraction — `Upstream` trait + `HaloServer` impl live (2026-04-20); swap to lemond/flm by constructing a different `Arc<dyn Upstream>` at boot, no route changes
 
 ## Spec cross-ref
 
@@ -71,12 +71,13 @@ pub struct GatewayConfig {
 | Invariant 1 (no auth dup) | Caddy handles bearer; no auth code here |
 | Invariant 4 (no body log) | `tracing` filter in main — verify doesn't capture `body` field |
 
-## Phase: implementation
+## Phase: verified
 
-Promote to `verified` once:
-- `/metrics` endpoint is live
-- Dispatch trait extracted from hardcoded halo-server
-- Prometheus scrape from halo-landing confirms counters update
+Promoted 2026-04-20. Checklist:
+- [x] `/metrics` endpoint is live (Prometheus text, `# TYPE` markers for counter + histogram + gauge)
+- [x] Dispatch trait extracted from hardcoded halo-server (`Upstream` trait in `src/dispatch.rs`, `HaloServer` is the today-impl)
+- [x] Smoke: 23 in-crate tests green under `cargo test -p halo-lemonade --release`, including object-safety + swappable-backends + /metrics format assertions
+- [ ] Prometheus scrape from halo-landing confirms counters update in prod — pending landing-side wiring (tracked separately; doesn't block gateway phase)
 
 ## Cross-refs
 

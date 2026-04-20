@@ -41,7 +41,7 @@ crates/
   halo-mcp           tokio stdio JSON-RPC bridge → halo-agents registry
   halo-landing       marketing page on :8190, live /metrics probe
   halo-lemonade      OpenAI-compat model gateway (/v1/models on :8200)
-  halo-gaia          desktop client scaffold (no UI yet)
+  halo-helm          desktop client (egui/eframe) — formerly halo-gaia, renamed 2026-04-20
   halo-bitnet-hip    FFI into rocm-cpp
   halo-bitnet-mlx    Apple Silicon backend (feature-gated)
 strixhalo/           dotfiles (systemd, caddy, bin, fish) — see strixhalo/README.md

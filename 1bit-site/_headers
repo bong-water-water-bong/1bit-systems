@@ -1,0 +1,26 @@
+# Cloudflare Pages headers — see https://developers.cloudflare.com/pages/configuration/headers/
+
+/assets/*
+  Cache-Control: public, max-age=3600
+
+/voice/voice.css
+  Cache-Control: public, max-age=3600
+/voice/app.js
+  Cache-Control: public, max-age=3600
+
+/join/qrcode.min.js
+  Cache-Control: public, max-age=3600
+
+/docs/*.html
+  Cache-Control: public, max-age=3600
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: microphone=(self), camera=()
+
+/index.html
+  Cache-Control: no-cache
+
+/
+  Cache-Control: no-cache

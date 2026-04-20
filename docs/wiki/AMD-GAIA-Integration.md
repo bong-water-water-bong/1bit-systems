@@ -17,7 +17,14 @@ Key features:
 - File-system search + browsing
 - Electron UI on localhost:4200
 
-## Naming conflict: AMD GAIA vs our `halo-gaia`
+## Naming conflict: AMD GAIA vs our `halo-gaia` (resolved)
+
+> **Resolved 2026-04-20.** Our crate was renamed `halo-gaia` → `halo-helm`.
+> This section is preserved as the historical record and rename rationale.
+> Every other reference in the tree now says `halo-helm`; `packages.toml`
+> keeps `[component.gaia]` as an alias for back-compat with old shell
+> history. See `Crate-halo-helm.md` for the live spec.
+
 
 Our scaffold crate `halo-gaia` (phase: analysis, see `Crate-halo-gaia.md`) is a native-Rust desktop client for halo-ai — the SAME category as AMD GAIA. Both:
 - Target Ryzen AI MAX+ 395 / Strix Halo
@@ -62,7 +69,7 @@ Bearer: AMD GAIA may not send an `Authorization` header by default. Caddy's `/le
 
 ## Cross-refs
 
-- `Crate-halo-gaia.md` — our (rename-candidate) desktop client spec
+- `Crate-halo-helm.md` — our desktop client spec (formerly Crate-halo-gaia.md)
 - `Crate-halo-lemonade.md` — the OpenAI-compat gateway AMD GAIA would talk to
 - `Hermes-Integration.md` — parallel external-client pattern for Hermes Agent
 - `VPN-Only-API.md` — mesh + bearer posture that AMD GAIA sits behind

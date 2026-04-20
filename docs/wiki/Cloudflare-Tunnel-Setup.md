@@ -96,7 +96,7 @@ No Caddyfile change required.
 
 - **Admin / metrics endpoints.** `/metrics` on halo-landing leaks per-specialist stats. Keep LAN-only.
 - **halo-mcp stdio JSON-RPC.** Not HTTP; wouldn't work anyway.
-- **halo-gaia desktop client.** No reason to publicly expose.
+- **halo-helm desktop client.** No reason to publicly expose.
 - **strix-burnin** / **shadow-burnin** logs. Private.
 
 If we need per-path gating later, CF Access can front the tunnel with email-link auth. That's a follow-up, not required for launch.

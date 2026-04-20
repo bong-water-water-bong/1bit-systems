@@ -86,3 +86,17 @@ footer a:hover { text-decoration: underline; }
   padding: 0.1rem 0.5rem; border: 1px solid var(--border); border-radius: 999px;
   font-size: 0.75rem; color: var(--muted);
 }
+/* /_live/stats + /_live/services widgets */
+.telemetry-grid {
+  display: grid; grid-template-columns: max-content 1fr;
+  gap: 0.35rem 1rem; font-family: var(--mono); font-size: 0.9rem;
+  margin: 0 0 1rem;
+}
+.telemetry-grid dt { color: var(--muted); }
+.telemetry-grid dd { margin: 0; color: var(--fg); }
+.services { list-style: none; padding: 0; margin: 0.25rem 0 0;
+  display: flex; flex-wrap: wrap; gap: 0.35rem; font-family: var(--mono);
+  font-size: 0.82rem; }
+.svc { padding: 0.15rem 0.6rem; border-radius: 999px; border: 1px solid var(--border); }
+.svc-on  { color: var(--green); border-color: rgba(63, 185, 80, 0.55); }
+.svc-off { color: var(--muted); }

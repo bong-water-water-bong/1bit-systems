@@ -10,7 +10,7 @@ members = [
     "crates/halo-bitnet-hip",
     "crates/halo-bitnet-mlx",
     "crates/halo-lemonade",
-    "crates/halo-gaia",
+    "crates/halo-helm",
     "crates/halo-landing",
     "crates/halo-voice",
     "crates/halo-echo",

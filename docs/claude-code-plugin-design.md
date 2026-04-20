@@ -101,7 +101,7 @@ Working in halo-ai-rs or halo-ai-core? These rules are non-negotiable:
 ## 11-crate workspace
 
 - `halo-cli`, `halo-core`, `halo-router`, `halo-server`, `halo-agents`,
-  `halo-mcp`, `halo-landing`, `halo-lemonade`, `halo-gaia`,
+  `halo-mcp`, `halo-landing`, `halo-lemonade`, `halo-helm`,
   `halo-bitnet-hip`, `halo-bitnet-mlx`.
 
 ## Deploy flow (halo-server only)

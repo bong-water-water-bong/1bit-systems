@@ -33,7 +33,7 @@ Huge gratitude to **[Light Heart Labs](https://lightheartlabs.io/)** — their o
 - **llama.cpp** — [`ggml-org/llama.cpp`](https://github.com/ggml-org/llama.cpp). GGUF format, IQ2_S quantization scheme, and the attention-kernel idioms our FD attention grew out of.
 - **ROCm / HIP** — the AMD compute runtime that our `rocm-cpp` kernels compile against.
 - **axum / tokio / serde / clap / reqwest** — the Rust crate foundations of halo-workspace.
-- **ratatui / crossterm** — halo-gaia's TUI layer.
+- **egui / eframe** — halo-helm's native GUI layer (formerly ratatui/crossterm; egui cutover 2026-04-20 with the halo-gaia → halo-helm rename).
 - **puppeteer-core + Bun** — halo-browser's attach-mode CDP driver.
 
 ### Research we read (that shipped)

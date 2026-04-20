@@ -8,7 +8,7 @@
  ┌────────────────────────────────────────────────────────┐
  │  Rust (halo-workspace, 11 crates, 121+ tests)          │
  │  halo-cli · halo-server · halo-router · halo-mcp       │
- │  halo-agents · halo-lemonade · halo-gaia · halo-landing│
+ │  halo-agents · halo-lemonade · halo-helm · halo-landing│
  │  halo-core (mmap + tokenizer + sampler) · halo-bitnet-*│
  └──────────────────────────┬─────────────────────────────┘
                             │ extern "C" FFI via halo-bitnet-hip

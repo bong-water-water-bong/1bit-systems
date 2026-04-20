@@ -20,7 +20,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full data-flow, feature-gate ma
 | `halo-mcp` | MCP bridge, stdio JSON-RPC, 26 tests | shipped |
 | `halo-landing` | marketing page + live status on `:8190` | shipped |
 | `halo-lemonade` | OpenAI + Lemonade-SDK compat gateway on `:8200` | shipped |
-| `halo-gaia` | ratatui terminal chat client, SSE streaming | shipped |
+| `halo-helm` | egui/eframe desktop client (formerly halo-gaia) | shipped |
 | `halo-bitnet-hip` | FFI → `rocm-cpp` ternary GEMV + Flash-Decoding attention | shipped |
 | `halo-bitnet-mlx` | FFI → `bitnet-mlx-rs` (Apple Silicon, feature-gated) | shipped |
 
@@ -113,4 +113,4 @@ Model:    halo-1bit-2b
 
 LibreChat works the same way with its `librechat.yaml` `endpoints.custom`
 block. Both are open-source and Linux-native — use either as the blessed
-desktop/web client until a native halo-gaia TUI is enough for your flow.
+desktop/web client until the native halo-helm desktop is enough for your flow.
