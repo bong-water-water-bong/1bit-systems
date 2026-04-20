@@ -198,16 +198,23 @@ fn skill_md_path(store: &SkillStore, name: &str) -> Result<Option<PathBuf>> {
     Ok(None)
 }
 
-/// Launch `$EDITOR` (fallback `vi`) against `path` and wait for it to exit.
+/// Launch `$EDITOR` (fallback cascade: nvim → vim → vi → nano) against
+/// `path` and wait for it to exit. On a minimal system where none of those
+/// are installed, print the path and return Ok so the create path still
+/// succeeds — the user can edit the file however they like.
 fn open_editor(path: &std::path::Path) -> Result<()> {
-    let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
-    let status = Command::new(&editor)
-        .arg(path)
-        .status()
-        .with_context(|| format!("spawn editor '{editor}' on {}", path.display()))?;
-    if !status.success() {
-        bail!("editor '{editor}' exited with {status}");
+    let preferred = std::env::var("EDITOR").ok();
+    let candidates: Vec<&str> = preferred.as_deref().into_iter()
+        .chain(["nvim", "vim", "vi", "nano"]).collect();
+    for editor in candidates {
+        match Command::new(editor).arg(path).status() {
+            Ok(status) if status.success() => return Ok(()),
+            Ok(status) => bail!("editor '{editor}' exited with {status}"),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(e).with_context(|| format!("spawn editor '{editor}'")),
+        }
     }
+    println!("note: no editor found ($EDITOR or nvim/vim/vi/nano). File is at:\n  {}", path.display());
     Ok(())
 }
 
