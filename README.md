@@ -91,3 +91,21 @@ print(qa(question="Why is ternary BitNet memory-bound on Strix Halo?").answer)
 
 `halo-mcp` tools are directly consumable via `dspy.Tool.from_mcp_tool(...)`.
 No additional shim needed.
+
+### Open WebUI — polished desktop-style chat against halo-server
+
+Open WebUI ([open-webui/open-webui](https://github.com/open-webui/open-webui))
+accepts any OpenAI-compat endpoint via **Settings → Connections → Add OpenAI API**.
+Point it at `https://strixhalo.local/v2/` with the halo bearer token and you
+get a full multi-conversation UI, RAG, document chat, and MCP tools —
+Linux/macOS/Windows, zero halo-side shim.
+
+```
+Base URL: https://strixhalo.local/v2
+API Key:  sk-halo-<your-token>
+Model:    halo-1bit-2b
+```
+
+LibreChat works the same way with its `librechat.yaml` `endpoints.custom`
+block. Both are open-source and Linux-native — use either as the blessed
+desktop/web client until a native halo-gaia TUI is enough for your flow.
