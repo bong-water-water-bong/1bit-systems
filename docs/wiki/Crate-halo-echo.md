@@ -58,7 +58,7 @@ Wire protocol on the `/ws` route:
 | 1 (latency) | `opus_mode_sends_text_preamble_first` (tokio-tungstenite integration) |
 | 2 (WAV fallback) | `codec_from_str_roundtrip`, both feature branches compile |
 | 3 (no Python) | ldd on the release binary shows no `libpython*.so` — checked in CI |
-| 4 (session scope) | cancellation on disconnect (manual; live-only today) |
+| 4 (session scope) | `cancel_on_client_disconnect` (drop-detecting sentinel in a mock stream) |
 | 5 (bearer gate) | Caddy route `/audio/* ` bearer-matcher inherited — tested at Caddy layer, not in the crate |
 
 ## TODO
@@ -67,7 +67,7 @@ Wire protocol on the `/ws` route:
 - [x] Opus encoder via audiopus + 48 kHz resampler
 - [x] Preamble JSON frame
 - [x] Binary opus frames
-- [ ] Cancellation path on ws disconnect mid-stream — today halo-voice keeps running after client drops
+- [x] Cancellation path on ws disconnect mid-stream — `tokio::select!` in `forward_chunks` races the voice stream against `socket.recv()`; Close / broken-pipe / `{"type":"cancel"}` breaks the loop and drops the halo-voice stream, cancelling outstanding LLM + TTS work (2026-04-20; test `cancel_on_client_disconnect`)
 - [ ] Live integration test against real halo-server + halo-kokoro behind `--features real-backend`
 - [ ] Demote from implementation → analysis if the ternary-INT8 NPU path changes the latency math enough that we want halo-echo to gate on the NPU backend
 
@@ -83,7 +83,7 @@ Wire protocol on the `/ws` route:
 ## Phase: implementation
 
 Phase promotes to `verified` once:
-- Cancellation path closes halo-voice work on disconnect (open TODO above)
+- ~~Cancellation path closes halo-voice work on disconnect~~ (done 2026-04-20; `forward_chunks` select!)
 - Live integration test passes against running halo-server
 - First-byte-of-audio latency measured live and logged into `docs/wiki/Benchmarks.md`
 

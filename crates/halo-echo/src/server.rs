@@ -18,9 +18,11 @@ use axum::{
 };
 use futures::StreamExt;
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::Arc;
+use tokio_stream::Stream;
 
-use halo_voice::{VoiceConfig, VoicePipeline};
+use halo_voice::{VoiceChunk, VoiceConfig, VoicePipeline};
 
 use crate::opus::{FRAME_MS, TARGET_SR, encode_wav_to_opus};
 
@@ -162,38 +164,70 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
         }
     };
 
-    let mut stream = pipeline.speak(prompt);
-    while let Some(chunk) = stream.next().await {
-        match chunk {
-            Ok(c) => match state.codec {
-                Codec::Wav => {
-                    if socket.send(Message::Binary(c.wav.to_vec())).await.is_err() {
-                        return;
-                    }
+    let stream = pipeline.speak(prompt);
+    forward_chunks(&mut socket, stream, state.codec).await;
+    let _ = socket.close().await;
+}
+
+/// Drive the chunk stream → ws, racing stream output against the client's
+/// recv half. If the peer sends Close, `{"type":"cancel"}`, or drops, we
+/// break early — `stream` is dropped on return, which cancels halo-voice's
+/// outstanding LLM + TTS work.
+async fn forward_chunks(
+    socket: &mut WebSocket,
+    mut stream: Pin<Box<dyn Stream<Item = Result<VoiceChunk>> + Send>>,
+    codec: Codec,
+) {
+    let mut sent: usize = 0;
+    loop {
+        tokio::select! {
+            biased;
+            incoming = socket.recv() => match incoming {
+                None | Some(Ok(Message::Close(_))) | Some(Err(_)) => {
+                    tracing::debug!(chunks = sent, "client dropped mid-stream after {sent} chunks sent");
+                    return;
                 }
-                Codec::Opus => match encode_wav_to_opus(&c.wav, TARGET_SR) {
-                    Ok(packets) => {
-                        for pkt in packets {
-                            if socket.send(Message::Binary(pkt)).await.is_err() {
-                                return;
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "opus encode failed; dropping chunk");
-                        let _ = socket.send(Message::Text(format!("error: {e}"))).await;
-                    }
-                },
+                Some(Ok(Message::Text(t))) if t.contains("\"cancel\"") => {
+                    tracing::debug!(chunks = sent, "client dropped mid-stream after {sent} chunks sent (cancel)");
+                    return;
+                }
+                Some(Ok(_)) => continue,
             },
-            Err(e) => {
-                tracing::warn!(error = %e, "voice pipeline error");
-                let _ = socket.send(Message::Text(format!("error: {e}"))).await;
-                break;
-            }
+            next = stream.next() => match next {
+                Some(Ok(c)) => {
+                    if !send_chunk(socket, &c, codec).await { return; }
+                    sent += 1;
+                }
+                Some(Err(e)) => {
+                    tracing::warn!(error = %e, "voice pipeline error");
+                    let _ = socket.send(Message::Text(format!("error: {e}"))).await;
+                    return;
+                }
+                None => return,
+            },
         }
     }
+}
 
-    let _ = socket.close().await;
+async fn send_chunk(socket: &mut WebSocket, c: &VoiceChunk, codec: Codec) -> bool {
+    match codec {
+        Codec::Wav => socket.send(Message::Binary(c.wav.to_vec())).await.is_ok(),
+        Codec::Opus => match encode_wav_to_opus(&c.wav, TARGET_SR) {
+            Ok(packets) => {
+                for pkt in packets {
+                    if socket.send(Message::Binary(pkt)).await.is_err() {
+                        return false;
+                    }
+                }
+                true
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "opus encode failed; dropping chunk");
+                let _ = socket.send(Message::Text(format!("error: {e}"))).await;
+                true
+            }
+        },
+    }
 }
 
 #[cfg(test)]
@@ -315,6 +349,85 @@ mod tests {
         assert_eq!(v["codec"], "opus");
         assert_eq!(v["sample_rate"], 48_000);
 
+        server_handle.abort();
+    }
+
+    /// Client disconnects after the preamble. We assert halo-voice's
+    /// stream is dropped promptly — `DroppedFlag` flips on drop. Runs with
+    /// a synthetic stream (no real backends) so it's always on.
+    #[tokio::test]
+    async fn cancel_on_client_disconnect() {
+        use axum::extract::ws::WebSocketUpgrade;
+        use bytes::Bytes;
+        use futures::SinkExt;
+        use halo_voice::VoiceChunk;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use tokio_tungstenite::tungstenite::Message as TMessage;
+
+        // Drop-detecting sentinel: stream holds it, drop flips the flag.
+        struct DropGuard(Arc<AtomicBool>);
+        impl Drop for DropGuard {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::SeqCst);
+            }
+        }
+
+        let dropped = Arc::new(AtomicBool::new(false));
+        let dropped_clone = dropped.clone();
+
+        async fn mock_handler(
+            ws: WebSocketUpgrade,
+            State(guard): State<Arc<AtomicBool>>,
+        ) -> impl IntoResponse {
+            ws.on_upgrade(move |mut socket| async move {
+                let _ = socket.recv().await; // prompt
+                let _ = socket
+                    .send(Message::Text(preamble_json(Codec::Wav)))
+                    .await;
+                let sentinel = DropGuard(guard);
+                let stream = Box::pin(async_stream::stream! {
+                    let _hold = sentinel; // moves into the stream; drops with it
+                    // First chunk fires immediately; loop then parks forever.
+                    let wav = Bytes::from_static(&[0u8; 44]);
+                    yield Ok::<_, anyhow::Error>(VoiceChunk { index: 0, sentence: String::new(), wav });
+                    loop { tokio::time::sleep(std::time::Duration::from_secs(60)).await; }
+                });
+                forward_chunks(&mut socket, stream, Codec::Wav).await;
+                let _ = socket.close().await;
+            })
+        }
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let bound = listener.local_addr().unwrap();
+        let app = Router::new()
+            .route("/ws", get(mock_handler))
+            .with_state(dropped_clone);
+        let server_handle = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let url = format!("ws://{bound}/ws");
+        let (mut ws, _) = loop {
+            match tokio_tungstenite::connect_async(&url).await {
+                Ok(p) => break p,
+                Err(_) => tokio::time::sleep(std::time::Duration::from_millis(20)).await,
+            }
+        };
+        ws.send(TMessage::Text("hi".into())).await.unwrap();
+        // Drain preamble + first chunk, then drop the client.
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), ws.next()).await;
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), ws.next()).await;
+        drop(ws);
+
+        // Server should notice disconnect and drop the stream quickly.
+        for _ in 0..50 {
+            if dropped.load(Ordering::SeqCst) {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert!(
+            dropped.load(Ordering::SeqCst),
+            "VoicePipeline stream was not dropped after client disconnect"
+        );
         server_handle.abort();
     }
 }

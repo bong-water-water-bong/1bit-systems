@@ -33,3 +33,4 @@ audiopus   = { version = "0.2", default-features = false }
 
 [dev-dependencies]
 tokio-tungstenite = { version = "0.23", default-features = false, features = ["connect"] }
+async-stream = { workspace = true }
