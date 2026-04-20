@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Beta 10-Day TTL · halo-ai docs</title>
+  <meta name="description" content="halo-ai docs: Beta 10-Day TTL">
+  <link rel="stylesheet" href="/docs/docs.css">
+</head>
+<body data-slug="beta-10-day-ttl">
+<nav class="doc-topbar">
+  <a href="/" class="logo">halo-<span>ai</span></a>
+  <a href="/docs/">docs</a>
+  <input type="search" placeholder="filter…" id="q" autocomplete="off">
+</nav>
+<div class="doc-shell">
+<nav class="doc-sidebar" id="sidebar">
+<a class="home-link" href="/docs/">&larr; all docs</a>
+<div class="group"><h4>Getting started</h4><ul>
+<li data-slug="home"><a href="/docs/home.html">halo-ai-rs wiki</a></li>
+<li data-slug="faq"><a href="/docs/faq.html">FAQ</a></li>
+</ul></div>
+<div class="group"><h4>Why we built it this way</h4><ul>
+<li data-slug="why-ternary"><a href="/docs/why-ternary.html">Why 1.58-bit ternary?</a></li>
+<li data-slug="why-rust"><a href="/docs/why-rust.html">Why Rust above, C++ below?</a></li>
+<li data-slug="why-strix-halo"><a href="/docs/why-strix-halo.html">Why Strix Halo (gfx1151)?</a></li>
+<li data-slug="why-shadow-burnin"><a href="/docs/why-shadow-burnin.html">Why shadow-burnin?</a></li>
+<li data-slug="why-no-python"><a href="/docs/why-no-python.html">Why no Python at runtime? (Rule A)</a></li>
+<li data-slug="why-no-npu-yet"><a href="/docs/why-no-npu-yet.html">Why no NPU yet?</a></li>
+<li data-slug="why-this-way-how"><a href="/docs/why-this-way-how.html">Why this way + how — the design walkthrough</a></li>
+<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why <code>halo power</code>?</a></li>
+</ul></div>
+<div class="group"><h4>Research</h4><ul>
+<li data-slug="medusa-integration-plan"><a href="/docs/medusa-integration-plan.html">Medusa Integration Plan (halo-ai-rs / gen-2)</a></li>
+<li data-slug="halo-whisper-streaming-plan"><a href="/docs/halo-whisper-streaming-plan.html">Halo-Whisper Streaming Plan</a></li>
+<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via <code>--kv-quant rotor-3</code></a></li>
+</ul></div>
+<div class="group"><h4>Integrations</h4><ul>
+<li data-slug="hermes-integration"><a href="/docs/hermes-integration.html">Hermes Agent integration</a></li>
+<li data-slug="cloudflare-tunnel-setup"><a href="/docs/cloudflare-tunnel-setup.html">Cloudflare Tunnel Setup — api.halo-ai.studio</a></li>
+</ul></div>
+<div class="group"><h4>Other</h4><ul>
+<li data-slug="amd-ai-ml-tools-scan"><a href="/docs/amd-ai-ml-tools-scan.html">AMD AI/ML SDK Tools Scan</a></li>
+<li data-slug="amd-compilers-analyzers-scan"><a href="/docs/amd-compilers-analyzers-scan.html">AMD Compilers, Analyzers, Debuggers — 2026-04-20 scan</a></li>
+<li data-slug="amd-manageability-scan"><a href="/docs/amd-manageability-scan.html">AMD Manageability Tools Scan</a></li>
+<li data-slug="amd-platform-driver-scan"><a href="/docs/amd-platform-driver-scan.html">AMD Platform Driver Scan — Strix Halo (Ryzen AI MAX+ 395)</a></li>
+<li data-slug="amd-rocm-ai-hub-scan"><a href="/docs/amd-rocm-ai-hub-scan.html">AMD ROCm AI Dev Hub — Scan for 1-bit BitNet on Strix Halo</a></li>
+<li data-slug="benchmarks"><a href="/docs/benchmarks.html">Live tok/s + PPL</a></li>
+<li data-slug="beta-10-day-ttl"><a href="/docs/beta-10-day-ttl.html">Beta 10-Day TTL</a></li>
+<li data-slug="cpu-lane-plan"><a href="/docs/cpu-lane-plan.html">CPU Lane Plan</a></li>
+<li data-slug="npu-kernel-design"><a href="/docs/npu-kernel-design.html">NPU-Kernel-Design</a></li>
+<li data-slug="peak-performance-projection"><a href="/docs/peak-performance-projection.html">Peak Performance Projection</a></li>
+<li data-slug="ternary-on-aie-pack-plan"><a href="/docs/ternary-on-aie-pack-plan.html">Ternary-on-AIE: packing &amp; MAC plan</a></li>
+<li data-slug="vpn-only-api"><a href="/docs/vpn-only-api.html">VPN-only API — 10-seat private beta testing ground</a></li>
+<li data-slug="why-caddy-systemd"><a href="/docs/why-caddy-systemd.html">Why Caddy + user-scope systemd?</a></li>
+<li data-slug="why-h1b-format"><a href="/docs/why-h1b-format.html">Why our own <code>.h1b</code> format?</a></li>
+<li data-slug="why-halo-agents"><a href="/docs/why-halo-agents.html">Why halo-agents?</a></li>
+<li data-slug="why-parity-gates"><a href="/docs/why-parity-gates.html">Why shadow-traffic parity gates?</a></li>
+</ul></div>
+</nav>
+
+<main class="doc-main">
+  <h1>Beta 10-Day TTL</h1>
+  <p><strong>Policy (2026-04-20):</strong> the halo-ai private beta demo window is ten days. After ten days every bearer-token + Headscale user issued during the window auto-revokes, and any memory files explicitly tagged as beta artifacts purge themselves. Re-invitation issues a fresh ten-day token.</p>
+<p>See also: <a href="/docs/vpn-only-api.html">VPN-Only-API</a>.</p>
+<h2 id="why-a-ttl-at-all">Why a TTL at all</h2>
+<ol>
+<li><strong>Controlled exposure.</strong> We cap the beta at ten seats behind</li>
+<p>   per-user bearers (see <a href="/docs/vpn-only-api.html">VPN-Only-API</a>). Without a    TTL, inactive tokens pile up and the cap stops meaning anything.</p>
+<li><strong>Demo window, not lifetime access.</strong> The first ten days are a</li>
+<p>   hands-on evaluation. Staying on past that is a deliberate act —    the invitee asks for a renewal, we re-run <code>halo-mesh-invite.sh</code>,    the clock resets. Nobody drifts into permanent access by inertia.</p>
+<li><strong>Artifact hygiene.</strong> Memory notes like "testing with @alice on</li>
+<p>   2026-04-20" are legitimate during the demo and dead weight a month    later. Explicit <code>expires:</code> metadata lets us write them down without    them becoming permanent noise.</p>
+<li><strong>Blast-radius cap.</strong> If a laptop walks off with a bearer in</li>
+<p>   <code>~/.config/</code>, we have at most ten days of exposure, not a year.</p>
+</ol>
+<h2 id="what-gets-purged">What gets purged</h2>
+<table>
+<thead><tr><th>Artifact</th><th>Where</th><th>Trigger</th></tr></thead>
+<tbody>
+<tr><td>Bearer token line</td><td><code>/etc/caddy/bearers.txt</code></td><td><code>expires &lt;ISO&gt;</code> in the past (or, fallback, <code>issued &lt;ISO&gt;</code> + 10 days)</td></tr>
+<tr><td>Headscale user + registered nodes</td><td>Headscale DB</td><td><code>halo-mesh-revoke.sh &lt;handle&gt;</code> (chained from the sweep)</td></tr>
+<tr><td>Caddy auth</td><td>reloaded via <code>systemctl reload caddy.service</code></td><td>chained from revoke</td></tr>
+<tr><td>Bearer line audit trail</td><td><code>/var/log/halo-beta/expired-&lt;YYYY-MM-DD&gt;.log</code>, root:root 0600</td><td><strong>archived</strong> before the line leaves <code>bearers.txt</code></td></tr>
+<tr><td>Claude memory file with <code>expires: &lt;ISO-date&gt;</code> in frontmatter, past</td><td><code>~/.claude/projects/-home-bcloud/memory/*.md</code></td><td>explicit date hit</td></tr>
+<tr><td>Claude memory file with <code>[beta-ttl]</code> body tag AND mtime &gt; 10 days</td><td>same</td><td>tag + stale</td></tr>
+</tbody></table>
+<h2 id="what-does-not-get-purged">What does NOT get purged</h2>
+<p>None of the following is touched by <code>halo-beta-expire.sh</code>, ever:</p>
+<ul>
+<li><strong>Load-bearing project memory files</strong> — hard allow-list in the</li>
+<p>  script. Current list:</p>
+<li><code>project_reddit_relaunch</code></li>
+<li><code>project_hermes_integration</code></li>
+<li><code>project_lemonade_10_2_pivot</code></li>
+<li><code>project_strix_halo_hardware</code></li>
+<li><code>project_voice_latency_sharding</code></li>
+<li><code>project_apu_thesis</code></li>
+</ul>
+<p>  When you add a long-horizon project note that should outlive any   individual beta window, add it to <code>ALLOWLIST=(...)</code> in   <code>strixhalo/bin/halo-beta-expire.sh</code> and to the list above.</p>
+<ul>
+<li><strong><code>MEMORY.md</code></strong> — the index is explicitly skipped.</li>
+<li><strong>Git history</strong> of this repo (or any other repo). The sweep deletes</li>
+<p>  working-copy memory files; it does not rewrite git.</p>
+<li><strong>Public documentation</strong> (<code>docs/wiki/*.md</code>, <code>docs/*</code>, <code>README*</code>) — not</li>
+<p>  in the scan path.</p>
+<li><strong>Any file without <code>type: project</code> in its YAML frontmatter.</strong> Feedback</li>
+<p>  notes, fallback records, reference pages — untouched.</p>
+<li>**Any memory file without EITHER an <code>expires:</code> frontmatter field OR a</li>
+<p>  <code>[beta-ttl]</code> body tag.** The default is "keep." A project note stays   forever unless it was explicitly tagged as beta-era when authored.</p>
+</ul>
+<h2 id="how-to-extend-a-user-s-access">How to extend a user's access</h2>
+<p>Just re-invite. <code>halo-mesh-invite.sh</code> issues a fresh ten-day token and appends a new line to <code>bearers.txt</code> with a new <code>expires &lt;ISO&gt;</code> stamp:</p>
+<pre><code class="language-bash">strixhalo/bin/halo-mesh-invite.sh &lt;handle&gt;
+</code></pre>
+<p>There is no "renew in place" operation — we always mint a new token, so an old compromised token is already in the revocation archive.</p>
+<h2 id="bearer-line-format">Bearer line format</h2>
+<p>After 2026-04-20, every line written by <code>halo-mesh-invite.sh</code> looks like:</p>
+<pre><code>sk-halo-XXXX  # handle  # issued 2026-04-20T14:00Z  # expires 2026-04-30T14:00Z
+</code></pre>
+<p>The sweeper prefers the <code>expires</code> field. If (for a pre-policy line) the <code>expires</code> field is missing, it falls back to <code>issued + 10 days</code>. If neither is present, the line is left alone — we'd rather miss a sweep than revoke something we don't understand.</p>
+<h2 id="cron-schedule">Cron schedule</h2>
+<p>Systemd --user timer on strixhalo:</p>
+<ul>
+<li><strong><code>halo-beta-expire.timer</code></strong> — <code>OnCalendar=*-*-* 03:00:00</code>,</li>
+<p>  <code>OnBootSec=5min</code>, <code>Persistent=true</code>,   <code>RandomizedDelaySec=5min</code>.</p>
+<li><strong><code>halo-beta-expire.service</code></strong> — runs</li>
+<p>  <code>strixhalo/bin/halo-beta-expire.sh --apply</code>.</p>
+</ul>
+<p>Install + enable:</p>
+<pre><code class="language-bash">systemctl --user daemon-reload
+systemctl --user enable --now halo-beta-expire.timer
+systemctl --user list-timers | grep halo-beta
+</code></pre>
+<h3 id="ad-hoc-dry-run">Ad-hoc dry run</h3>
+<p>No arguments = dry run. The script prints what it <em>would</em> do and exits 0 without touching anything:</p>
+<pre><code class="language-bash">strixhalo/bin/halo-beta-expire.sh          # dry run, default
+strixhalo/bin/halo-beta-expire.sh -v       # verbose dry run
+strixhalo/bin/halo-beta-expire.sh --apply  # actually revoke + purge
+</code></pre>
+<h3 id="manual-trigger-under-the-timer">Manual trigger under the timer</h3>
+<pre><code class="language-bash">systemctl --user start halo-beta-expire.service
+journalctl --user -u halo-beta-expire.service -n 50 --no-pager
+</code></pre>
+<h2 id="audit-trail">Audit trail</h2>
+<p>Every <code>--apply</code> run that revokes at least one bearer writes a timestamped audit line set to <code>/var/log/halo-beta/expired-&lt;YYYY-MM-DD&gt;.log</code> (root:root, 0600). The file contains the original bearer lines verbatim — so we have an offline record of what was valid when, even after the line disappears from <code>bearers.txt</code>. Ship those logs to the pi archive with the rest of <code>/var/log</code> if/when we wire that.</p>
+<h2 id="cross-refs">Cross-refs</h2>
+<ul>
+<li><a href="/docs/vpn-only-api.html">VPN-Only-API</a> — mesh + bearer fences the TTL protects</li>
+<li><code>strixhalo/bin/halo-beta-expire.sh</code> — the sweep script</li>
+<li><code>strixhalo/bin/halo-mesh-invite.sh</code> — issuer (stamps <code>expires</code>)</li>
+<li><code>strixhalo/bin/halo-mesh-revoke.sh</code> — revoker (called per-handle)</li>
+<li><code>strixhalo/systemd/halo-beta-expire.{service,timer}</code> — schedule</li>
+<li><code>strixhalo/bin/tests/halo-beta-expire.test.sh</code> — unit tests (plain bash)</li>
+</ul>
+
+</main>
+</div>
+<script src="/docs/docs.js"></script>
+</body>
+</html>

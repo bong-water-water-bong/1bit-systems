@@ -7,6 +7,14 @@
 1. **Fence 1 — Mesh membership.** You're not talking to strixhalo unless your device is on the Headscale mesh. Headscale runs on strixhalo itself and uses Tailscale clients (macOS, Linux, Windows, iOS, Android) to peer in. We hand out a **single-use, 24-hour pre-auth key** per invitee.
 2. **Fence 2 — Per-user bearer token.** Even on the mesh, every `/v2/*` / `/lemon/*` / `/sd/*` Caddy route requires a `Authorization: Bearer sk-halo-...` header. Tokens are per-user, stored in `/etc/caddy/bearers.txt` (root:caddy 0640), one per line. Caddy matches any line at request time; we can revoke one user without affecting the other nine.
 
+Every bearer is also time-boxed. Each line carries an `expires <ISO>` comment stamp written by `halo-mesh-invite.sh`, and a nightly sweeper auto-revokes once the stamp is in the past. See [Beta-10-Day-TTL](Beta-10-Day-TTL.md).
+
+Bearer line format (post 2026-04-20):
+
+```
+sk-halo-XXXX  # handle  # issued 2026-04-20T14:00Z  # expires 2026-04-30T14:00Z
+```
+
 Both fences matter. Mesh-only without bearers = lateral movement risk between peers. Bearers without mesh = public endpoint, which we explicitly don't want today.
 
 ## 10 seats, why
@@ -59,6 +67,8 @@ strixhalo/bin/halo-mesh-revoke.sh <handle>
 
 Expires the Headscale authkey, drops the bearer line from `/etc/caddy/bearers.txt`, reloads Caddy. Sub-second.
 
+Automated revoke on TTL expiry is covered by [Beta-10-Day-TTL](Beta-10-Day-TTL.md) — the same script gets called under the hood.
+
 ## Security posture (what the attacker model is)
 
 | Threat | Defense |
@@ -98,6 +108,7 @@ Public = brochure. Mesh = the product.
 
 - `strixhalo/bin/halo-mesh-invite.sh` — the canonical invite script
 - `strixhalo/bin/halo-mesh-revoke.sh` — the canonical revoke script
+- `strixhalo/bin/halo-beta-expire.sh` — nightly 10-day TTL sweeper (see [Beta-10-Day-TTL](Beta-10-Day-TTL.md))
 - `project_halo_network.md` memory — mesh topology + node IPs
 - `docs/wiki/Cloudflare-Tunnel-Setup.md` — the *other* approach, currently NOT in use (template deliberately disabled)
 - `studio-site/join/index.html` — the public-facing explanation + invite request form

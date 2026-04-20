@@ -46,6 +46,7 @@
 <li data-slug="amd-platform-driver-scan"><a href="/docs/amd-platform-driver-scan.html">AMD Platform Driver Scan — Strix Halo (Ryzen AI MAX+ 395)</a></li>
 <li data-slug="amd-rocm-ai-hub-scan"><a href="/docs/amd-rocm-ai-hub-scan.html">AMD ROCm AI Dev Hub — Scan for 1-bit BitNet on Strix Halo</a></li>
 <li data-slug="benchmarks"><a href="/docs/benchmarks.html">Live tok/s + PPL</a></li>
+<li data-slug="beta-10-day-ttl"><a href="/docs/beta-10-day-ttl.html">Beta 10-Day TTL</a></li>
 <li data-slug="cpu-lane-plan"><a href="/docs/cpu-lane-plan.html">CPU Lane Plan</a></li>
 <li data-slug="npu-kernel-design"><a href="/docs/npu-kernel-design.html">NPU-Kernel-Design</a></li>
 <li data-slug="peak-performance-projection"><a href="/docs/peak-performance-projection.html">Peak Performance Projection</a></li>
@@ -66,6 +67,10 @@
 <li><strong>Fence 1 — Mesh membership.</strong> You're not talking to strixhalo unless your device is on the Headscale mesh. Headscale runs on strixhalo itself and uses Tailscale clients (macOS, Linux, Windows, iOS, Android) to peer in. We hand out a <strong>single-use, 24-hour pre-auth key</strong> per invitee.</li>
 <li><strong>Fence 2 — Per-user bearer token.</strong> Even on the mesh, every <code>/v2/*</code> / <code>/lemon/*</code> / <code>/sd/*</code> Caddy route requires a <code>Authorization: Bearer sk-halo-...</code> header. Tokens are per-user, stored in <code>/etc/caddy/bearers.txt</code> (root:caddy 0640), one per line. Caddy matches any line at request time; we can revoke one user without affecting the other nine.</li>
 </ol>
+<p>Every bearer is also time-boxed. Each line carries an <code>expires &lt;ISO&gt;</code> comment stamp written by <code>halo-mesh-invite.sh</code>, and a nightly sweeper auto-revokes once the stamp is in the past. See <a href="/docs/beta-10-day-ttl.html">Beta-10-Day-TTL</a>.</p>
+<p>Bearer line format (post 2026-04-20):</p>
+<pre><code>sk-halo-XXXX  # handle  # issued 2026-04-20T14:00Z  # expires 2026-04-30T14:00Z
+</code></pre>
 <p>Both fences matter. Mesh-only without bearers = lateral movement risk between peers. Bearers without mesh = public endpoint, which we explicitly don't want today.</p>
 <h2 id="10-seats-why">10 seats, why</h2>
 <p>We cap the beta at <strong>10 users</strong> because:</p>
@@ -102,6 +107,7 @@ curl https://strixhalo.local:8443/v2/v1/models -H "Authorization: Bearer &lt;pas
 <pre><code class="language-bash">strixhalo/bin/halo-mesh-revoke.sh &lt;handle&gt;
 </code></pre>
 <p>Expires the Headscale authkey, drops the bearer line from <code>/etc/caddy/bearers.txt</code>, reloads Caddy. Sub-second.</p>
+<p>Automated revoke on TTL expiry is covered by <a href="/docs/beta-10-day-ttl.html">Beta-10-Day-TTL</a> — the same script gets called under the hood.</p>
 <h2 id="security-posture-what-the-attacker-model-is">Security posture (what the attacker model is)</h2>
 <table>
 <thead><tr><th>Threat</th><th>Defense</th></tr></thead>
@@ -140,6 +146,7 @@ curl https://strixhalo.local:8443/v2/v1/models -H "Authorization: Bearer &lt;pas
 <ul>
 <li><code>strixhalo/bin/halo-mesh-invite.sh</code> — the canonical invite script</li>
 <li><code>strixhalo/bin/halo-mesh-revoke.sh</code> — the canonical revoke script</li>
+<li><code>strixhalo/bin/halo-beta-expire.sh</code> — nightly 10-day TTL sweeper (see <a href="/docs/beta-10-day-ttl.html">Beta-10-Day-TTL</a>)</li>
 <li><code>project_halo_network.md</code> memory — mesh topology + node IPs</li>
 <li><code>docs/wiki/Cloudflare-Tunnel-Setup.md</code> — the <em>other</em> approach, currently NOT in use (template deliberately disabled)</li>
 <li><code>studio-site/join/index.html</code> — the public-facing explanation + invite request form</li>
