@@ -24,8 +24,7 @@ use crate::registry::Tool;
 
 pub const TOOL_NAME: &str = "memory_manage";
 
-pub const DESCRIPTION: &str =
-    "memory_manage — add / replace / remove entries in halo's MEMORY.md (agent \
+pub const DESCRIPTION: &str = "memory_manage — add / replace / remove entries in halo's MEMORY.md (agent \
      notes) and USER.md (user profile). Hermes-compatible § delimiter.";
 
 pub fn input_schema() -> Value {
@@ -66,14 +65,17 @@ pub fn tool() -> Tool {
 fn parse_kind(args: &serde_json::Map<String, Value>) -> MemoryKind {
     match args.get("kind").and_then(|v| v.as_str()) {
         Some("user") => MemoryKind::User,
-        _            => MemoryKind::Memory,
+        _ => MemoryKind::Memory,
     }
 }
 
 fn dispatch(store: &std::sync::Mutex<MemoryStore>, args: Value) -> Result<String> {
-    let obj = args.as_object()
+    let obj = args
+        .as_object()
         .ok_or_else(|| anyhow!("memory_manage: arguments must be a JSON object"))?;
-    let action = obj.get("action").and_then(|v| v.as_str())
+    let action = obj
+        .get("action")
+        .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("memory_manage: missing required field 'action'"))?;
     let kind = parse_kind(obj);
 
@@ -81,21 +83,29 @@ fn dispatch(store: &std::sync::Mutex<MemoryStore>, args: Value) -> Result<String
 
     match action {
         "add" => {
-            let entry = obj.get("entry").and_then(|v| v.as_str())
+            let entry = obj
+                .get("entry")
+                .and_then(|v| v.as_str())
                 .ok_or_else(|| anyhow!("memory_manage: action=add requires 'entry'"))?;
             guard.add(kind, entry)?;
             Ok(format!("added entry to {}", kind.filename()))
         }
         "replace" => {
-            let needle = obj.get("match").and_then(|v| v.as_str())
+            let needle = obj
+                .get("match")
+                .and_then(|v| v.as_str())
                 .ok_or_else(|| anyhow!("memory_manage: action=replace requires 'match'"))?;
-            let entry  = obj.get("entry").and_then(|v| v.as_str())
+            let entry = obj
+                .get("entry")
+                .and_then(|v| v.as_str())
                 .ok_or_else(|| anyhow!("memory_manage: action=replace requires 'entry'"))?;
             guard.replace(kind, needle, entry)?;
             Ok(format!("replaced matching entry in {}", kind.filename()))
         }
         "remove" => {
-            let needle = obj.get("match").and_then(|v| v.as_str())
+            let needle = obj
+                .get("match")
+                .and_then(|v| v.as_str())
                 .ok_or_else(|| anyhow!("memory_manage: action=remove requires 'match'"))?;
             guard.remove(kind, needle)?;
             Ok(format!("removed matching entry from {}", kind.filename()))
@@ -107,7 +117,7 @@ fn dispatch(store: &std::sync::Mutex<MemoryStore>, args: Value) -> Result<String
 pub fn handle(store: &std::sync::Mutex<MemoryStore>, args: Value) -> Value {
     match dispatch(store, args) {
         Ok(msg) => json!({ "message": msg }),
-        Err(e)  => json!({ "error": e.to_string(), "tool": TOOL_NAME }),
+        Err(e) => json!({ "error": e.to_string(), "tool": TOOL_NAME }),
     }
 }
 
@@ -129,7 +139,8 @@ mod tests {
         assert_eq!(t.name, TOOL_NAME);
         assert!(!t.description.is_empty());
         let actions = t.input_schema["properties"]["action"]["enum"]
-            .as_array().unwrap();
+            .as_array()
+            .unwrap();
         assert_eq!(actions.len(), 3);
     }
 
@@ -145,7 +156,10 @@ mod tests {
     #[test]
     fn kind_user_writes_to_user_md() {
         let (td, store) = fresh();
-        handle(&store, json!({"action":"add","kind":"user","entry":"bcloud, MT"}));
+        handle(
+            &store,
+            json!({"action":"add","kind":"user","entry":"bcloud, MT"}),
+        );
         assert!(td.path().join("USER.md").exists());
         assert!(!td.path().join("MEMORY.md").exists());
     }
@@ -154,9 +168,12 @@ mod tests {
     fn replace_swaps_matching_entry() {
         let (td, store) = fresh();
         handle(&store, json!({"action":"add","entry":"GPU is old"}));
-        let r = handle(&store, json!({
-            "action":"replace","match":"GPU","entry":"GPU gfx1151 128GB LPDDR5"
-        }));
+        let r = handle(
+            &store,
+            json!({
+                "action":"replace","match":"GPU","entry":"GPU gfx1151 128GB LPDDR5"
+            }),
+        );
         assert!(r.get("error").is_none(), "got {r}");
         let body = std::fs::read_to_string(td.path().join("MEMORY.md")).unwrap();
         assert!(body.contains("128GB"));

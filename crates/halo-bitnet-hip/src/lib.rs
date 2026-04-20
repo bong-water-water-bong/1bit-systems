@@ -190,7 +190,9 @@ impl<T> DeviceMutPtr<T> {
 pub struct HipStream(pub *mut c_void);
 
 impl Default for HipStream {
-    fn default() -> Self { Self::DEFAULT }
+    fn default() -> Self {
+        Self::DEFAULT
+    }
 }
 
 // SAFETY: `HipStream` is a pointer-sized opaque handle whose value is
@@ -745,12 +747,7 @@ pub fn residual_add_fp16(
 ) -> RcppStatus {
     // SAFETY: pointer forwarding only.
     let raw = unsafe {
-        ffi::rcpp_residual_add_fp16(
-            y.as_void(),
-            src.as_void(),
-            n as c_int,
-            stream.as_raw(),
-        )
+        ffi::rcpp_residual_add_fp16(y.as_void(), src.as_void(), n as c_int, stream.as_raw())
     };
     RcppStatus::from_raw(raw)
 }
@@ -867,9 +864,7 @@ impl<T> DeviceBuffer<T> {
         let buf = Self::alloc(count)?;
         if count > 0 {
             // SAFETY: buf.ptr is a valid device allocation of `byte_len`.
-            let status = unsafe {
-                ffi::hipMemset(buf.ptr as *mut c_void, 0, buf.byte_len())
-            };
+            let status = unsafe { ffi::hipMemset(buf.ptr as *mut c_void, 0, buf.byte_len()) };
             if status != ffi::HIP_SUCCESS {
                 return Err(RcppError::HipError);
             }
@@ -994,7 +989,9 @@ impl<T> DeviceBuffer<T> {
         T: Copy + Default,
     {
         if self.len == 0 {
-            return Err(RcppError::Precondition("copy_to_host_scalar on empty buffer"));
+            return Err(RcppError::Precondition(
+                "copy_to_host_scalar on empty buffer",
+            ));
         }
         let mut out: T = T::default();
         // SAFETY: self.ptr owns at least one element of type T.
@@ -1112,7 +1109,8 @@ pub fn ternary_pack_pk_i4(
     if k % 32 != 0 {
         return Err(RcppError::Precondition("K must be a multiple of 32"));
     }
-    let expected_in = (k as usize).checked_mul(n as usize)
+    let expected_in = (k as usize)
+        .checked_mul(n as usize)
         .ok_or(RcppError::Precondition("K*N overflow"))?;
     let expected_out = expected_in / 2;
     if ternary_host.len() != expected_in {
@@ -1198,14 +1196,11 @@ mod tests {
         // only look up a symbol — we do NOT invoke it. No device
         // interaction, so this is safe even on a CPU-only host.
         unsafe {
-            let lib = Library::new(&so_path)
-                .expect("failed to dlopen librocm_cpp.so");
+            let lib = Library::new(&so_path).expect("failed to dlopen librocm_cpp.so");
 
             // rcpp_ternary_pack_pk_i4 is host-only (pure permutation).
             // Just resolving the symbol proves linkage.
-            let _sym: Symbol<
-                unsafe extern "C" fn(*const i8, *mut i8, c_int, c_int) -> c_int,
-            > = lib
+            let _sym: Symbol<unsafe extern "C" fn(*const i8, *mut i8, c_int, c_int) -> c_int> = lib
                 .get(b"rcpp_ternary_pack_pk_i4\0")
                 .expect("symbol rcpp_ternary_pack_pk_i4 not exported");
 

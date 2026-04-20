@@ -1,7 +1,7 @@
 // `halo install <component>` — read packages.toml, resolve deps, build, start.
 // Lean: single file, manifest embedded at compile time.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -108,7 +108,11 @@ fn parse_src(src: &str) -> Result<Manifest> {
 
 fn workspace_root() -> &'static Path {
     // Manifest lives two levels up from src/; compile-time constant.
-    Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
 }
 
 /// Resolve the user config root. XDG first, then ~/.config.
@@ -143,21 +147,32 @@ fn resolve<'a>(
     order: &mut Vec<&'a str>,
     seen: &mut HashSet<String>,
 ) -> Result<()> {
-    if seen.contains(target) { return Ok(()); }
-    let c = m.component.get(target)
-        .ok_or_else(|| anyhow::anyhow!("unknown component '{target}' (try `halo install --list`)"))?;
-    for d in &c.deps { resolve(m, d, order, seen)?; }
+    if seen.contains(target) {
+        return Ok(());
+    }
+    let c = m.component.get(target).ok_or_else(|| {
+        anyhow::anyhow!("unknown component '{target}' (try `halo install --list`)")
+    })?;
+    for d in &c.deps {
+        resolve(m, d, order, seen)?;
+    }
     seen.insert(target.to_string());
     order.push(m.component.get_key_value(target).unwrap().0);
     Ok(())
 }
 
 async fn healthcheck(url: &str) -> bool {
-    if url.is_empty() { return true; }
+    if url.is_empty() {
+        return true;
+    }
     let client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(3))
         .danger_accept_invalid_certs(true)
-        .build() { Ok(c) => c, Err(_) => return false };
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
     match client.get(url).send().await {
         Ok(r) => r.status().is_success(),
         Err(_) => false,
@@ -166,10 +181,17 @@ async fn healthcheck(url: &str) -> bool {
 
 fn run(root: &Path, argv: &[String]) -> Result<()> {
     println!("    $ {}", argv.join(" "));
-    let (bin, rest) = argv.split_first().ok_or_else(|| anyhow::anyhow!("empty argv"))?;
-    let s = Command::new(bin).args(rest).current_dir(root).status()
+    let (bin, rest) = argv
+        .split_first()
+        .ok_or_else(|| anyhow::anyhow!("empty argv"))?;
+    let s = Command::new(bin)
+        .args(rest)
+        .current_dir(root)
+        .status()
         .with_context(|| format!("spawn {bin}"))?;
-    if !s.success() { bail!("{bin} failed"); }
+    if !s.success() {
+        bail!("{bin} failed");
+    }
     Ok(())
 }
 
@@ -188,8 +210,7 @@ fn expand_placeholder(raw: &str) -> String {
 /// with the expanded value for each entry in `subs`. With an empty map
 /// this is a straight file read.
 fn render_tracked(src: &Path, subs: &HashMap<String, String>) -> Result<Vec<u8>> {
-    let raw = std::fs::read_to_string(src)
-        .with_context(|| format!("read {}", src.display()))?;
+    let raw = std::fs::read_to_string(src).with_context(|| format!("read {}", src.display()))?;
     let mut out = raw;
     for (key, raw_val) in subs {
         let needle = format!("@{key}@");
@@ -241,19 +262,27 @@ fn copy_tracked_file(
         // prompt instead of a panic on EACCES.
         println!("    installing (sudo) {} → {}", src_rel, dest.display());
         let mut child = Command::new("sudo")
-            .args(["tee", dest.to_str().ok_or_else(|| anyhow::anyhow!("bad dest path"))?])
+            .args([
+                "tee",
+                dest.to_str()
+                    .ok_or_else(|| anyhow::anyhow!("bad dest path"))?,
+            ])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::null())
             .spawn()
             .with_context(|| format!("spawn sudo tee {}", dest.display()))?;
         {
             use std::io::Write;
-            let stdin = child.stdin.as_mut()
+            let stdin = child
+                .stdin
+                .as_mut()
                 .ok_or_else(|| anyhow::anyhow!("no stdin for sudo tee"))?;
-            stdin.write_all(&rendered)
+            stdin
+                .write_all(&rendered)
                 .with_context(|| format!("write to sudo tee for {}", dest.display()))?;
         }
-        let status = child.wait()
+        let status = child
+            .wait()
             .with_context(|| format!("wait sudo tee for {}", dest.display()))?;
         if !status.success() {
             bail!("sudo tee failed for {}", dest.display());
@@ -262,11 +291,9 @@ fn copy_tracked_file(
     }
 
     if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("mkdir {}", parent.display()))?;
+        std::fs::create_dir_all(parent).with_context(|| format!("mkdir {}", parent.display()))?;
     }
-    std::fs::write(&dest, &rendered)
-        .with_context(|| format!("write {}", dest.display()))?;
+    std::fs::write(&dest, &rendered).with_context(|| format!("write {}", dest.display()))?;
     println!("    copied {} → {}", src_rel, dest.display());
     Ok(())
 }
@@ -292,12 +319,16 @@ pub async fn run_install(component: &str) -> Result<()> {
             );
         }
 
-        for step in &c.build { run(root, step)?; }
+        for step in &c.build {
+            run(root, step)?;
+        }
 
         for entry in &c.files {
-            let src_rel = entry.src()
+            let src_rel = entry
+                .src()
                 .with_context(|| format!("component '{name}' files entry"))?;
-            let dest_rel = entry.dst()
+            let dest_rel = entry
+                .dst()
                 .with_context(|| format!("component '{name}' files entry"))?;
             let subs = entry.substitute();
             copy_tracked_file(root, &cfg_root, src_rel, dest_rel, &subs)?;
@@ -308,7 +339,9 @@ pub async fn run_install(component: &str) -> Result<()> {
             let s = Command::new("systemctl")
                 .args(["--user", "enable", "--now", unit])
                 .status()?;
-            if !s.success() { bail!("systemctl failed for {unit}"); }
+            if !s.success() {
+                bail!("systemctl failed for {unit}");
+            }
         }
 
         if !c.check.is_empty() {
@@ -316,10 +349,20 @@ pub async fn run_install(component: &str) -> Result<()> {
             // Services can take a moment to bind; retry up to 5s.
             let mut ok = false;
             for _ in 0..5 {
-                if healthcheck(&c.check).await { ok = true; break; }
+                if healthcheck(&c.check).await {
+                    ok = true;
+                    break;
+                }
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
-            println!("{}", if ok { "ok" } else { "FAIL (component installed but health probe failed)" });
+            println!(
+                "{}",
+                if ok {
+                    "ok"
+                } else {
+                    "FAIL (component installed but health probe failed)"
+                }
+            );
         }
     }
 
@@ -356,7 +399,10 @@ mod tests {
         let voice = &m.component["voice"];
         assert!(voice.units.is_empty(), "voice should not own a unit");
         assert!(
-            voice.build.iter().any(|step| step.iter().any(|arg| arg == "crates/halo-voice")),
+            voice
+                .build
+                .iter()
+                .any(|step| step.iter().any(|arg| arg == "crates/halo-voice")),
             "voice build step must `cargo install --path crates/halo-voice`"
         );
 
@@ -367,16 +413,23 @@ mod tests {
             "echo must enable strix-echo.service"
         );
         assert!(
-            echo.build.iter().any(|step| step.iter().any(|arg| arg == "crates/halo-echo")),
+            echo.build
+                .iter()
+                .any(|step| step.iter().any(|arg| arg == "crates/halo-echo")),
             "echo build step must `cargo install --path crates/halo-echo`"
         );
-        assert!(echo.deps.iter().any(|d| d == "voice"), "echo must depend on voice");
+        assert!(
+            echo.deps.iter().any(|d| d == "voice"),
+            "echo must depend on voice"
+        );
 
         // mcp — binary only, no systemd unit.
         let mcp = &m.component["mcp"];
         assert!(mcp.units.is_empty(), "mcp should not own a unit");
         assert!(
-            mcp.build.iter().any(|step| step.iter().any(|arg| arg == "crates/halo-mcp")),
+            mcp.build
+                .iter()
+                .any(|step| step.iter().any(|arg| arg == "crates/halo-mcp")),
             "mcp build step must `cargo install --path crates/halo-mcp`"
         );
 
@@ -384,7 +437,10 @@ mod tests {
         // cargo install, no auto-enable (operator must auth first).
         let tunnel = &m.component["tunnel"];
         assert!(tunnel.build.is_empty(), "tunnel must not run a cargo build");
-        assert!(tunnel.units.is_empty(), "tunnel must not auto-enable the unit");
+        assert!(
+            tunnel.units.is_empty(),
+            "tunnel must not auto-enable the unit"
+        );
         let tunnel_has = |needle: &str| {
             tunnel.files.iter().any(|f| {
                 let src = f.src().unwrap_or("");
@@ -424,7 +480,7 @@ mod tests {
         resolve(&m, "core", &mut order, &mut seen).unwrap();
         for required in ["voice", "echo", "mcp", "core"] {
             assert!(
-                order.iter().any(|n| *n == required),
+                order.contains(&required),
                 "resolve(core) must include '{required}', got {order:?}"
             );
         }
@@ -471,7 +527,8 @@ mod tests {
         let root = workspace_root();
         for (name, c) in &m.component {
             for entry in &c.files {
-                let src_rel = entry.src()
+                let src_rel = entry
+                    .src()
                     .unwrap_or_else(|e| panic!("component '{name}' files entry: {e}"));
                 let src = root.join(src_rel);
                 assert!(
@@ -512,8 +569,7 @@ mod tests {
         let m = parse().unwrap();
         let names: Vec<&str> = m.component.keys().map(String::as_str).collect();
         for required in [
-            "core", "voice", "echo", "mcp", "tunnel", "npu",
-            "power", "lemonade", "landing", "gaia",
+            "core", "voice", "echo", "mcp", "tunnel", "npu", "power", "lemonade", "landing", "gaia",
         ] {
             assert!(
                 names.contains(&required),
@@ -537,8 +593,8 @@ mod tests {
         let expected: &[(&str, &str, &str)] = &[
             // (component, crate dir, expected [[bin]] name)
             ("voice", "crates/halo-voice", "halo-voice"),
-            ("echo",  "crates/halo-echo",  "halo-echo"),
-            ("mcp",   "crates/halo-mcp",   "halo-mcp"),
+            ("echo", "crates/halo-echo", "halo-echo"),
+            ("mcp", "crates/halo-mcp", "halo-mcp"),
         ];
 
         for (component, crate_dir, bin_name) in expected {
@@ -565,10 +621,8 @@ mod tests {
         // strix-echo.service must reference a binary literally named
         // `halo-echo` at /usr/local/bin/halo-echo. Mismatched paths here
         // are why a fresh box silently fails to start the WebSocket.
-        let unit = std::fs::read_to_string(
-            root.join("strixhalo/systemd/strix-echo.service"),
-        )
-        .expect("strix-echo.service must exist");
+        let unit = std::fs::read_to_string(root.join("strixhalo/systemd/strix-echo.service"))
+            .expect("strix-echo.service must exist");
         assert!(
             unit.contains("/usr/local/bin/halo-echo"),
             "strix-echo.service must ExecStart /usr/local/bin/halo-echo"
@@ -598,9 +652,18 @@ files = [
         let m = parse_src(src).unwrap();
         let c = &m.component["example"];
         assert_eq!(c.files.len(), 1);
-        assert_eq!(c.files[0].src().unwrap(), "strixhalo/systemd/strix-cloudflared.service");
-        assert_eq!(c.files[0].dst().unwrap(), "systemd/user/strix-cloudflared.service");
-        assert!(c.files[0].substitute().is_empty(), "pair form carries no substitutions");
+        assert_eq!(
+            c.files[0].src().unwrap(),
+            "strixhalo/systemd/strix-cloudflared.service"
+        );
+        assert_eq!(
+            c.files[0].dst().unwrap(),
+            "systemd/user/strix-cloudflared.service"
+        );
+        assert!(
+            c.files[0].substitute().is_empty(),
+            "pair form carries no substitutions"
+        );
     }
 
     // ───────────────────────────────────────────────────────────
@@ -682,8 +745,14 @@ files = [
         let m = parse_src(src).unwrap();
         let c = &m.component["npu"];
         assert_eq!(c.files.len(), 1);
-        assert_eq!(c.files[0].src().unwrap(), "strixhalo/security/99-npu-memlock.conf.tmpl");
-        assert_eq!(c.files[0].dst().unwrap(), "/etc/security/limits.d/99-npu-memlock.conf");
+        assert_eq!(
+            c.files[0].src().unwrap(),
+            "strixhalo/security/99-npu-memlock.conf.tmpl"
+        );
+        assert_eq!(
+            c.files[0].dst().unwrap(),
+            "/etc/security/limits.d/99-npu-memlock.conf"
+        );
         let subs = c.files[0].substitute();
         assert_eq!(subs.get("USER").map(String::as_str), Some("$USER"));
     }

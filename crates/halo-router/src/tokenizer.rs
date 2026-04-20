@@ -14,13 +14,13 @@ use halo_core::htok::HtokFile;
 /// the tiktoken-style vocabulary (shipped in `.htok`); we hard-code them
 /// here so `encode()` can emit them without a lookup per call.
 const SPECIAL_TOKENS: &[(&str, i32)] = &[
-    ("<|begin_of_text|>",     128000),
-    ("<|end_of_text|>",       128001),
-    ("<|start_header_id|>",   128006),
-    ("<|end_header_id|>",     128007),
-    ("<|eom_id|>",            128008),
-    ("<|eot_id|>",            128009),
-    ("<|python_tag|>",        128010),
+    ("<|begin_of_text|>", 128000),
+    ("<|end_of_text|>", 128001),
+    ("<|start_header_id|>", 128006),
+    ("<|end_header_id|>", 128007),
+    ("<|eom_id|>", 128008),
+    ("<|eot_id|>", 128009),
+    ("<|python_tag|>", 128010),
 ];
 
 /// Segment yielded by [`split_specials`]: either a literal text run that
@@ -169,10 +169,7 @@ fn utf8_decode(s: &[u8]) -> (u32, usize) {
         return (b0 as u32, 1);
     }
     if (b0 & 0xE0) == 0xC0 && s.len() >= 2 {
-        return (
-            ((b0 as u32 & 0x1F) << 6) | (s[1] as u32 & 0x3F),
-            2,
-        );
+        return (((b0 as u32 & 0x1F) << 6) | (s[1] as u32 & 0x3F), 2);
     }
     if (b0 & 0xF0) == 0xE0 && s.len() >= 3 {
         return (
@@ -299,10 +296,7 @@ impl ByteLevelBpe {
             match self.bytes_to_id.get(p) {
                 Some(&i) => ids.push(i),
                 None => {
-                    tracing::warn!(
-                        "tokenizer: unknown byte piece (len {}), skipping",
-                        p.len()
-                    );
+                    tracing::warn!("tokenizer: unknown byte piece (len {}), skipping", p.len());
                     return ids;
                 }
             }
@@ -382,7 +376,10 @@ mod tests {
     #[test]
     fn pre_tokenize_digits() {
         assert_eq!(pre_tokenize("abc"), vec!["abc".to_string()]);
-        assert_eq!(pre_tokenize("1234"), vec!["123".to_string(), "4".to_string()]);
+        assert_eq!(
+            pre_tokenize("1234"),
+            vec!["123".to_string(), "4".to_string()]
+        );
         assert_eq!(
             pre_tokenize("foo42bar"),
             vec!["foo".to_string(), "42".to_string(), "bar".to_string()]

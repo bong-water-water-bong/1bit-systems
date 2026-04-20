@@ -14,8 +14,12 @@ pub enum Dispatch {
 }
 
 impl Dispatch {
-    pub fn is_local(&self) -> bool { matches!(self, Dispatch::Local { .. }) }
-    pub fn is_upstream(&self) -> bool { matches!(self, Dispatch::Upstream { .. }) }
+    pub fn is_local(&self) -> bool {
+        matches!(self, Dispatch::Local { .. })
+    }
+    pub fn is_upstream(&self) -> bool {
+        matches!(self, Dispatch::Upstream { .. })
+    }
 }
 
 #[cfg(test)]
@@ -24,8 +28,12 @@ mod tests {
 
     #[test]
     fn dispatch_variants_match() {
-        let l = Dispatch::Local { router: "halo_router::bitnet".into() };
-        let u = Dispatch::Upstream { url: "https://api.openai.com".into() };
+        let l = Dispatch::Local {
+            router: "halo_router::bitnet".into(),
+        };
+        let u = Dispatch::Upstream {
+            url: "https://api.openai.com".into(),
+        };
         assert!(l.is_local() && !l.is_upstream());
         assert!(u.is_upstream() && !u.is_local());
         match &l {

@@ -100,13 +100,7 @@ mod tests {
         assert!(msg.contains("s1"));
         assert!(td.path().join("test/s1/SKILL.md").exists());
 
-        let msg = apply(
-            &mut store,
-            SkillAction::Delete {
-                name: "s1".into(),
-            },
-        )
-        .unwrap();
+        let msg = apply(&mut store, SkillAction::Delete { name: "s1".into() }).unwrap();
         assert!(msg.contains("deleted"));
         assert!(!td.path().join("test/s1").exists());
     }

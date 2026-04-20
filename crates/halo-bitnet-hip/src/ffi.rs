@@ -30,8 +30,8 @@
 // stale. The safe wrappers in `lib.rs` carry the Rust-facing docs.
 #![allow(missing_docs)]
 
-use core::ffi::{c_char, c_float, c_int, c_void};
 use core::ffi::c_uint;
+use core::ffi::{c_char, c_float, c_int, c_void};
 
 // -----------------------------------------------------------------------------
 // HIP runtime bindings — a narrow subset of `hip/hip_runtime_api.h` sufficient
@@ -91,31 +91,58 @@ mod hip_stub {
     use super::*;
     #[inline]
     #[allow(unused_variables)]
-    pub unsafe extern "C" fn hipMalloc(_ptr: *mut *mut c_void, _size: usize) -> hip_error_t { 1 }
+    pub unsafe extern "C" fn hipMalloc(_ptr: *mut *mut c_void, _size: usize) -> hip_error_t {
+        1
+    }
     #[inline]
     #[allow(unused_variables)]
-    pub unsafe extern "C" fn hipFree(_ptr: *mut c_void) -> hip_error_t { 1 }
+    pub unsafe extern "C" fn hipFree(_ptr: *mut c_void) -> hip_error_t {
+        1
+    }
     #[inline]
     #[allow(unused_variables)]
     pub unsafe extern "C" fn hipMemcpy(
-        _dst: *mut c_void, _src: *const c_void, _count: usize, _kind: c_uint,
-    ) -> hip_error_t { 1 }
+        _dst: *mut c_void,
+        _src: *const c_void,
+        _count: usize,
+        _kind: c_uint,
+    ) -> hip_error_t {
+        1
+    }
     #[inline]
     #[allow(unused_variables)]
     pub unsafe extern "C" fn hipMemcpyAsync(
-        _dst: *mut c_void, _src: *const c_void, _count: usize, _kind: c_uint,
+        _dst: *mut c_void,
+        _src: *const c_void,
+        _count: usize,
+        _kind: c_uint,
         _stream: *mut c_void,
-    ) -> hip_error_t { 1 }
+    ) -> hip_error_t {
+        1
+    }
     #[inline]
     #[allow(unused_variables)]
-    pub unsafe extern "C" fn hipMemset(_dst: *mut c_void, _value: c_int, _count: usize) -> hip_error_t { 1 }
+    pub unsafe extern "C" fn hipMemset(
+        _dst: *mut c_void,
+        _value: c_int,
+        _count: usize,
+    ) -> hip_error_t {
+        1
+    }
     #[inline]
     #[allow(unused_variables)]
     pub unsafe extern "C" fn hipMemsetAsync(
-        _dst: *mut c_void, _value: c_int, _count: usize, _stream: *mut c_void,
-    ) -> hip_error_t { 1 }
+        _dst: *mut c_void,
+        _value: c_int,
+        _count: usize,
+        _stream: *mut c_void,
+    ) -> hip_error_t {
+        1
+    }
     #[inline]
-    pub unsafe extern "C" fn hipDeviceSynchronize() -> hip_error_t { 1 }
+    pub unsafe extern "C" fn hipDeviceSynchronize() -> hip_error_t {
+        1
+    }
     #[inline]
     #[allow(unused_variables)]
     pub unsafe extern "C" fn hipGetDeviceCount(count: *mut c_int) -> hip_error_t {
@@ -125,9 +152,13 @@ mod hip_stub {
     }
     #[inline]
     #[allow(unused_variables)]
-    pub unsafe extern "C" fn hipSetDevice(_device_id: c_int) -> hip_error_t { 1 }
+    pub unsafe extern "C" fn hipSetDevice(_device_id: c_int) -> hip_error_t {
+        1
+    }
     #[inline]
-    pub unsafe extern "C" fn hipGetLastError() -> hip_error_t { 0 }
+    pub unsafe extern "C" fn hipGetLastError() -> hip_error_t {
+        0
+    }
     #[inline]
     #[allow(unused_variables)]
     pub unsafe extern "C" fn hipGetErrorString(_err: hip_error_t) -> *const c_char {
@@ -137,7 +168,6 @@ mod hip_stub {
 
 #[cfg(not(feature = "link-rocm"))]
 pub use hip_stub::*;
-
 
 /// Mirrors `rcpp_status_t` from `ck_gemm.h`. Kept as a `#[repr(C)] i32` so
 /// the compiler uses the same integer width the C side emits for an enum.
@@ -184,9 +214,7 @@ unsafe extern "C" {
         N: c_int,
     ) -> rcpp_status_t;
 
-    pub fn rcpp_ck_gemm_instance_string(
-        handle: *const rcpp_ck_gemm_handle_t,
-    ) -> *const c_char;
+    pub fn rcpp_ck_gemm_instance_string(handle: *const rcpp_ck_gemm_handle_t) -> *const c_char;
 
     // -------------------------------------------------------------------------
     // Phase 5 decode GEMV

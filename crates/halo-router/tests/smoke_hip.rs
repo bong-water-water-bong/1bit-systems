@@ -14,8 +14,8 @@
 
 use std::path::Path;
 
-use halo_router::{BackendKind, HipBackend, Router, RouterRequest, detect};
 use halo_core::sampler::SamplerConfig;
+use halo_router::{BackendKind, HipBackend, Router, RouterRequest, detect};
 
 fn default_model() -> String {
     std::env::var("HOME")

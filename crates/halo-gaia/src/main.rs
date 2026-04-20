@@ -22,15 +22,15 @@ use crossterm::event::{
 };
 use crossterm::execute;
 use crossterm::terminal::{
-    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use futures::StreamExt;
+use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
-use ratatui::Terminal;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use halo_gaia::{Conversation, GaiaClient, Role, SessionConfig};
@@ -107,8 +107,7 @@ async fn main() -> Result<()> {
 }
 
 fn load_config() -> SessionConfig {
-    let url =
-        std::env::var("HALO_GAIA_URL").unwrap_or_else(|_| "http://127.0.0.1:8180".into());
+    let url = std::env::var("HALO_GAIA_URL").unwrap_or_else(|_| "http://127.0.0.1:8180".into());
     let model = std::env::var("HALO_GAIA_MODEL").unwrap_or_else(|_| "halo-1bit-2b".into());
     let mut cfg = SessionConfig::new(url, model);
     cfg.bearer = std::env::var("HALO_GAIA_TOKEN").ok();
@@ -349,8 +348,7 @@ fn draw_input(f: &mut ratatui::Frame, area: Rect, app: &App) {
             Span::styled("_", Style::default().add_modifier(Modifier::SLOW_BLINK)),
         ])
     };
-    let para = Paragraph::new(content)
-        .block(Block::default().borders(Borders::ALL));
+    let para = Paragraph::new(content).block(Block::default().borders(Borders::ALL));
     f.render_widget(para, area);
 }
 

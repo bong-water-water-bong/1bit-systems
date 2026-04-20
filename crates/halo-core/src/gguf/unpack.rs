@@ -159,11 +159,7 @@ pub fn iq2_s_to_halo_v2(
         for i in base..block_end {
             let w = y[i - base];
             let code = if thr > 0.0 && w.abs() >= thr {
-                if w > 0.0 {
-                    HALO_V2_POS1
-                } else {
-                    HALO_V2_NEG1
-                }
+                if w > 0.0 { HALO_V2_POS1 } else { HALO_V2_NEG1 }
             } else {
                 HALO_V2_ZERO
             };

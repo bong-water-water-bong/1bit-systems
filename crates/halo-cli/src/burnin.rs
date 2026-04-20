@@ -22,7 +22,7 @@
 // `prefix_match_chars` doubles as the first-byte-of-divergence offset: the
 // number of leading characters that matched before v1 and v2 diverged.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::Subcommand;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -113,8 +113,7 @@ fn resolve_log(explicit: Option<PathBuf>) -> PathBuf {
 /// Parse every line of a JSONL file into `Row`s. Non-JSON / partial lines are
 /// skipped silently (the service may still be mid-write on the last line).
 pub fn load_rows(path: &Path) -> Result<Vec<Row>> {
-    let f = File::open(path)
-        .with_context(|| format!("open {}", path.display()))?;
+    let f = File::open(path).with_context(|| format!("open {}", path.display()))?;
     let mut rows = Vec::new();
     for line in BufReader::new(f).lines() {
         let line = line.with_context(|| format!("read {}", path.display()))?;
@@ -147,11 +146,32 @@ pub fn compute_stats(rows: &[Row]) -> Stats {
     let total = rows.len();
     let pass = rows.iter().filter(|r| r.full_match).count();
     let fail = total - pass;
-    let pct = if total == 0 { 0.0 } else { 100.0 * pass as f64 / total as f64 };
-    let (v1_sum, v2_sum): (u64, u64) = rows.iter().fold((0, 0), |(a, b), r| (a + r.v1_ms, b + r.v2_ms));
-    let mean_v1_ms = if total == 0 { 0.0 } else { v1_sum as f64 / total as f64 };
-    let mean_v2_ms = if total == 0 { 0.0 } else { v2_sum as f64 / total as f64 };
-    Stats { total, pass, fail, pct, mean_v1_ms, mean_v2_ms }
+    let pct = if total == 0 {
+        0.0
+    } else {
+        100.0 * pass as f64 / total as f64
+    };
+    let (v1_sum, v2_sum): (u64, u64) = rows
+        .iter()
+        .fold((0, 0), |(a, b), r| (a + r.v1_ms, b + r.v2_ms));
+    let mean_v1_ms = if total == 0 {
+        0.0
+    } else {
+        v1_sum as f64 / total as f64
+    };
+    let mean_v2_ms = if total == 0 {
+        0.0
+    } else {
+        v2_sum as f64 / total as f64
+    };
+    Stats {
+        total,
+        pass,
+        fail,
+        pct,
+        mean_v1_ms,
+        mean_v2_ms,
+    }
 }
 
 /// One drift bucket: which prompt produced how many mismatches, what the
@@ -181,7 +201,8 @@ pub fn compute_drift(rows: &[Row], top: usize) -> Vec<Drift> {
             for r in &bucket {
                 *offset_hist.entry(r.prefix_match_chars).or_insert(0) += 1;
             }
-            let typical_offset = offset_hist.into_iter()
+            let typical_offset = offset_hist
+                .into_iter()
                 .max_by_key(|&(_, n)| n)
                 .map(|(o, _)| o)
                 .unwrap_or(0);
@@ -197,7 +218,11 @@ pub fn compute_drift(rows: &[Row], top: usize) -> Vec<Drift> {
         })
         .collect();
     // Primary: most failures. Tiebreak: lower prompt_idx for stable output.
-    out.sort_by(|a, b| b.fail_count.cmp(&a.fail_count).then(a.prompt_idx.cmp(&b.prompt_idx)));
+    out.sort_by(|a, b| {
+        b.fail_count
+            .cmp(&a.fail_count)
+            .then(a.prompt_idx.cmp(&b.prompt_idx))
+    });
     out.truncate(top);
     out
 }
@@ -221,7 +246,10 @@ pub fn tail_rows(rows: &[Row], n: usize) -> Vec<Row> {
 /// Rows whose `ts` is lexicographically >= cutoff. ISO-8601 in Z form is
 /// lex-sortable so we don't need chrono here.
 pub fn filter_since(rows: &[Row], cutoff: &str) -> Vec<Row> {
-    rows.iter().filter(|r| r.ts.as_str() >= cutoff).cloned().collect()
+    rows.iter()
+        .filter(|r| r.ts.as_str() >= cutoff)
+        .cloned()
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -230,8 +258,8 @@ pub fn filter_since(rows: &[Row], cutoff: &str) -> Vec<Row> {
 pub async fn run(subcmd: Option<BurninCmd>) -> Result<()> {
     match subcmd {
         None => run_default().await,
-        Some(BurninCmd::Stats { log })        => run_stats(resolve_log(log)),
-        Some(BurninCmd::Drift { log, top })   => run_drift(resolve_log(log), top),
+        Some(BurninCmd::Stats { log }) => run_stats(resolve_log(log)),
+        Some(BurninCmd::Drift { log, top }) => run_drift(resolve_log(log), top),
         Some(BurninCmd::Recent { log, tail }) => run_recent(resolve_log(log), tail),
         Some(BurninCmd::Since { timestamp, log }) => run_since(resolve_log(log), &timestamp),
     }
@@ -240,7 +268,10 @@ pub async fn run(subcmd: Option<BurninCmd>) -> Result<()> {
 async fn run_default() -> Result<()> {
     let path = default_log_path();
     if !path.exists() {
-        bail!("shadow-burnin log missing at {} — is strix-burnin.service running?", path.display());
+        bail!(
+            "shadow-burnin log missing at {} — is strix-burnin.service running?",
+            path.display()
+        );
     }
     let rows = load_rows(&path)?;
     let s = compute_stats(&rows);
@@ -278,16 +309,29 @@ fn run_drift(path: PathBuf, top: usize) -> Result<()> {
     let rows = load_rows(&path)?;
     let drift = compute_drift(&rows, top);
     if drift.is_empty() {
-        println!("no divergent rounds in {} — nothing to report", path.display());
+        println!(
+            "no divergent rounds in {} — nothing to report",
+            path.display()
+        );
         return Ok(());
     }
     let total_fail: usize = rows.iter().filter(|r| !r.full_match).count();
-    println!("top {} drift buckets  ({} total divergent rounds)", drift.len(), total_fail);
+    println!(
+        "top {} drift buckets  ({} total divergent rounds)",
+        drift.len(),
+        total_fail
+    );
     println!();
     for (rank, d) in drift.iter().enumerate() {
         let pct_of_fail = 100.0 * d.fail_count as f64 / total_fail.max(1) as f64;
-        println!("{:>2}. idx={:<3}  fails={:<5} ({:>5.1}% of mismatches)  offset={}",
-                 rank + 1, d.prompt_idx, d.fail_count, pct_of_fail, d.typical_offset);
+        println!(
+            "{:>2}. idx={:<3}  fails={:<5} ({:>5.1}% of mismatches)  offset={}",
+            rank + 1,
+            d.prompt_idx,
+            d.fail_count,
+            pct_of_fail,
+            d.typical_offset
+        );
         println!("    prompt: {}", d.prompt_snippet);
         println!("    v1:     {}", d.sample_v1);
         println!("    v2:     {}", d.sample_v2);
@@ -300,9 +344,15 @@ fn run_recent(path: PathBuf, tail: usize) -> Result<()> {
     let rows = tail_rows(&rows, tail);
     for r in &rows {
         let glyph = if r.full_match { "✓" } else { "✗" };
-        println!("{} {} idx={:<3} v1={:>4}ms v2={:>4}ms  {}",
-                 glyph, r.ts, r.prompt_idx, r.v1_ms, r.v2_ms,
-                 truncate(&r.prompt_snippet, 48));
+        println!(
+            "{} {} idx={:<3} v1={:>4}ms v2={:>4}ms  {}",
+            glyph,
+            r.ts,
+            r.prompt_idx,
+            r.v1_ms,
+            r.v2_ms,
+            truncate(&r.prompt_snippet, 48)
+        );
     }
     Ok(())
 }
@@ -347,24 +397,112 @@ mod tests {
     /// 10-row fixture: 7 pass + 3 fail, with varied prompt_idx for drift.
     /// Timestamps strictly monotonic so `since` tests cleanly slice.
     fn fixture_10() -> NamedTempFile {
-        let mk = |i: u32, ts: &str, idx: u32, pass: bool, offset: u32,
-                  snippet: &str, v1: &str, v2: &str| {
+        let mk = |i: u32,
+                  ts: &str,
+                  idx: u32,
+                  pass: bool,
+                  offset: u32,
+                  snippet: &str,
+                  v1: &str,
+                  v2: &str| {
             format!(
                 r#"{{"ts":"{ts}","prompt_idx":{idx},"prompt_snippet":"{snippet}","prefix_match_chars":{offset},"full_match":{pass},"v1_ms":{},"v2_ms":{},"v1_text":"{v1}","v2_text":"{v2}","v1_tokens":1,"v2_tokens":1}}"#,
-                100 + i, 100 + i
+                100 + i,
+                100 + i
             )
         };
         let lines: Vec<String> = vec![
-            mk(0, "2026-04-20T00:00:00Z", 0, true,  10, "capital of France", " Paris.", " Paris."),
-            mk(1, "2026-04-20T00:10:00Z", 1, true,  12, "2+2",               " 4.",     " 4."),
-            mk(2, "2026-04-20T01:00:00Z", 7, false, 0,  "gold symbol",       "1",       "0"),
-            mk(3, "2026-04-20T02:00:00Z", 7, false, 0,  "gold symbol",       "1",       "0"),
-            mk(4, "2026-04-20T03:00:00Z", 2, true,  20, "planets",           " Jupiter","Jupiter "),
-            mk(5, "2026-04-20T04:00:00Z", 7, false, 0,  "gold symbol",       "1",       "0"),
-            mk(6, "2026-04-20T05:00:00Z", 3, true,  5,  "Hamlet",            " wrote",  " wrote"),
-            mk(7, "2026-04-20T06:00:00Z", 4, true,  8,  "horror",            " silent", " silent"),
-            mk(8, "2026-04-20T07:00:00Z", 5, true,  3,  "clouds",            " drift",  " drift"),
-            mk(9, "2026-04-20T08:00:00Z", 6, true,  9,  "poem",              " soft",   " soft"),
+            mk(
+                0,
+                "2026-04-20T00:00:00Z",
+                0,
+                true,
+                10,
+                "capital of France",
+                " Paris.",
+                " Paris.",
+            ),
+            mk(1, "2026-04-20T00:10:00Z", 1, true, 12, "2+2", " 4.", " 4."),
+            mk(
+                2,
+                "2026-04-20T01:00:00Z",
+                7,
+                false,
+                0,
+                "gold symbol",
+                "1",
+                "0",
+            ),
+            mk(
+                3,
+                "2026-04-20T02:00:00Z",
+                7,
+                false,
+                0,
+                "gold symbol",
+                "1",
+                "0",
+            ),
+            mk(
+                4,
+                "2026-04-20T03:00:00Z",
+                2,
+                true,
+                20,
+                "planets",
+                " Jupiter",
+                "Jupiter ",
+            ),
+            mk(
+                5,
+                "2026-04-20T04:00:00Z",
+                7,
+                false,
+                0,
+                "gold symbol",
+                "1",
+                "0",
+            ),
+            mk(
+                6,
+                "2026-04-20T05:00:00Z",
+                3,
+                true,
+                5,
+                "Hamlet",
+                " wrote",
+                " wrote",
+            ),
+            mk(
+                7,
+                "2026-04-20T06:00:00Z",
+                4,
+                true,
+                8,
+                "horror",
+                " silent",
+                " silent",
+            ),
+            mk(
+                8,
+                "2026-04-20T07:00:00Z",
+                5,
+                true,
+                3,
+                "clouds",
+                " drift",
+                " drift",
+            ),
+            mk(
+                9,
+                "2026-04-20T08:00:00Z",
+                6,
+                true,
+                9,
+                "poem",
+                " soft",
+                " soft",
+            ),
         ];
         let refs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
         tmp_jsonl(&refs)
@@ -387,7 +525,10 @@ mod tests {
         let f = fixture_10();
         let rows = load_rows(f.path()).unwrap();
         let d = compute_drift(&rows, 10);
-        assert!(!d.is_empty(), "drift must be non-empty on a fixture with failures");
+        assert!(
+            !d.is_empty(),
+            "drift must be non-empty on a fixture with failures"
+        );
         // prompt_idx=7 fails 3×, should be rank 1.
         assert_eq!(d[0].prompt_idx, 7);
         assert_eq!(d[0].fail_count, 3);

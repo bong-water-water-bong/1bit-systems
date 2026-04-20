@@ -82,7 +82,9 @@ impl EchoServer {
             voice_cfg: Arc::new(self.voice_cfg),
             codec: self.codec,
         };
-        let app = Router::new().route("/ws", get(ws_handler)).with_state(state);
+        let app = Router::new()
+            .route("/ws", get(ws_handler))
+            .with_state(state);
 
         tracing::info!(bind = %self.bind, codec = self.codec.as_str(), "halo-echo listening");
         let listener = tokio::net::TcpListener::bind(self.bind).await?;
@@ -278,9 +280,10 @@ mod tests {
         };
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let bound = listener.local_addr().unwrap();
-        let app = Router::new().route("/ws", get(ws_handler)).with_state(state);
-        let server_handle =
-            tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let app = Router::new()
+            .route("/ws", get(ws_handler))
+            .with_state(state);
+        let server_handle = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
 
         // Connect with a short retry since axum::serve is async to start.
         let url = format!("ws://{bound}/ws");

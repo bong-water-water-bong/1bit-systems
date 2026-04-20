@@ -36,8 +36,8 @@ impl SkillStore {
     /// Create a store rooted at `~/.halo/skills`. The directory is created
     /// lazily on the first write.
     pub fn new() -> Result<Self> {
-        let home = dirs::home_dir()
-            .ok_or_else(|| anyhow!("could not resolve user home directory"))?;
+        let home =
+            dirs::home_dir().ok_or_else(|| anyhow!("could not resolve user home directory"))?;
         Ok(Self::with_root(home.join(".halo").join("skills")))
     }
 
@@ -59,8 +59,8 @@ impl SkillStore {
             return Ok(Vec::new());
         }
         let mut out = Vec::new();
-        for cat_entry in fs::read_dir(&self.root)
-            .with_context(|| format!("read_dir {}", self.root.display()))?
+        for cat_entry in
+            fs::read_dir(&self.root).with_context(|| format!("read_dir {}", self.root.display()))?
         {
             let cat_entry = cat_entry?;
             if !cat_entry.file_type()?.is_dir() {
@@ -98,8 +98,7 @@ impl SkillStore {
         let Some(path) = self.find_path(name)? else {
             return Ok(None);
         };
-        let src = fs::read_to_string(&path)
-            .with_context(|| format!("read {}", path.display()))?;
+        let src = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
         Skill::parse(&src).map(Some)
     }
 
@@ -111,12 +110,10 @@ impl SkillStore {
             bail!("skill '{}' already exists; use edit to replace", skill.name);
         }
         let dir = self.root.join(skill.category()).join(&skill.name);
-        fs::create_dir_all(&dir)
-            .with_context(|| format!("mkdir -p {}", dir.display()))?;
+        fs::create_dir_all(&dir).with_context(|| format!("mkdir -p {}", dir.display()))?;
         let path = dir.join("SKILL.md");
         let rendered = skill.render()?;
-        fs::write(&path, rendered)
-            .with_context(|| format!("write {}", path.display()))?;
+        fs::write(&path, rendered).with_context(|| format!("write {}", path.display()))?;
         Ok(())
     }
 
@@ -133,8 +130,7 @@ impl SkillStore {
         let path = self
             .find_path(name)?
             .ok_or_else(|| anyhow!("patch: no skill named '{name}'"))?;
-        let src = fs::read_to_string(&path)
-            .with_context(|| format!("read {}", path.display()))?;
+        let src = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
         if !src.contains(old) {
             bail!("patch: old string not found in skill '{name}'");
         }
@@ -146,8 +142,7 @@ impl SkillStore {
             );
         }
         let updated = src.replacen(old, new, 1);
-        fs::write(&path, updated)
-            .with_context(|| format!("write {}", path.display()))?;
+        fs::write(&path, updated).with_context(|| format!("write {}", path.display()))?;
         Ok(())
     }
 
@@ -156,12 +151,10 @@ impl SkillStore {
         let path = self
             .find_path(name)?
             .ok_or_else(|| anyhow!("edit: no skill named '{name}'"))?;
-        let src = fs::read_to_string(&path)
-            .with_context(|| format!("read {}", path.display()))?;
+        let src = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
         let mut skill = Skill::parse(&src)?;
         skill.body = new_body;
-        fs::write(&path, skill.render()?)
-            .with_context(|| format!("write {}", path.display()))?;
+        fs::write(&path, skill.render()?).with_context(|| format!("write {}", path.display()))?;
         Ok(())
     }
 
@@ -174,8 +167,7 @@ impl SkillStore {
         let dir = path
             .parent()
             .ok_or_else(|| anyhow!("delete: SKILL.md has no parent dir"))?;
-        fs::remove_dir_all(dir)
-            .with_context(|| format!("rm -rf {}", dir.display()))?;
+        fs::remove_dir_all(dir).with_context(|| format!("rm -rf {}", dir.display()))?;
         Ok(())
     }
 
@@ -237,8 +229,7 @@ mod tests {
         assert_eq!(got.name, "alpha");
         assert_eq!(got.metadata_halo.category, "demos");
 
-        let mut names: Vec<String> =
-            store.list().unwrap().into_iter().map(|s| s.name).collect();
+        let mut names: Vec<String> = store.list().unwrap().into_iter().map(|s| s.name).collect();
         names.sort();
         assert_eq!(names, vec!["alpha", "beta"]);
 
@@ -253,7 +244,9 @@ mod tests {
         let mut store = SkillStore::with_root(td.path().to_path_buf());
         store.create(sample_skill("patchme", "demos")).unwrap();
 
-        store.patch("patchme", "original content", "patched!").unwrap();
+        store
+            .patch("patchme", "original content", "patched!")
+            .unwrap();
 
         let got = store.get("patchme").unwrap().unwrap();
         assert!(got.body.contains("patched!"));
@@ -266,8 +259,7 @@ mod tests {
         let mut store = SkillStore::with_root(td.path().to_path_buf());
         store.create(sample_skill("strict", "demos")).unwrap();
 
-        let before =
-            std::fs::read_to_string(td.path().join("demos/strict/SKILL.md")).unwrap();
+        let before = std::fs::read_to_string(td.path().join("demos/strict/SKILL.md")).unwrap();
 
         let err = store
             .patch("strict", "THIS STRING IS NOT PRESENT", "anything")
@@ -275,8 +267,7 @@ mod tests {
         assert!(err.to_string().contains("not found"));
 
         // No mutation.
-        let after =
-            std::fs::read_to_string(td.path().join("demos/strict/SKILL.md")).unwrap();
+        let after = std::fs::read_to_string(td.path().join("demos/strict/SKILL.md")).unwrap();
         assert_eq!(before, after);
     }
 

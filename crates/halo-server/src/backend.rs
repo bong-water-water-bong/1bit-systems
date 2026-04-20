@@ -34,8 +34,7 @@ use crate::error::ServerError;
 /// `Send` is required because axum handlers run on a multi-threaded tokio
 /// runtime and the stream outlives the handler (it is consumed by the SSE
 /// writer task).
-pub type TokenStream =
-    Pin<Box<dyn Stream<Item = Result<String, ServerError>> + Send + 'static>>;
+pub type TokenStream = Pin<Box<dyn Stream<Item = Result<String, ServerError>> + Send + 'static>>;
 
 /// Parameters forwarded from the OpenAI request to the backend.
 ///
@@ -118,7 +117,8 @@ pub trait InferenceBackend: Send + Sync + 'static {
         Box::pin(async move {
             Err(ServerError::Backend(
                 "ppl not supported on this backend (rebuild halo-server with \
-                 --features real-backend and load a model via --model)".into(),
+                 --features real-backend and load a model via --model)"
+                    .into(),
             ))
         })
     }
@@ -252,9 +252,7 @@ pub mod real {
         /// the current thread while weights upload to the GPU
         /// (~3 s for halo-1bit-2b.h1b on gfx1151). Call this once at
         /// server startup, not per request.
-        pub fn new(
-            h1b_path: &std::path::Path,
-        ) -> Result<Self, crate::ServerError> {
+        pub fn new(h1b_path: &std::path::Path) -> Result<Self, crate::ServerError> {
             let router = Router::new(h1b_path)
                 .map_err(|e| crate::ServerError::Backend(format!("router init: {e}")))?;
             Ok(Self {

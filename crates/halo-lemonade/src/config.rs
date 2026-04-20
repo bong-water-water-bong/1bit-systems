@@ -49,6 +49,9 @@ mod tests {
             upstream_fallback = "https://api.openai.com"
         "#;
         let cfg = LemonadeConfig::from_toml_str(src).unwrap();
-        assert_eq!(cfg.upstream_fallback.as_deref(), Some("https://api.openai.com"));
+        assert_eq!(
+            cfg.upstream_fallback.as_deref(),
+            Some("https://api.openai.com")
+        );
     }
 }

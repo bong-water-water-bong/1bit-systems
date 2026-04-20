@@ -80,12 +80,12 @@ impl XdnaError {
     /// Map a `HALO_XRT_*` status code (from `cpp/shim.h`) to an `XdnaError`.
     fn from_status(code: i32) -> Self {
         match code {
-            ffi::HALO_XRT_E_INVALID   => Self::InvalidArg("shim rejected argument"),
+            ffi::HALO_XRT_E_INVALID => Self::InvalidArg("shim rejected argument"),
             ffi::HALO_XRT_E_NOT_FOUND => Self::NotFound("(shim-reported)".into()),
-            ffi::HALO_XRT_E_DEVICE    => Self::Device,
-            ffi::HALO_XRT_E_KERNEL    => Self::Kernel,
-            ffi::HALO_XRT_E_INTERNAL  => Self::Internal,
-            _                         => Self::Internal,
+            ffi::HALO_XRT_E_DEVICE => Self::Device,
+            ffi::HALO_XRT_E_KERNEL => Self::Kernel,
+            ffi::HALO_XRT_E_INTERNAL => Self::Internal,
+            _ => Self::Internal,
         }
     }
 }
@@ -165,7 +165,8 @@ impl XdnaDevice {
                 return Err(XdnaError::NotFound(path.display().to_string()));
             }
             let path_cstr = std::ffi::CString::new(
-                path.to_str().ok_or(XdnaError::InvalidArg("non-UTF-8 xclbin path"))?,
+                path.to_str()
+                    .ok_or(XdnaError::InvalidArg("non-UTF-8 xclbin path"))?,
             )
             .map_err(|_| XdnaError::InvalidArg("xclbin path contained NUL byte"))?;
 
@@ -200,7 +201,9 @@ impl XdnaDevice {
             // Real resolution happens inside run_kernel for now; this
             // method exists so the API can cache handles later without
             // breaking callers.
-            Ok(XdnaKernel { name: name.to_string() })
+            Ok(XdnaKernel {
+                name: name.to_string(),
+            })
         }
         #[cfg(not(feature = "real-xrt"))]
         {
@@ -317,10 +320,12 @@ mod tests {
     fn feature_flag_gate_is_coherent() {
         // At least one of these must hold. If both, Cargo itself would
         // have rejected the feature set at resolve time.
-        let stub_on  = cfg!(feature = "stub");
-        let real_on  = cfg!(feature = "real-xrt");
-        assert!(stub_on || real_on,
-            "at least one of `stub` / `real-xrt` must be enabled");
+        let stub_on = cfg!(feature = "stub");
+        let real_on = cfg!(feature = "real-xrt");
+        assert!(
+            stub_on || real_on,
+            "at least one of `stub` / `real-xrt` must be enabled"
+        );
 
         // The `ffi` module exists iff real-xrt is on. We can't name it
         // from a test in the `not(feature = "real-xrt")` case; instead we

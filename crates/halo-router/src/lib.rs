@@ -79,9 +79,10 @@ pub use detect::{BackendKind, detect};
 ///   [`cpu_lane::CpuLane`] but not on the critical path yet; selecting
 ///   it returns [`BackendError::CpuLaneStub`] (see
 ///   `docs/wiki/CPU-Lane-Plan.md` for the three-step wire-up plan).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Backend {
     /// gfx1151 iGPU path via `halo-bitnet-hip` (the production path).
+    #[default]
     Hip,
     /// XDNA 2 NPU path via `halo-bitnet-xdna`. Prefill only, feature-gated
     /// behind `real-xdna`; in default builds forward() returns
@@ -116,12 +117,6 @@ impl Backend {
             Backend::Xdna => "xdna",
             Backend::Cpu => "cpu",
         }
-    }
-}
-
-impl Default for Backend {
-    fn default() -> Self {
-        Backend::Hip
     }
 }
 
@@ -477,9 +472,7 @@ fn perplexity_blocking(
         for i in 0..chunk_len {
             let tok = ids[chunk_start + i];
             let pos = i as i32;
-            let _argmax = inner
-                .backend
-                .forward_token(tok, pos, &mut logits_scratch)?;
+            let _argmax = inner.backend.forward_token(tok, pos, &mut logits_scratch)?;
             // Target for this step is ids[chunk_start + i + 1]; only valid
             // while it's inside the current chunk (we re-feed at the next
             // chunk boundary).
@@ -587,7 +580,9 @@ fn generate_blocking(
     //      seeds `cur` for the decode loop. ----
     let mut cur: TokenId = prompt_ids[0];
     for (i, &tok) in prompt_ids.iter().enumerate() {
-        let next = inner.backend.forward_token(tok, inner.pos + i as i32, &mut logits_scratch)?;
+        let next = inner
+            .backend
+            .forward_token(tok, inner.pos + i as i32, &mut logits_scratch)?;
         cur = next; // prefill's "next" is only used to seed decode
     }
     inner.pos += prompt_ids.len() as i32;
@@ -636,7 +631,11 @@ fn generate_blocking(
             }
         }
 
-        if req.stop.iter().any(|s| !s.is_empty() && full_text.ends_with(s)) {
+        if req
+            .stop
+            .iter()
+            .any(|s| !s.is_empty() && full_text.ends_with(s))
+        {
             stopped_on_eos = true;
             break;
         }
@@ -770,7 +769,10 @@ mod ppl_math_tests {
         for t in 0..a.len() {
             let na = neg_log_softmax_at(&a, t as i32);
             let nb = neg_log_softmax_at(&b, t as i32);
-            assert!((na - nb).abs() < 1e-6, "shift not invariant at t={t}: {na} vs {nb}");
+            assert!(
+                (na - nb).abs() < 1e-6,
+                "shift not invariant at t={t}: {na} vs {nb}"
+            );
         }
     }
 }
@@ -811,21 +813,29 @@ mod backend_config_tests {
         let _g = ENV_LOCK.lock().unwrap();
         // SAFETY: edition-2024 moved env mutation behind unsafe. We're
         // single-threaded inside the lock.
-        unsafe { std::env::set_var("HALO_BACKEND", "xdna"); }
+        unsafe {
+            std::env::set_var("HALO_BACKEND", "xdna");
+        }
         let cfg = RouterConfig::from_env().expect("parse");
         assert_eq!(cfg.backend, Backend::Xdna);
 
         // Whitespace / case tolerance — ops tooling isn't always tidy.
-        unsafe { std::env::set_var("HALO_BACKEND", "  XDNA\n"); }
+        unsafe {
+            std::env::set_var("HALO_BACKEND", "  XDNA\n");
+        }
         let cfg2 = RouterConfig::from_env().expect("parse");
         assert_eq!(cfg2.backend, Backend::Xdna);
 
         // cpu round-trip too — keeps the three-way discriminator honest.
-        unsafe { std::env::set_var("HALO_BACKEND", "cpu"); }
+        unsafe {
+            std::env::set_var("HALO_BACKEND", "cpu");
+        }
         let cfg3 = RouterConfig::from_env().expect("parse");
         assert_eq!(cfg3.backend, Backend::Cpu);
 
-        unsafe { std::env::remove_var("HALO_BACKEND"); }
+        unsafe {
+            std::env::remove_var("HALO_BACKEND");
+        }
     }
 
     /// A garbage `HALO_BACKEND` value must error cleanly — no panic,
@@ -834,14 +844,18 @@ mod backend_config_tests {
     #[test]
     fn halo_backend_env_rejects_garbage() {
         let _g = ENV_LOCK.lock().unwrap();
-        unsafe { std::env::set_var("HALO_BACKEND", "nonsense"); }
+        unsafe {
+            std::env::set_var("HALO_BACKEND", "nonsense");
+        }
         let err = RouterConfig::from_env().expect_err("should reject");
         let msg = format!("{err}");
         assert!(
             msg.contains("hip") && msg.contains("xdna") && msg.contains("cpu"),
             "error should list accepted spellings; got: {msg}"
         );
-        unsafe { std::env::remove_var("HALO_BACKEND"); }
+        unsafe {
+            std::env::remove_var("HALO_BACKEND");
+        }
     }
 
     /// The NPU crossover threshold is literally 33 tokens; a 33-token
@@ -865,8 +879,8 @@ mod backend_config_tests {
         }
 
         // Comfortably over threshold — same arm.
-        let err = prefill_routing_decision(Backend::Xdna, 256)
-            .expect_err("long xdna prompt must refuse");
+        let err =
+            prefill_routing_decision(Backend::Xdna, 256).expect_err("long xdna prompt must refuse");
         assert!(matches!(err, BackendError::NotYetWired(_)));
 
         // Short prompt on Xdna: falls through (the NPU launch overhead

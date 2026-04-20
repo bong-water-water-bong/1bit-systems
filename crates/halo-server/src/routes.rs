@@ -83,6 +83,7 @@ pub fn build_router_with_state(state: AppState) -> Router {
         .route("/v1/models", get(list_models))
         .route("/v1/chat/completions", post(chat_completions))
         .route("/v1/completions", post(completions))
+        .route("/v1/npu/status", get(crate::npu::npu_status))
         .route("/ppl", post(ppl))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
@@ -136,12 +137,7 @@ async fn chat_completions(
         // flow past and fire record_request at end-of-stream.
         let stream = s.backend.generate_stream(&req.messages, &params).await?;
         let prompt_tokens = approx_prompt_tokens(&req.messages);
-        let counted = count_and_report_stream(
-            stream,
-            s.metrics.clone(),
-            prompt_tokens,
-            started,
-        );
+        let counted = count_and_report_stream(stream, s.metrics.clone(), prompt_tokens, started);
         let sse = chat_sse_stream(counted, id, created, req.model);
         return Ok(Sse::new(sse)
             .keep_alive(KeepAlive::default())
@@ -149,8 +145,11 @@ async fn chat_completions(
     }
 
     let (text, usage) = s.backend.generate(&req.messages, &params).await?;
-    s.metrics
-        .record_request(usage.prompt_tokens, usage.completion_tokens, started.elapsed());
+    s.metrics.record_request(
+        usage.prompt_tokens,
+        usage.completion_tokens,
+        started.elapsed(),
+    );
     let resp = ChatCompletionResponse {
         id,
         object: "chat.completion",
@@ -203,12 +202,7 @@ async fn completions(
     if req.stream {
         let stream = s.backend.generate_stream(&synth, &params).await?;
         let prompt_tokens = approx_prompt_tokens(&synth);
-        let counted = count_and_report_stream(
-            stream,
-            s.metrics.clone(),
-            prompt_tokens,
-            started,
-        );
+        let counted = count_and_report_stream(stream, s.metrics.clone(), prompt_tokens, started);
         let sse = completion_sse_stream(counted, id, created, req.model);
         return Ok(Sse::new(sse)
             .keep_alive(KeepAlive::default())
@@ -216,8 +210,11 @@ async fn completions(
     }
 
     let (text, usage) = s.backend.generate(&synth, &params).await?;
-    s.metrics
-        .record_request(usage.prompt_tokens, usage.completion_tokens, started.elapsed());
+    s.metrics.record_request(
+        usage.prompt_tokens,
+        usage.completion_tokens,
+        started.elapsed(),
+    );
     let resp = CompletionResponse {
         id,
         object: "text_completion",
@@ -246,7 +243,9 @@ async fn ppl(
     Json(req): Json<PplRequest>,
 ) -> Result<Json<PplResponse>, ServerError> {
     if req.text.is_empty() {
-        return Err(ServerError::BadRequest("ppl: text must not be empty".into()));
+        return Err(ServerError::BadRequest(
+            "ppl: text must not be empty".into(),
+        ));
     }
     let out = s
         .backend
@@ -506,7 +505,12 @@ mod tests {
     #[tokio::test]
     async fn healthz_ok() {
         let resp = app()
-            .oneshot(Request::builder().uri("/healthz").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/healthz")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
@@ -674,7 +678,12 @@ mod tests {
 
         let resp = app
             .clone()
-            .oneshot(Request::builder().uri("/metrics").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
@@ -688,6 +697,7 @@ mod tests {
             "p50_ms",
             "p95_ms",
             "completion_tokens_last_hour",
+            "npu_up",
         ] {
             assert!(v.get(k).is_some(), "missing key {k} in {v}");
         }
@@ -716,7 +726,12 @@ mod tests {
         let _ = to_bytes(chat_resp.into_body(), 64 * 1024).await.unwrap();
 
         let resp2 = app
-            .oneshot(Request::builder().uri("/metrics").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         let bytes2 = to_bytes(resp2.into_body(), 4 * 1024).await.unwrap();
@@ -792,17 +807,12 @@ mod tests {
         ) -> std::pin::Pin<
             Box<
                 dyn std::future::Future<
-                        Output = Result<
-                            (String, crate::backend::GenerationUsage),
-                            ServerError,
-                        >,
+                        Output = Result<(String, crate::backend::GenerationUsage), ServerError>,
                     > + Send
                     + 'a,
             >,
         > {
-            Box::pin(async move {
-                Ok(("ok".into(), crate::backend::GenerationUsage::default()))
-            })
+            Box::pin(async move { Ok(("ok".into(), crate::backend::GenerationUsage::default())) })
         }
         fn generate_stream<'a>(
             &'a self,
@@ -810,9 +820,8 @@ mod tests {
             _params: &'a crate::backend::GenerationParams,
         ) -> std::pin::Pin<
             Box<
-                dyn std::future::Future<
-                        Output = Result<crate::backend::TokenStream, ServerError>,
-                    > + Send
+                dyn std::future::Future<Output = Result<crate::backend::TokenStream, ServerError>>
+                    + Send
                     + 'a,
             >,
         > {

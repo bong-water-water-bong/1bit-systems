@@ -145,13 +145,7 @@ impl CpuLane {
     /// The vector must be non-empty; an empty logit vector returns
     /// token id 0 (this keeps the signature infallible so it slots
     /// into the eventual SSE path without ceremony).
-    pub fn parallel_sample(
-        &self,
-        logits: &[f32],
-        top_k: usize,
-        top_p: f32,
-        temp: f32,
-    ) -> u32 {
+    pub fn parallel_sample(&self, logits: &[f32], top_k: usize, top_p: f32, temp: f32) -> u32 {
         if logits.is_empty() {
             return 0;
         }
@@ -190,7 +184,9 @@ pub fn default_thread_count() -> usize {
     let parallelism = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(1);
-    parallelism.saturating_sub(RESERVED_CORES_FOR_IGPU_COORD).max(1)
+    parallelism
+        .saturating_sub(RESERVED_CORES_FOR_IGPU_COORD)
+        .max(1)
 }
 
 /// Parse `HALO_CPU_THREADS`. Returns `None` if unset, empty, or not a
@@ -233,11 +229,7 @@ fn parallel_argmax(logits: &[f32]) -> u32 {
         .reduce(
             || (0usize, f32::NEG_INFINITY),
             |a, b| {
-                if b.1 > a.1 {
-                    b
-                } else {
-                    a
-                }
+                if b.1 > a.1 { b } else { a }
             },
         )
         .0 as u32
@@ -292,9 +284,7 @@ static GLOBAL_LANE: OnceLock<CpuLane> = OnceLock::new();
 /// construct their own. Not called from the router today (see module
 /// docs); exposed for the planned SSE-path wire-up.
 pub fn global_lane() -> &'static CpuLane {
-    GLOBAL_LANE.get_or_init(|| {
-        CpuLane::new().expect("cpu lane: global pool build should not fail")
-    })
+    GLOBAL_LANE.get_or_init(|| CpuLane::new().expect("cpu lane: global pool build should not fail"))
 }
 
 // ----------------------------------------------------------------------------
@@ -338,7 +328,9 @@ mod tests {
         let _g = ENV_LOCK.lock().unwrap();
         // SAFETY: edition-2024 moved env mutation behind unsafe. We're
         // single-threaded inside the lock.
-        unsafe { std::env::remove_var(CPU_THREADS_ENV); }
+        unsafe {
+            std::env::remove_var(CPU_THREADS_ENV);
+        }
         let lane = CpuLane::new().expect("CpuLane::new() must not fail");
         assert!(
             lane.num_threads() >= 1,
@@ -357,7 +349,9 @@ mod tests {
         let mut logits = vec![-1.0f32; 32_000];
         logits[17_000] = 42.0;
 
-        let sampled = lane.parallel_sample(&logits, /* top_k */ 1, /* top_p */ 1.0, /* temp */ 0.0);
+        let sampled = lane.parallel_sample(
+            &logits, /* top_k */ 1, /* top_p */ 1.0, /* temp */ 0.0,
+        );
         assert_eq!(sampled, 17_000, "argmax must find the singleton max");
 
         // Run it three more times — with temp=0 the result MUST be
@@ -378,7 +372,9 @@ mod tests {
     fn env_override_is_respected() {
         let _g = ENV_LOCK.lock().unwrap();
         // SAFETY: see module-level doc — single-threaded inside lock.
-        unsafe { std::env::set_var(CPU_THREADS_ENV, "4"); }
+        unsafe {
+            std::env::set_var(CPU_THREADS_ENV, "4");
+        }
 
         // First check the free function, which is what CpuLane::new
         // delegates to — so a pass here implies the constructor path.
@@ -398,18 +394,24 @@ mod tests {
 
         // Bad values fall back to the default policy — specifically
         // they do NOT yield 0 or a panic.
-        unsafe { std::env::set_var(CPU_THREADS_ENV, "not-a-number"); }
+        unsafe {
+            std::env::set_var(CPU_THREADS_ENV, "not-a-number");
+        }
         let n_bad = default_thread_count();
         assert!(n_bad >= 1, "bad env value must fall back to >=1 threads");
 
-        unsafe { std::env::set_var(CPU_THREADS_ENV, "0"); }
+        unsafe {
+            std::env::set_var(CPU_THREADS_ENV, "0");
+        }
         let n_zero = default_thread_count();
         assert!(
             n_zero >= 1,
             "HALO_CPU_THREADS=0 must be rejected and fall back to the default"
         );
 
-        unsafe { std::env::remove_var(CPU_THREADS_ENV); }
+        unsafe {
+            std::env::remove_var(CPU_THREADS_ENV);
+        }
     }
 
     /// Empty-logit safety: the sampler returns 0 rather than panicking

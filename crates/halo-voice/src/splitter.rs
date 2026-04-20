@@ -37,7 +37,9 @@ pub struct SentenceSplitter {
 }
 
 impl SentenceSplitter {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     /// Feed a new delta. Returns zero or more complete sentences, in
     /// order. Partial-sentence remainder stays in the internal buffer
@@ -50,7 +52,9 @@ impl SentenceSplitter {
         for (i, b) in bytes.iter().enumerate() {
             if BOUNDARY_BYTES.contains(b) {
                 let sentence = self.buf[last..=i].trim().to_string();
-                if has_speakable(&sentence) { out.push(sentence); }
+                if has_speakable(&sentence) {
+                    out.push(sentence);
+                }
                 last = i + 1;
             }
         }
@@ -75,7 +79,9 @@ impl SentenceSplitter {
     }
 
     /// Peek the current unflushed buffer. Mostly for tests.
-    pub fn buffered(&self) -> &str { &self.buf }
+    pub fn buffered(&self) -> &str {
+        &self.buf
+    }
 }
 
 #[cfg(test)]

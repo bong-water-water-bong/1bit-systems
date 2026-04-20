@@ -24,12 +24,12 @@ use std::fs::File;
 use std::io::Read as _;
 use std::path::Path;
 
-use halo_bitnet_hip as hip;
-use halo_bitnet_hip::{DeviceBuffer, DevicePtr, DeviceMutPtr, HipStream, RcppError};
-use halo_core::gguf::{GgufFile, GGUF_MAGIC};
-use halo_core::h1b::{H1bConfig, H1bFile, H1bLayerOffsets, H1bWeightFormat, Span, H1B_MAGIC};
-use halo_core::htok::HtokFile;
 use half::f16;
+use halo_bitnet_hip as hip;
+use halo_bitnet_hip::{DeviceBuffer, DeviceMutPtr, DevicePtr, HipStream, RcppError};
+use halo_core::gguf::{GGUF_MAGIC, GgufFile};
+use halo_core::h1b::{H1B_MAGIC, H1bConfig, H1bFile, H1bLayerOffsets, H1bWeightFormat, Span};
+use halo_core::htok::HtokFile;
 
 use crate::tokenizer::ByteLevelBpe;
 
@@ -69,9 +69,8 @@ pub fn sniff_model_format(path: &Path) -> Result<ModelFormat, BackendError> {
     // Read the first 4 bytes — enough for both magics.
     let mut head = [0u8; 4];
     {
-        let mut f = File::open(path).map_err(|e| {
-            BackendError::Other(format!("open {}: {}", path.display(), e))
-        })?;
+        let mut f = File::open(path)
+            .map_err(|e| BackendError::Other(format!("open {}: {}", path.display(), e)))?;
         f.read_exact(&mut head).map_err(|e| {
             BackendError::Other(format!(
                 "read magic from {} (file too small?): {}",
@@ -186,10 +185,10 @@ pub enum BackendError {
 /// Per-layer device-resident weights. Every field is a sized device buffer
 /// we uploaded once at `new()` and never mutate.
 struct LayerWeights {
-    input_norm: DeviceBuffer<u16>,        // fp16 [hs]
-    post_attn_norm: DeviceBuffer<u16>,    // fp16 [hs]
-    attn_sub_norm: DeviceBuffer<u16>,     // fp16 [hs]
-    ffn_sub_norm: DeviceBuffer<u16>,      // fp16 [is]
+    input_norm: DeviceBuffer<u16>,     // fp16 [hs]
+    post_attn_norm: DeviceBuffer<u16>, // fp16 [hs]
+    attn_sub_norm: DeviceBuffer<u16>,  // fp16 [hs]
+    ffn_sub_norm: DeviceBuffer<u16>,   // fp16 [is]
 
     q_packed: DeviceBuffer<u8>,
     q_scales: DeviceBuffer<f32>,
@@ -209,34 +208,34 @@ struct LayerWeights {
 
 /// Model-level device weights.
 struct ModelWeights {
-    embedding: DeviceBuffer<u16>,   // fp16 [vocab * hs]
-    final_norm: DeviceBuffer<u16>,  // fp16 [hs]
+    embedding: DeviceBuffer<u16>,  // fp16 [vocab * hs]
+    final_norm: DeviceBuffer<u16>, // fp16 [hs]
     layers: Vec<LayerWeights>,
 }
 
 /// Scratch buffers reused per-token. Allocated once at `new()`.
 struct Scratch {
     // Residual + attention activations
-    x_fp32: DeviceBuffer<f32>,           // [hs]
-    x_fp16: DeviceBuffer<u16>,           // [hs] — embedding read target
-    normed: DeviceBuffer<u16>,           // [hs]
-    x_i8: DeviceBuffer<i8>,              // [hs_k]
-    x_scale_dev: DeviceBuffer<f32>,      // [1]
+    x_fp32: DeviceBuffer<f32>,      // [hs]
+    x_fp16: DeviceBuffer<u16>,      // [hs] — embedding read target
+    normed: DeviceBuffer<u16>,      // [hs]
+    x_i8: DeviceBuffer<i8>,         // [hs_k]
+    x_scale_dev: DeviceBuffer<f32>, // [1]
 
-    q_fp16: DeviceBuffer<u16>,           // [nh * hd]
-    k_fp16: DeviceBuffer<u16>,           // [nkv * hd]
-    v_fp16: DeviceBuffer<u16>,           // [nkv * hd]
-    o_fp16: DeviceBuffer<u16>,           // [hs]
+    q_fp16: DeviceBuffer<u16>, // [nh * hd]
+    k_fp16: DeviceBuffer<u16>, // [nkv * hd]
+    v_fp16: DeviceBuffer<u16>, // [nkv * hd]
+    o_fp16: DeviceBuffer<u16>, // [hs]
 
-    gate_fp16: DeviceBuffer<u16>,        // [is]
-    up_fp16: DeviceBuffer<u16>,          // [is]
-    down_fp16: DeviceBuffer<u16>,        // [hs]
-    silu_out: DeviceBuffer<u16>,         // [is]
-    silu_i8: DeviceBuffer<i8>,           // [is_k]
-    silu_scale_dev: DeviceBuffer<f32>,   // [1]
+    gate_fp16: DeviceBuffer<u16>,      // [is]
+    up_fp16: DeviceBuffer<u16>,        // [is]
+    down_fp16: DeviceBuffer<u16>,      // [hs]
+    silu_out: DeviceBuffer<u16>,       // [is]
+    silu_i8: DeviceBuffer<i8>,         // [is_k]
+    silu_scale_dev: DeviceBuffer<f32>, // [1]
 
-    logits: DeviceBuffer<f32>,           // [vocab]
-    next_tok_dev: DeviceBuffer<i32>,     // [1]
+    logits: DeviceBuffer<f32>,       // [vocab]
+    next_tok_dev: DeviceBuffer<i32>, // [1]
 }
 
 /// Per-layer KV cache (FP16). We allocate `max_context * nkv * hd` per
@@ -349,7 +348,11 @@ impl HipBackend {
             layers.push(upload_layer(&h1b, lo, hs, is_, idx)?);
         }
 
-        let weights = ModelWeights { embedding, final_norm, layers };
+        let weights = ModelWeights {
+            embedding,
+            final_norm,
+            layers,
+        };
 
         // ---------- Scratch ----------
         let scratch = Scratch {
@@ -742,7 +745,9 @@ impl HipBackend {
         if logits_out.len() != vocab as usize {
             logits_out.resize(vocab as usize, 0.0);
         }
-        self.scratch.logits.copy_to_slice(logits_out.as_mut_slice())?;
+        self.scratch
+            .logits
+            .copy_to_slice(logits_out.as_mut_slice())?;
 
         Ok(next)
     }
@@ -1029,12 +1034,9 @@ fn gguf_tensor_to_halo_packed(
             let n_blocks = bytes.len() / unpack::IQ2_S_BLOCK_BYTES;
             let n_weights = n_blocks * 256;
             let mut packed = vec![0u8; n_weights.div_ceil(4)];
-            let _scales = unpack::iq2_s_to_halo_v2(bytes, &mut packed, n_weights)
-                .map_err(|e| {
-                    BackendError::Other(format!(
-                        "IQ2_S → halo v2 bit-unpack failed: {e}"
-                    ))
-                })?;
+            let _scales = unpack::iq2_s_to_halo_v2(bytes, &mut packed, n_weights).map_err(|e| {
+                BackendError::Other(format!("IQ2_S → halo v2 bit-unpack failed: {e}"))
+            })?;
             // TODO(tier-1): memcpy_h2d the `packed` and `_scales` vectors
             // into DeviceBuffer<u8> / DeviceBuffer<f16> slots on
             // HipBackend, then drop the host copies. We deliberately don't
@@ -1134,9 +1136,7 @@ mod format_sniff_tests {
     #[ignore = "needs $HOME/halo-ai/models/halo-1bit-2b.h1b on disk"]
     fn live_h1b_model_routes_to_h1b_path() {
         let home = std::env::var("HOME").unwrap();
-        let p = std::path::PathBuf::from(format!(
-            "{home}/halo-ai/models/halo-1bit-2b.h1b"
-        ));
+        let p = std::path::PathBuf::from(format!("{home}/halo-ai/models/halo-1bit-2b.h1b"));
         if !p.exists() {
             eprintln!("skipping: model not present at {}", p.display());
             return;

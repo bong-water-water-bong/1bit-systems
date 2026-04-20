@@ -68,11 +68,7 @@ pub async fn probe_metrics(http: &reqwest::Client) -> Option<serde_json::Value> 
 /// models probe fails; metrics failures just zero out the numeric fields.
 pub async fn probe(client: &reqwest::Client) -> LiveStatus {
     let url = "http://127.0.0.1:8180/v1/models";
-    let req = client
-        .get(url)
-        .timeout(Duration::from_secs(2))
-        .send()
-        .await;
+    let req = client.get(url).timeout(Duration::from_secs(2)).send().await;
 
     let resp = match req {
         Ok(r) if r.status().is_success() => r,
@@ -97,11 +93,15 @@ pub async fn probe(client: &reqwest::Client) -> LiveStatus {
     // the frontend renders that as "—".
     let (tokps, p50_ms, p95_ms, requests, generated_tokens) = match probe_metrics(client).await {
         Some(m) => (
-            m.get("tokps_recent").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            m.get("tokps_recent")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0),
             m.get("p50_ms").and_then(|v| v.as_f64()).unwrap_or(0.0),
             m.get("p95_ms").and_then(|v| v.as_f64()).unwrap_or(0.0),
             m.get("requests").and_then(|v| v.as_u64()).unwrap_or(0),
-            m.get("generated_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
+            m.get("generated_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0),
         ),
         None => (0.0, 0.0, 0.0, 0, 0),
     };

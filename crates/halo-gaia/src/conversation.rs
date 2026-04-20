@@ -1,7 +1,7 @@
 //! Chat turn buffer + conversion to the OpenAI `messages` wire shape.
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -35,11 +35,19 @@ pub struct Conversation {
 }
 
 impl Conversation {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
-    pub fn push_system(&mut self, s: String) { self.push(Role::System, s); }
-    pub fn push_user(&mut self, s: String) { self.push(Role::User, s); }
-    pub fn push_assistant(&mut self, s: String) { self.push(Role::Assistant, s); }
+    pub fn push_system(&mut self, s: String) {
+        self.push(Role::System, s);
+    }
+    pub fn push_user(&mut self, s: String) {
+        self.push(Role::User, s);
+    }
+    pub fn push_assistant(&mut self, s: String) {
+        self.push(Role::Assistant, s);
+    }
 
     fn push(&mut self, role: Role, content: String) {
         let ts = std::time::SystemTime::now()

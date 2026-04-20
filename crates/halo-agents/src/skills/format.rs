@@ -110,13 +110,10 @@ impl Skill {
         let yaml = &after_open[..close_idx];
         // Advance past the closing fence line itself.
         let rest = &after_open[close_idx..];
-        let body = rest
-            .split_once('\n')
-            .map(|(_, after)| after)
-            .unwrap_or("");
+        let body = rest.split_once('\n').map(|(_, after)| after).unwrap_or("");
 
-        let fm: Frontmatter = serde_yaml_ng::from_str(yaml)
-            .context("failed to parse SKILL.md YAML frontmatter")?;
+        let fm: Frontmatter =
+            serde_yaml_ng::from_str(yaml).context("failed to parse SKILL.md YAML frontmatter")?;
 
         if fm.name.is_empty() {
             bail!("SKILL.md frontmatter missing required field 'name'");
@@ -143,8 +140,8 @@ impl Skill {
                 halo: self.metadata_halo.clone(),
             },
         };
-        let yaml = serde_yaml_ng::to_string(&fm)
-            .context("failed to serialize SKILL.md frontmatter")?;
+        let yaml =
+            serde_yaml_ng::to_string(&fm).context("failed to serialize SKILL.md frontmatter")?;
         let mut out = String::with_capacity(yaml.len() + self.body.len() + 16);
         out.push_str("---\n");
         out.push_str(&yaml);

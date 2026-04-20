@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>VPN-only API — 10-seat private beta testing ground · halo-ai docs</title>
+  <meta name="description" content="halo-ai docs: VPN-only API — 10-seat private beta testing ground">
+  <link rel="stylesheet" href="/docs/docs.css">
+</head>
+<body data-slug="vpn-only-api">
+<nav class="doc-topbar">
+  <a href="/" class="logo">halo-<span>ai</span></a>
+  <a href="/docs/">docs</a>
+  <input type="search" placeholder="filter…" id="q" autocomplete="off">
+</nav>
+<div class="doc-shell">
+<nav class="doc-sidebar" id="sidebar">
+<a class="home-link" href="/docs/">&larr; all docs</a>
+<div class="group"><h4>Getting started</h4><ul>
+<li data-slug="home"><a href="/docs/home.html">halo-ai-rs wiki</a></li>
+<li data-slug="faq"><a href="/docs/faq.html">FAQ</a></li>
+</ul></div>
+<div class="group"><h4>Why we built it this way</h4><ul>
+<li data-slug="why-ternary"><a href="/docs/why-ternary.html">Why 1.58-bit ternary?</a></li>
+<li data-slug="why-rust"><a href="/docs/why-rust.html">Why Rust above, C++ below?</a></li>
+<li data-slug="why-strix-halo"><a href="/docs/why-strix-halo.html">Why Strix Halo (gfx1151)?</a></li>
+<li data-slug="why-shadow-burnin"><a href="/docs/why-shadow-burnin.html">Why shadow-burnin?</a></li>
+<li data-slug="why-no-python"><a href="/docs/why-no-python.html">Why no Python at runtime? (Rule A)</a></li>
+<li data-slug="why-no-npu-yet"><a href="/docs/why-no-npu-yet.html">Why no NPU yet?</a></li>
+<li data-slug="why-this-way-how"><a href="/docs/why-this-way-how.html">Why this way + how — the design walkthrough</a></li>
+<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why <code>halo power</code>?</a></li>
+</ul></div>
+<div class="group"><h4>Research</h4><ul>
+<li data-slug="medusa-integration-plan"><a href="/docs/medusa-integration-plan.html">Medusa Integration Plan (halo-ai-rs / gen-2)</a></li>
+<li data-slug="halo-whisper-streaming-plan"><a href="/docs/halo-whisper-streaming-plan.html">Halo-Whisper Streaming Plan</a></li>
+<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via <code>--kv-quant rotor-3</code></a></li>
+</ul></div>
+<div class="group"><h4>Integrations</h4><ul>
+<li data-slug="hermes-integration"><a href="/docs/hermes-integration.html">Hermes Agent integration</a></li>
+<li data-slug="cloudflare-tunnel-setup"><a href="/docs/cloudflare-tunnel-setup.html">Cloudflare Tunnel Setup — api.halo-ai.studio</a></li>
+</ul></div>
+<div class="group"><h4>Other</h4><ul>
+<li data-slug="amd-ai-ml-tools-scan"><a href="/docs/amd-ai-ml-tools-scan.html">AMD AI/ML SDK Tools Scan</a></li>
+<li data-slug="amd-compilers-analyzers-scan"><a href="/docs/amd-compilers-analyzers-scan.html">AMD Compilers, Analyzers, Debuggers — 2026-04-20 scan</a></li>
+<li data-slug="amd-manageability-scan"><a href="/docs/amd-manageability-scan.html">AMD Manageability Tools Scan</a></li>
+<li data-slug="amd-platform-driver-scan"><a href="/docs/amd-platform-driver-scan.html">AMD Platform Driver Scan — Strix Halo (Ryzen AI MAX+ 395)</a></li>
+<li data-slug="amd-rocm-ai-hub-scan"><a href="/docs/amd-rocm-ai-hub-scan.html">AMD ROCm AI Dev Hub — Scan for 1-bit BitNet on Strix Halo</a></li>
+<li data-slug="benchmarks"><a href="/docs/benchmarks.html">Live tok/s + PPL</a></li>
+<li data-slug="cpu-lane-plan"><a href="/docs/cpu-lane-plan.html">CPU Lane Plan</a></li>
+<li data-slug="npu-kernel-design"><a href="/docs/npu-kernel-design.html">NPU-Kernel-Design</a></li>
+<li data-slug="peak-performance-projection"><a href="/docs/peak-performance-projection.html">Peak Performance Projection</a></li>
+<li data-slug="ternary-on-aie-pack-plan"><a href="/docs/ternary-on-aie-pack-plan.html">Ternary-on-AIE: packing &amp; MAC plan</a></li>
+<li data-slug="vpn-only-api"><a href="/docs/vpn-only-api.html">VPN-only API — 10-seat private beta testing ground</a></li>
+<li data-slug="why-caddy-systemd"><a href="/docs/why-caddy-systemd.html">Why Caddy + user-scope systemd?</a></li>
+<li data-slug="why-h1b-format"><a href="/docs/why-h1b-format.html">Why our own <code>.h1b</code> format?</a></li>
+<li data-slug="why-halo-agents"><a href="/docs/why-halo-agents.html">Why halo-agents?</a></li>
+<li data-slug="why-parity-gates"><a href="/docs/why-parity-gates.html">Why shadow-traffic parity gates?</a></li>
+</ul></div>
+</nav>
+
+<main class="doc-main">
+  <h1>VPN-only API — 10-seat private beta testing ground</h1>
+  <p><strong>Policy (2026-04-20):</strong> the halo-ai test API does not expose a public endpoint. Every client — laptop, mobile, browser, agent — reaches the box over a private Headscale mesh. No Cloudflare Tunnel, no public ACME cert, no port-forward. The website is a marketing surface; access to compute is a separate, authenticated, mesh-only path.</p>
+<h2 id="two-fences-not-one">Two fences, not one</h2>
+<ol>
+<li><strong>Fence 1 — Mesh membership.</strong> You're not talking to strixhalo unless your device is on the Headscale mesh. Headscale runs on strixhalo itself and uses Tailscale clients (macOS, Linux, Windows, iOS, Android) to peer in. We hand out a <strong>single-use, 24-hour pre-auth key</strong> per invitee.</li>
+<li><strong>Fence 2 — Per-user bearer token.</strong> Even on the mesh, every <code>/v2/*</code> / <code>/lemon/*</code> / <code>/sd/*</code> Caddy route requires a <code>Authorization: Bearer sk-halo-...</code> header. Tokens are per-user, stored in <code>/etc/caddy/bearers.txt</code> (root:caddy 0640), one per line. Caddy matches any line at request time; we can revoke one user without affecting the other nine.</li>
+</ol>
+<p>Both fences matter. Mesh-only without bearers = lateral movement risk between peers. Bearers without mesh = public endpoint, which we explicitly don't want today.</p>
+<h2 id="10-seats-why">10 seats, why</h2>
+<p>We cap the beta at <strong>10 users</strong> because:</p>
+<ul>
+<li>Shadow-burnin parity passes today at 95.55% byte-exact. We don't want more users hitting the API than we can observe in logs.</li>
+<li>Per-user metrics + quota logic are not yet wired in halo-server. 10 users × single stream keeps us inside the iGPU's ~83 tok/s roof without queueing pathologies.</li>
+<li>One box, one drive, one operator. 10 is the number where we can still manually reconcile a mis-issued token, not 100.</li>
+</ul>
+<p>Raise the cap in <code>strixhalo/bin/halo-mesh-invite.sh</code> (<code>MAX_USERS=10</code>) once parity + quotas land.</p>
+<h2 id="onboarding-flow">Onboarding flow</h2>
+<p><strong>Operator side</strong> — as bcloud on strixhalo, one command per invitee:</p>
+<pre><code class="language-bash">strixhalo/bin/halo-mesh-invite.sh &lt;handle&gt;
+</code></pre>
+<p>Outputs a ready-to-send message containing:</p>
+<ul>
+<li>single-use <code>--authkey</code> (24-hour TTL, Headscale-issued)</li>
+<li>per-user <code>sk-halo-&lt;hex&gt;</code> bearer token (random, 32 hex chars)</li>
+<li>the exact <code>tailscale up</code> command</li>
+<li>a <code>curl</code> smoke test</li>
+<li>mobile + browser notes</li>
+</ul>
+<p>Script refuses the 11th invite (cap enforcement).</p>
+<p><strong>Invitee side</strong> — three commands:</p>
+<pre><code class="language-bash"># Linux (Arch / CachyOS / any distro with a pkgmgr that has tailscale)
+sudo pacman -S tailscale &amp;&amp; sudo systemctl enable --now tailscaled
+sudo tailscale up --login-server https://headscale.halo-ai.studio --authkey &lt;paste&gt;
+
+# Verify
+curl https://strixhalo.local:8443/v2/v1/models -H "Authorization: Bearer &lt;paste&gt;"
+</code></pre>
+<p>Mobile: Tailscale app → Settings → "Use alternate coordination server" → paste <code>https://headscale.halo-ai.studio</code> → paste authkey.</p>
+<p>Browser: install our internal root CA (Caddy-issued) then open <code>https://strixhalo.local:8443/studio/</code>.</p>
+<h2 id="revocation">Revocation</h2>
+<pre><code class="language-bash">strixhalo/bin/halo-mesh-revoke.sh &lt;handle&gt;
+</code></pre>
+<p>Expires the Headscale authkey, drops the bearer line from <code>/etc/caddy/bearers.txt</code>, reloads Caddy. Sub-second.</p>
+<h2 id="security-posture-what-the-attacker-model-is">Security posture (what the attacker model is)</h2>
+<table>
+<thead><tr><th>Threat</th><th>Defense</th></tr></thead>
+<tbody>
+<tr><td>Drive-by on public endpoint</td><td>No public endpoint exists. <code>api.halo-ai.studio</code> does not resolve to a public IP.</td></tr>
+<tr><td>Mesh peer compromise</td><td>Per-user bearer on every compute route. Compromised mesh peer gets one user's tokens, not all ten.</td></tr>
+<tr><td>Token in git or a log</td><td>Tokens rotate per-invitee; one revoke + reissue, seconds. Tokens are never logged by halo-server (redacted).</td></tr>
+<tr><td>Replay across subdomains</td><td><code>host</code> + bearer match in Caddy; a bearer for <code>/v2/</code> does not authorize <code>/sd/</code> unless we explicitly issue it.</td></tr>
+<tr><td>Lost phone</td><td>Pre-auth key is single-use + 24-hour TTL; after onboarding the device has its own node key which we revoke via Headscale.</td></tr>
+<tr><td>Nation-state-in-the-middle on WebPKI</td><td>We don't use WebPKI. Caddy's internal CA rules out any public CA compromise vector.</td></tr>
+<tr><td>Lateral movement across peers inside mesh</td><td>Headscale ACL locks peers to halo-server ports only. No peer-to-peer SSH/NFS/etc unless explicitly allowed.</td></tr>
+</tbody></table>
+<h2 id="what-s-on-the-public-website-vs-the-mesh">What's on the public website vs the mesh</h2>
+<table>
+<thead><tr><th>Surface</th><th>Reach</th><th>Auth</th></tr></thead>
+<tbody>
+<tr><td><code>halo-ai.studio/</code> (Hugo marketing)</td><td>public, Cloudflare Pages</td><td>none</td></tr>
+<tr><td><code>halo-ai.studio/join/</code></td><td>public</td><td>Discord invite to get onto mesh</td></tr>
+<tr><td><code>halo-ai.studio/docs/</code></td><td>public</td><td>none</td></tr>
+<tr><td><code>halo-ai.studio/audio/</code></td><td>public marketing page</td><td>none</td></tr>
+<tr><td><code>strixhalo.local:8443/studio/</code></td><td>mesh-only (hostname resolves via tailnet DNS)</td><td>none — LAN-style</td></tr>
+<tr><td><code>strixhalo.local:8443/v2/*</code></td><td>mesh-only</td><td>bearer token</td></tr>
+<tr><td><code>strixhalo.local:8443/lemon/*</code></td><td>mesh-only</td><td>bearer token</td></tr>
+<tr><td><code>strixhalo.local:8443/sd/*</code></td><td>mesh-only</td><td>bearer token</td></tr>
+<tr><td><code>wss://strixhalo.local:8443/audio/ws</code></td><td>mesh-only</td><td>bearer token</td></tr>
+</tbody></table>
+<p>Public = brochure. Mesh = the product.</p>
+<h2 id="planned-evolution">Planned evolution</h2>
+<ul>
+<li><strong>Auto-invite via Discord bot</strong> — once 10 manual invites stabilize, a bot reads <code>/request-invite</code> slash commands and calls <code>halo-mesh-invite.sh</code> under the hood. Keeps the cap-enforcement in one place.</li>
+<li><strong>Per-user quotas</strong> (daily token limit, RPS cap) — server-side, not Caddy.</li>
+<li><strong>OIDC on Headscale</strong> — today it's pre-auth keys. If we grow past 50 users we flip to OIDC via a hosted Keycloak or Pocket-ID.</li>
+<li><strong>Audit log</strong> — shipped to the pi archive nightly (already have the rsync path).</li>
+</ul>
+<h2 id="cross-refs">Cross-refs</h2>
+<ul>
+<li><code>strixhalo/bin/halo-mesh-invite.sh</code> — the canonical invite script</li>
+<li><code>strixhalo/bin/halo-mesh-revoke.sh</code> — the canonical revoke script</li>
+<li><code>project_halo_network.md</code> memory — mesh topology + node IPs</li>
+<li><code>docs/wiki/Cloudflare-Tunnel-Setup.md</code> — the <em>other</em> approach, currently NOT in use (template deliberately disabled)</li>
+<li><code>studio-site/join/index.html</code> — the public-facing explanation + invite request form</li>
+<li><code>/etc/caddy/Caddyfile</code> — where the bearer matching actually happens</li>
+</ul>
+
+</main>
+</div>
+<script src="/docs/docs.js"></script>
+</body>
+</html>

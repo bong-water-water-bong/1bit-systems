@@ -57,6 +57,11 @@ pub struct Metrics {
     tokps_samples: Mutex<VecDeque<Sample>>,
     /// Rolling per-request latencies used for p50 / p95.
     latencies: Mutex<VecDeque<Duration>>,
+    /// Gauge — 1 if the most recent `GET /v1/npu/status` saw a live device
+    /// node + `amdxdna` loaded, 0 otherwise. Stays at 0 until the endpoint
+    /// is polled at least once; that's fine, the endpoint is the source of
+    /// truth.
+    npu_up: AtomicU64,
 }
 
 impl Default for Metrics {
@@ -74,7 +79,19 @@ impl Metrics {
             total_generated_tokens: AtomicU64::new(0),
             tokps_samples: Mutex::new(VecDeque::with_capacity(PER_REQ_TOKPS_CAP)),
             latencies: Mutex::new(VecDeque::with_capacity(PER_REQ_LATENCY_CAP)),
+            npu_up: AtomicU64::new(0),
         }
+    }
+
+    /// Set the `halo_npu_up` gauge. Called by the `/v1/npu/status` handler
+    /// after probing the hardware.
+    pub fn set_npu_up(&self, up: bool) {
+        self.npu_up.store(if up { 1 } else { 0 }, Ordering::Relaxed);
+    }
+
+    /// Read the `halo_npu_up` gauge.
+    pub fn npu_up(&self) -> u64 {
+        self.npu_up.load(Ordering::Relaxed)
     }
 
     /// Record one completed request.
@@ -83,12 +100,7 @@ impl Metrics {
     /// snapshot field is named `generated_tokens` precisely so we don't
     /// conflate the two). `elapsed` is the wall-clock duration the HTTP
     /// handler spent awaiting the backend — i.e. what the user sees.
-    pub fn record_request(
-        &self,
-        _prompt_tokens: u32,
-        completion_tokens: u32,
-        elapsed: Duration,
-    ) {
+    pub fn record_request(&self, _prompt_tokens: u32, completion_tokens: u32, elapsed: Duration) {
         self.total_requests.fetch_add(1, Ordering::Relaxed);
         self.total_generated_tokens
             .fetch_add(completion_tokens as u64, Ordering::Relaxed);
@@ -157,6 +169,7 @@ impl Metrics {
             p50_ms,
             p95_ms,
             completion_tokens_last_hour: recent_tokens,
+            npu_up: self.npu_up.load(Ordering::Relaxed),
         }
     }
 }
@@ -175,6 +188,9 @@ pub struct MetricsSnapshot {
     /// `PER_REQ_TOKPS_CAP` requests, which is a fair proxy at typical
     /// traffic levels.
     pub completion_tokens_last_hour: u64,
+    /// `halo_npu_up` gauge — 1 if the NPU is live, 0 otherwise. Updated
+    /// lazily by the `/v1/npu/status` handler; stays 0 until first poll.
+    pub npu_up: u64,
 }
 
 /// Nearest-rank percentile on a *sorted* `Vec<u128>` of millisecond values.
@@ -203,6 +219,7 @@ mod tests {
         assert_eq!(s.p50_ms, 0.0);
         assert_eq!(s.p95_ms, 0.0);
         assert_eq!(s.completion_tokens_last_hour, 0);
+        assert_eq!(s.npu_up, 0);
         // uptime_secs is monotonic but may be 0 immediately after construction.
 
         // Shape assertion via serde: every field serializes.
@@ -215,6 +232,7 @@ mod tests {
             "p50_ms",
             "p95_ms",
             "completion_tokens_last_hour",
+            "npu_up",
         ] {
             assert!(v.get(k).is_some(), "snapshot missing field {k}");
         }
@@ -267,10 +285,7 @@ mod tests {
             m.record_request(0, 1, Duration::from_millis(1));
         }
         // Counters keep climbing, deques stay capped.
-        assert_eq!(
-            m.tokps_samples.lock().unwrap().len(),
-            PER_REQ_TOKPS_CAP
-        );
+        assert_eq!(m.tokps_samples.lock().unwrap().len(), PER_REQ_TOKPS_CAP);
         assert_eq!(m.latencies.lock().unwrap().len(), PER_REQ_LATENCY_CAP);
     }
 }

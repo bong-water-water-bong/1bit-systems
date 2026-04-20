@@ -41,40 +41,79 @@ pub mod skills;
 pub use skills::{Skill, SkillAction, SkillStore};
 
 pub mod memory;
-pub use memory::{MemoryKind, MemoryStore, DELIMITER as MEMORY_DELIMITER,
-                 MAX_MEMORY_CHARS, MAX_USER_CHARS};
+pub use memory::{
+    DELIMITER as MEMORY_DELIMITER, MAX_MEMORY_CHARS, MAX_USER_CHARS, MemoryKind, MemoryStore,
+};
 
 /// The 17 specialists. Ordering matches agent-cpp/specialists/ for easy diff.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Name {
-    Anvil, Carpenter, Cartograph, EchoEar, EchoMouth, Forge, Gateway, Herald,
-    Librarian, Magistrate, Muse, Planner, Quartermaster, Scribe, Sentinel,
-    Sommelier, Warden,
+    Anvil,
+    Carpenter,
+    Cartograph,
+    EchoEar,
+    EchoMouth,
+    Forge,
+    Gateway,
+    Herald,
+    Librarian,
+    Magistrate,
+    Muse,
+    Planner,
+    Quartermaster,
+    Scribe,
+    Sentinel,
+    Sommelier,
+    Warden,
 }
 
 impl Name {
     pub const ALL: &'static [Name] = &[
-        Name::Anvil, Name::Carpenter, Name::Cartograph, Name::EchoEar,
-        Name::EchoMouth, Name::Forge, Name::Gateway, Name::Herald,
-        Name::Librarian, Name::Magistrate, Name::Muse, Name::Planner,
-        Name::Quartermaster, Name::Scribe, Name::Sentinel, Name::Sommelier,
+        Name::Anvil,
+        Name::Carpenter,
+        Name::Cartograph,
+        Name::EchoEar,
+        Name::EchoMouth,
+        Name::Forge,
+        Name::Gateway,
+        Name::Herald,
+        Name::Librarian,
+        Name::Magistrate,
+        Name::Muse,
+        Name::Planner,
+        Name::Quartermaster,
+        Name::Scribe,
+        Name::Sentinel,
+        Name::Sommelier,
         Name::Warden,
     ];
 
     pub fn as_str(&self) -> &'static str {
         match self {
-            Name::Anvil => "anvil",                Name::Carpenter => "carpenter",
-            Name::Cartograph => "cartograph",      Name::EchoEar => "echo_ear",
-            Name::EchoMouth => "echo_mouth",       Name::Forge => "forge",
-            Name::Gateway => "gateway",            Name::Herald => "herald",
-            Name::Librarian => "librarian",        Name::Magistrate => "magistrate",
-            Name::Muse => "muse",                  Name::Planner => "planner",
-            Name::Quartermaster => "quartermaster",Name::Scribe => "scribe",
-            Name::Sentinel => "sentinel",          Name::Sommelier => "sommelier",
+            Name::Anvil => "anvil",
+            Name::Carpenter => "carpenter",
+            Name::Cartograph => "cartograph",
+            Name::EchoEar => "echo_ear",
+            Name::EchoMouth => "echo_mouth",
+            Name::Forge => "forge",
+            Name::Gateway => "gateway",
+            Name::Herald => "herald",
+            Name::Librarian => "librarian",
+            Name::Magistrate => "magistrate",
+            Name::Muse => "muse",
+            Name::Planner => "planner",
+            Name::Quartermaster => "quartermaster",
+            Name::Scribe => "scribe",
+            Name::Sentinel => "sentinel",
+            Name::Sommelier => "sommelier",
             Name::Warden => "warden",
         }
     }
 
+    // Intentional API: infallible `Option<Name>` lookup, not `Result<Name, _>`.
+    // Not implementing `FromStr` because callers treat "no such specialist" as
+    // `None`, not as a parse error.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Name> {
         Name::ALL.iter().find(|n| n.as_str() == s).copied()
     }
@@ -97,14 +136,20 @@ pub trait Specialist: Send + Sync {
     fn name(&self) -> Name;
 
     /// One-line hint shown to MCP clients and agent planners. Default empty.
-    fn description(&self) -> &'static str { "" }
+    fn description(&self) -> &'static str {
+        ""
+    }
 
     /// JSON Schema for the input argument to `handle`. Default `{}` (any JSON).
     /// Override with a real schema so clients can validate before calling.
-    fn input_schema(&self) -> Value { json!({ "type": "object" }) }
+    fn input_schema(&self) -> Value {
+        json!({ "type": "object" })
+    }
 
     /// JSON Schema for the `Ok(Value)` returned from `handle`. Default `{}`.
-    fn output_schema(&self) -> Value { json!({ "type": "object" }) }
+    fn output_schema(&self) -> Value {
+        json!({ "type": "object" })
+    }
 
     async fn handle(&self, req: Value) -> Result<Value>;
 }
@@ -154,20 +199,22 @@ impl<T: TypedSpecialist> Typed<T> {
 
 #[async_trait]
 impl<T: TypedSpecialist> Specialist for Typed<T> {
-    fn name(&self) -> Name { T::NAME }
+    fn name(&self) -> Name {
+        T::NAME
+    }
 
-    fn description(&self) -> &'static str { T::DESCRIPTION }
+    fn description(&self) -> &'static str {
+        T::DESCRIPTION
+    }
 
     fn input_schema(&self) -> Value {
         // `schema_for!` produces a `schemars::Schema` in 1.x; it derefs to
         // a `serde_json::Value` via `.to_value()`.
-        serde_json::to_value(schema_for!(T::Input))
-            .unwrap_or_else(|_| json!({ "type": "object" }))
+        serde_json::to_value(schema_for!(T::Input)).unwrap_or_else(|_| json!({ "type": "object" }))
     }
 
     fn output_schema(&self) -> Value {
-        serde_json::to_value(schema_for!(T::Output))
-            .unwrap_or_else(|_| json!({ "type": "object" }))
+        serde_json::to_value(schema_for!(T::Output)).unwrap_or_else(|_| json!({ "type": "object" }))
     }
 
     async fn handle(&self, req: Value) -> Result<Value> {
@@ -201,13 +248,20 @@ impl Registry {
         Self { map }
     }
 
-    pub fn insert(&mut self, s: Boxed) { self.map.insert(s.name(), s); }
+    pub fn insert(&mut self, s: Boxed) {
+        self.map.insert(s.name(), s);
+    }
 
-    pub fn get(&self, n: Name) -> Option<&Boxed> { self.map.get(&n) }
+    pub fn get(&self, n: Name) -> Option<&Boxed> {
+        self.map.get(&n)
+    }
 
     pub async fn dispatch(&self, name: &str, req: Value) -> Result<Value> {
         let n = Name::from_str(name).ok_or_else(|| anyhow!("unknown specialist '{name}'"))?;
-        let s = self.map.get(&n).ok_or_else(|| anyhow!("no impl registered for {name}"))?;
+        let s = self
+            .map
+            .get(&n)
+            .ok_or_else(|| anyhow!("no impl registered for {name}"))?;
         s.handle(req).await
     }
 
@@ -217,7 +271,9 @@ impl Registry {
 }
 
 impl Default for Registry {
-    fn default() -> Self { Self::default_stubs() }
+    fn default() -> Self {
+        Self::default_stubs()
+    }
 }
 
 /// Shape-correct stub. Returns `{specialist, status:"stub", echo:req}` so the
@@ -227,7 +283,9 @@ struct Stub(Name);
 
 #[async_trait]
 impl Specialist for Stub {
-    fn name(&self) -> Name { self.0 }
+    fn name(&self) -> Name {
+        self.0
+    }
     async fn handle(&self, req: Value) -> Result<Value> {
         Ok(json!({ "specialist": self.0.as_str(), "status": "stub", "echo": req }))
     }
@@ -268,8 +326,7 @@ impl TypedSpecialist for AnvilSpecialist {
     type Input = AnvilRequest;
     type Output = AnvilResponse;
     const NAME: Name = Name::Anvil;
-    const DESCRIPTION: &'static str =
-        "anvil — clone, build, and benchmark a repo end-to-end.";
+    const DESCRIPTION: &'static str = "anvil — clone, build, and benchmark a repo end-to-end.";
 
     async fn handle_typed(&self, req: Self::Input) -> Result<Self::Output> {
         Ok(AnvilResponse {
@@ -313,7 +370,9 @@ mod tests {
         struct Real;
         #[async_trait]
         impl Specialist for Real {
-            fn name(&self) -> Name { Name::Anvil }
+            fn name(&self) -> Name {
+                Name::Anvil
+            }
             async fn handle(&self, _req: Value) -> Result<Value> {
                 Ok(json!({"specialist":"anvil","status":"real"}))
             }
@@ -407,11 +466,14 @@ mod tests {
         // so the response shape is the typed one (cmd/status/tok_per_s),
         // NOT the generic Stub shape ({specialist, status, echo}).
         let r = Registry::default_stubs();
-        let out = r
-            .dispatch("anvil", json!({"cmd": "build"}))
-            .await
-            .unwrap();
-        assert_eq!(out["cmd"], "build", "got stub shape instead of typed: {out}");
-        assert!(out.get("echo").is_none(), "Anvil should no longer echo: {out}");
+        let out = r.dispatch("anvil", json!({"cmd": "build"})).await.unwrap();
+        assert_eq!(
+            out["cmd"], "build",
+            "got stub shape instead of typed: {out}"
+        );
+        assert!(
+            out.get("echo").is_none(),
+            "Anvil should no longer echo: {out}"
+        );
     }
 }

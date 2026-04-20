@@ -48,11 +48,17 @@ pub struct KindFlag {
 }
 
 #[derive(ValueEnum, Debug, Clone, Copy)]
-pub enum KindArg { Memory, User }
+pub enum KindArg {
+    Memory,
+    User,
+}
 
 impl From<KindArg> for MemoryKind {
     fn from(v: KindArg) -> Self {
-        match v { KindArg::Memory => MemoryKind::Memory, KindArg::User => MemoryKind::User }
+        match v {
+            KindArg::Memory => MemoryKind::Memory,
+            KindArg::User => MemoryKind::User,
+        }
     }
 }
 
@@ -78,7 +84,11 @@ pub fn run_with_store(store: &MemoryStore, cmd: MemoryCmd) -> Result<()> {
             println!("added to {}", MemoryKind::from(kind.kind).filename());
             Ok(())
         }
-        MemoryCmd::Replace { kind, needle, entry } => {
+        MemoryCmd::Replace {
+            kind,
+            needle,
+            entry,
+        } => {
             store.replace(kind.kind.into(), &needle, &entry)?;
             println!("replaced in {}", MemoryKind::from(kind.kind).filename());
             Ok(())
@@ -112,20 +122,32 @@ mod tests {
     #[test]
     fn add_then_list_roundtrip() {
         let (_d, s) = fresh_store();
-        run_with_store(&s, MemoryCmd::Add {
-            kind: KindFlag { kind: KindArg::Memory },
-            entry: "gpu gfx1151".into(),
-        }).unwrap();
+        run_with_store(
+            &s,
+            MemoryCmd::Add {
+                kind: KindFlag {
+                    kind: KindArg::Memory,
+                },
+                entry: "gpu gfx1151".into(),
+            },
+        )
+        .unwrap();
         assert_eq!(s.list(MemoryKind::Memory).unwrap(), vec!["gpu gfx1151"]);
     }
 
     #[test]
     fn user_kind_goes_to_user_md() {
         let (d, s) = fresh_store();
-        run_with_store(&s, MemoryCmd::Add {
-            kind: KindFlag { kind: KindArg::User },
-            entry: "bcloud".into(),
-        }).unwrap();
+        run_with_store(
+            &s,
+            MemoryCmd::Add {
+                kind: KindFlag {
+                    kind: KindArg::User,
+                },
+                entry: "bcloud".into(),
+            },
+        )
+        .unwrap();
         assert!(d.path().join("USER.md").exists());
         assert!(!d.path().join("MEMORY.md").exists());
     }
@@ -133,21 +155,47 @@ mod tests {
     #[test]
     fn replace_then_remove() {
         let (_d, s) = fresh_store();
-        let km = KindFlag { kind: KindArg::Memory };
-        run_with_store(&s, MemoryCmd::Add { kind: km, entry: "old fact".into() }).unwrap();
-        run_with_store(&s, MemoryCmd::Replace {
-            kind: km, needle: "old".into(), entry: "new fact".into(),
-        }).unwrap();
+        let km = KindFlag {
+            kind: KindArg::Memory,
+        };
+        run_with_store(
+            &s,
+            MemoryCmd::Add {
+                kind: km,
+                entry: "old fact".into(),
+            },
+        )
+        .unwrap();
+        run_with_store(
+            &s,
+            MemoryCmd::Replace {
+                kind: km,
+                needle: "old".into(),
+                entry: "new fact".into(),
+            },
+        )
+        .unwrap();
         assert_eq!(s.list(MemoryKind::Memory).unwrap(), vec!["new fact"]);
-        run_with_store(&s, MemoryCmd::Remove {
-            kind: km, needle: "new".into(),
-        }).unwrap();
+        run_with_store(
+            &s,
+            MemoryCmd::Remove {
+                kind: km,
+                needle: "new".into(),
+            },
+        )
+        .unwrap();
         assert!(s.list(MemoryKind::Memory).unwrap().is_empty());
     }
 
     #[test]
     fn list_on_empty_store_is_ok() {
         let (_d, s) = fresh_store();
-        run_with_store(&s, MemoryCmd::List(KindFlag { kind: KindArg::Memory })).unwrap();
+        run_with_store(
+            &s,
+            MemoryCmd::List(KindFlag {
+                kind: KindArg::Memory,
+            }),
+        )
+        .unwrap();
     }
 }

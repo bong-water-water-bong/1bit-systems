@@ -38,10 +38,10 @@ pub mod types;
 
 pub use error::HaloError;
 pub use gguf::{
-    BitnetHeader, GgufArray, GgufFile, GgufTensorInfo, GgufTensorType, GgufValue,
-    GgufValueType, GGUF_MAGIC, GGUF_MIN_VERSION,
+    BitnetHeader, GGUF_MAGIC, GGUF_MIN_VERSION, GgufArray, GgufFile, GgufTensorInfo,
+    GgufTensorType, GgufValue, GgufValueType,
 };
-pub use h1b::{H1bConfig, H1bFile, H1bLayerOffsets, H1bWeightFormat, H1B_MAGIC};
-pub use htok::{HtokFile, Merge, HTOK_MAGIC};
+pub use h1b::{H1B_MAGIC, H1bConfig, H1bFile, H1bLayerOffsets, H1bWeightFormat};
+pub use htok::{HTOK_MAGIC, HtokFile, Merge};
 pub use sampler::{Sampler, SamplerConfig};
-pub use types::{TokenId, MAX_SUPPORTED_VERSION, MIN_SUPPORTED_VERSION};
+pub use types::{MAX_SUPPORTED_VERSION, MIN_SUPPORTED_VERSION, TokenId};

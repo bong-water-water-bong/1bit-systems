@@ -51,8 +51,8 @@ mod tests {
     }
 
     /// 1) Open a fresh db against a tempdir path and confirm the schema
-    /// bootstrap actually created `sessions`, `turns`, and `turns_fts`.
-    /// Any missing object = the bootstrap regressed.
+    ///    bootstrap actually created `sessions`, `turns`, and `turns_fts`.
+    ///    Any missing object = the bootstrap regressed.
     #[test]
     fn open_bootstraps_schema() {
         let (_dir, db) = open_tempdb();
@@ -74,15 +74,18 @@ mod tests {
     }
 
     /// 2) Insert a session with three turns and confirm row counts by
-    /// direct SELECT — independent of the FTS5 layer.
+    ///    direct SELECT — independent of the FTS5 layer.
     #[test]
     fn insert_session_and_turns_roundtrip() {
         let (_dir, db) = open_tempdb();
         db.insert_session("s1", "cli", 1_700_000_000, None, Some("bcloud"))
             .unwrap();
-        db.insert_turn("s1", "user", "what's the bench at?", 1_700_000_001).unwrap();
-        db.insert_turn("s1", "assistant", "66 tok/s @ 64 tok", 1_700_000_002).unwrap();
-        db.insert_turn("s1", "tool", "rocprof log line", 1_700_000_003).unwrap();
+        db.insert_turn("s1", "user", "what's the bench at?", 1_700_000_001)
+            .unwrap();
+        db.insert_turn("s1", "assistant", "66 tok/s @ 64 tok", 1_700_000_002)
+            .unwrap();
+        db.insert_turn("s1", "tool", "rocprof log line", 1_700_000_003)
+            .unwrap();
 
         let sessions: i64 = db
             .conn()
@@ -102,11 +105,12 @@ mod tests {
     }
 
     /// 3) FTS5 returns the expected turn for a single-term query, with
-    /// the snippet brackets wrapping the match.
+    ///    the snippet brackets wrapping the match.
     #[test]
     fn fts5_search_finds_exact_word() {
         let (_dir, db) = open_tempdb();
-        db.insert_session("s1", "cli", 1_700_000_000, None, None).unwrap();
+        db.insert_session("s1", "cli", 1_700_000_000, None, None)
+            .unwrap();
         let t1 = db
             .insert_turn("s1", "user", "how fast is the kernel?", 1_700_000_001)
             .unwrap();
@@ -127,12 +131,13 @@ mod tests {
     }
 
     /// 4) Multi-word query: confirm BM25 ordering. The turn that matches
-    /// *both* terms has to outrank the turn that matches only one, and
-    /// our `Hit::rank` is flipped so larger = more relevant.
+    ///    *both* terms has to outrank the turn that matches only one, and
+    ///    our `Hit::rank` is flipped so larger = more relevant.
     #[test]
     fn fts5_search_orders_hits_by_rank() {
         let (_dir, db) = open_tempdb();
-        db.insert_session("s1", "cli", 1_700_000_000, None, None).unwrap();
+        db.insert_session("s1", "cli", 1_700_000_000, None, None)
+            .unwrap();
         // Both terms → stronger match.
         let both = db
             .insert_turn(
@@ -167,16 +172,18 @@ mod tests {
     }
 
     /// 5) Deleting a session cascades into `turns` (via the FK) and the
-    /// DELETE trigger scrubs `turns_fts`. No orphan FTS hits allowed.
+    ///    DELETE trigger scrubs `turns_fts`. No orphan FTS hits allowed.
     #[test]
     fn delete_session_cascades_into_fts() {
         let (_dir, db) = open_tempdb();
-        db.insert_session("s1", "cli", 1_700_000_000, None, None).unwrap();
+        db.insert_session("s1", "cli", 1_700_000_000, None, None)
+            .unwrap();
         db.insert_turn("s1", "user", "orphanprobe token alpha", 1_700_000_001)
             .unwrap();
         db.insert_turn("s1", "assistant", "orphanprobe token beta", 1_700_000_002)
             .unwrap();
-        db.insert_session("s2", "cli", 1_700_000_000, None, None).unwrap();
+        db.insert_session("s2", "cli", 1_700_000_000, None, None)
+            .unwrap();
         db.insert_turn("s2", "user", "keeper token gamma", 1_700_000_003)
             .unwrap();
 

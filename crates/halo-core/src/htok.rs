@@ -56,7 +56,8 @@ impl HtokFile {
         let p = path.as_ref();
         let mut f = File::open(p).map_err(|e| HaloError::io_at(p, e))?;
         let mut buf = Vec::new();
-        f.read_to_end(&mut buf).map_err(|e| HaloError::io_at(p, e))?;
+        f.read_to_end(&mut buf)
+            .map_err(|e| HaloError::io_at(p, e))?;
         Self::parse(p.to_path_buf(), &buf)
     }
 

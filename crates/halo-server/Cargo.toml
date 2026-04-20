@@ -38,6 +38,7 @@ clap               = { workspace = true }
 anyhow             = { workspace = true }
 thiserror          = { workspace = true }
 uuid               = { workspace = true }
+libc               = { workspace = true }
 
 # Real backend wiring — optional, enabled by `--features real-backend`.
 halo-router        = { path = "../halo-router", features = ["hip"], optional = true }

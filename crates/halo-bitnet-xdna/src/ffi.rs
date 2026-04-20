@@ -14,20 +14,17 @@ pub(crate) struct HaloXrtDevice {
 }
 
 // Status codes — must match the `HALO_XRT_*` constants in `cpp/shim.h`.
-pub(crate) const HALO_XRT_OK:          i32 = 0;
-pub(crate) const HALO_XRT_E_INVALID:   i32 = -1;
+pub(crate) const HALO_XRT_OK: i32 = 0;
+pub(crate) const HALO_XRT_E_INVALID: i32 = -1;
 pub(crate) const HALO_XRT_E_NOT_FOUND: i32 = -2;
-pub(crate) const HALO_XRT_E_DEVICE:    i32 = -3;
-pub(crate) const HALO_XRT_E_KERNEL:    i32 = -4;
-pub(crate) const HALO_XRT_E_INTERNAL:  i32 = -5;
+pub(crate) const HALO_XRT_E_DEVICE: i32 = -3;
+pub(crate) const HALO_XRT_E_KERNEL: i32 = -4;
+pub(crate) const HALO_XRT_E_INTERNAL: i32 = -5;
 
 unsafe extern "C" {
     pub(crate) fn halo_xrt_open(bdf_idx: u32) -> *mut HaloXrtDevice;
     pub(crate) fn halo_xrt_close(dev: *mut HaloXrtDevice);
-    pub(crate) fn halo_xrt_load_xclbin(
-        dev: *mut HaloXrtDevice,
-        path: *const c_char,
-    ) -> c_int;
+    pub(crate) fn halo_xrt_load_xclbin(dev: *mut HaloXrtDevice, path: *const c_char) -> c_int;
     pub(crate) fn halo_xrt_run_kernel(
         dev: *mut HaloXrtDevice,
         name: *const c_char,

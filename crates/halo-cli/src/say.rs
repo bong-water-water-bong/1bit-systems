@@ -2,12 +2,12 @@
 // the first available ALSA/PulseAudio CLI player. Voice-loop mic-check
 // path for recording sessions.
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use std::io::Write;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-const DEFAULT_URL:   &str = "http://127.0.0.1:8083/tts";
+const DEFAULT_URL: &str = "http://127.0.0.1:8083/tts";
 const DEFAULT_VOICE: &str = "af_sky";
 
 pub async fn run(text: &str, voice: &str, speed: f32) -> Result<()> {
@@ -27,7 +27,11 @@ pub async fn run(text: &str, voice: &str, speed: f32) -> Result<()> {
     if (speed - 1.0).abs() > f32::EPSILON {
         body["speed"] = serde_json::json!(speed);
     }
-    let res = client.post(&url).json(&body).send().await
+    let res = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
         .with_context(|| format!("POST {url}"))?;
     let status = res.status();
     if !status.is_success() {
@@ -47,9 +51,14 @@ fn play_wav(wav: &[u8]) -> Result<()> {
     } else if which("aplay") {
         ("aplay", &["-q"])
     } else if which("ffplay") {
-        ("ffplay", &["-nodisp", "-autoexit", "-loglevel", "error", "-"])
+        (
+            "ffplay",
+            &["-nodisp", "-autoexit", "-loglevel", "error", "-"],
+        )
     } else {
-        return Err(anyhow!("no audio player found — install pulseaudio, alsa-utils, or ffmpeg"));
+        return Err(anyhow!(
+            "no audio player found — install pulseaudio, alsa-utils, or ffmpeg"
+        ));
     };
 
     let mut child = Command::new(bin)
@@ -60,7 +69,11 @@ fn play_wav(wav: &[u8]) -> Result<()> {
         .spawn()
         .with_context(|| format!("spawn {bin}"))?;
 
-    child.stdin.as_mut().ok_or_else(|| anyhow!("no stdin"))?.write_all(wav)?;
+    child
+        .stdin
+        .as_mut()
+        .ok_or_else(|| anyhow!("no stdin"))?
+        .write_all(wav)?;
     let out = child.wait()?;
     if !out.success() {
         bail!("{bin} exited {out}");
@@ -78,4 +91,6 @@ fn which(bin: &str) -> bool {
         .unwrap_or(false)
 }
 
-pub fn default_voice() -> &'static str { DEFAULT_VOICE }
+pub fn default_voice() -> &'static str {
+    DEFAULT_VOICE
+}

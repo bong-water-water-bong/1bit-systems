@@ -83,12 +83,20 @@ impl Tool {
         let input_schema = match sp {
             Some(s) => {
                 let v = s.input_schema();
-                if v.is_object() { v } else { passthrough_schema() }
+                if v.is_object() {
+                    v
+                } else {
+                    passthrough_schema()
+                }
             }
             None => passthrough_schema(),
         };
 
-        Tool { name: n.as_str().to_string(), description, input_schema }
+        Tool {
+            name: n.as_str().to_string(),
+            description,
+            input_schema,
+        }
     }
 }
 

@@ -196,7 +196,11 @@ mod tests {
         let pkts = encode_wav_to_opus(&wav, TARGET_SR).expect("encode");
         assert!(!pkts.is_empty(), "expected at least one opus packet");
         assert!(pkts.iter().any(|p| !p.is_empty()));
-        assert!(pkts.len() >= 24 && pkts.len() <= 26, "got {} packets", pkts.len());
+        assert!(
+            pkts.len() >= 24 && pkts.len() <= 26,
+            "got {} packets",
+            pkts.len()
+        );
     }
 
     #[test]

@@ -18,7 +18,11 @@ struct Cli {
     #[arg(long, default_value = "127.0.0.1:8200")]
     bind: SocketAddr,
     /// Upstream halo-server for chat/completions proxying (no trailing /).
-    #[arg(long, default_value = "http://127.0.0.1:8180", env = "HALO_LEMONADE_UPSTREAM")]
+    #[arg(
+        long,
+        default_value = "http://127.0.0.1:8180",
+        env = "HALO_LEMONADE_UPSTREAM"
+    )]
     upstream: String,
     /// Optional TOML config at this path (registry + upstream_fallback)
     #[arg(long)]

@@ -125,7 +125,11 @@ pub struct H1bConfig {
 impl H1bConfig {
     /// Disk-serialized size of the header, including magic + version.
     pub fn header_bytes(&self) -> usize {
-        if self.version >= 2 { HEADER_V2 } else { HEADER_V1 }
+        if self.version >= 2 {
+            HEADER_V2
+        } else {
+            HEADER_V1
+        }
     }
 
     /// Head dimension, `hidden_size / num_heads`. Matches C++ `hd`.
@@ -284,7 +288,11 @@ impl H1bFile {
             let eps = if eps > 0.0 { eps } else { DEFAULT_RMS_NORM_EPS };
             (rt, eps, extras_start + EXTRAS_BYTES)
         } else {
-            (DEFAULT_ROPE_THETA, DEFAULT_RMS_NORM_EPS, cfg_start + CFG_BYTES)
+            (
+                DEFAULT_ROPE_THETA,
+                DEFAULT_RMS_NORM_EPS,
+                cfg_start + CFG_BYTES,
+            )
         };
 
         let config = H1bConfig {
@@ -690,13 +698,13 @@ mod tests {
         let scales_for = |rows: usize| vec![0xBBu8; rows * 4];
 
         let tensors = vec![
-            packed_for(8, 8),  // q        (rows=nh*hd=8)
-            scales_for(8),     // q_scales
-            packed_for(4, 8),  // k        (rows=nkv*hd=4)
+            packed_for(8, 8), // q        (rows=nh*hd=8)
+            scales_for(8),    // q_scales
+            packed_for(4, 8), // k        (rows=nkv*hd=4)
             scales_for(4),
-            packed_for(4, 8),  // v
+            packed_for(4, 8), // v
             scales_for(4),
-            packed_for(8, 8),  // o        (rows=hs=8)
+            packed_for(8, 8), // o        (rows=hs=8)
             scales_for(8),
             packed_for(16, 8), // gate
             scales_for(16),
@@ -706,7 +714,12 @@ mod tests {
             scales_for(8),
         ];
 
-        (config, vec![0xCCu8; 32 * 8 * 4] /*embedding*/, norms, tensors)
+        (
+            config,
+            vec![0xCCu8; 32 * 8 * 4], /*embedding*/
+            norms,
+            tensors,
+        )
     }
 
     fn build_file_bytes() -> (H1bConfig, Vec<u8>) {

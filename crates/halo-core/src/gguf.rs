@@ -350,10 +350,7 @@ impl GgufFile {
 
     /// Parse an already-loaded buffer. Used by tests; in production, prefer
     /// [`Self::open`] which uses mmap.
-    pub fn parse_bytes(
-        path: impl Into<PathBuf>,
-        bytes: Vec<u8>,
-    ) -> Result<Self, HaloError> {
+    pub fn parse_bytes(path: impl Into<PathBuf>, bytes: Vec<u8>) -> Result<Self, HaloError> {
         Self::parse(path.into(), Mapped::Owned(bytes))
     }
 
@@ -586,12 +583,11 @@ impl BitnetHeader {
                 })
         };
 
-        let block_count = pick_u32("block_count").ok_or(HaloError::InvalidConfig(
-            "GGUF missing <arch>.block_count",
+        let block_count = pick_u32("block_count")
+            .ok_or(HaloError::InvalidConfig("GGUF missing <arch>.block_count"))?;
+        let embedding_length = pick_u32("embedding_length").ok_or(HaloError::InvalidConfig(
+            "GGUF missing <arch>.embedding_length",
         ))?;
-        let embedding_length = pick_u32("embedding_length").ok_or(
-            HaloError::InvalidConfig("GGUF missing <arch>.embedding_length"),
-        )?;
         let feed_forward_length = pick_u32("feed_forward_length").ok_or(
             HaloError::InvalidConfig("GGUF missing <arch>.feed_forward_length"),
         )?;
@@ -601,8 +597,7 @@ impl BitnetHeader {
         // head_count_kv defaults to head_count when absent (MHA, not GQA).
         let attention_head_count_kv =
             pick_u32("attention.head_count_kv").unwrap_or(attention_head_count);
-        let rope_freq_base =
-            pick_f32("rope.freq_base").unwrap_or(crate::types::DEFAULT_ROPE_THETA);
+        let rope_freq_base = pick_f32("rope.freq_base").unwrap_or(crate::types::DEFAULT_ROPE_THETA);
         let rms_norm_eps = pick_f32("attention.layer_norm_rms_epsilon")
             .unwrap_or(crate::types::DEFAULT_RMS_NORM_EPS);
 
@@ -639,12 +634,8 @@ impl BitnetHeader {
             })
             .unwrap_or_default();
 
-        let bos_token_id = g
-            .kv("tokenizer.ggml.bos_token_id")
-            .and_then(|v| v.as_u32());
-        let eos_token_id = g
-            .kv("tokenizer.ggml.eos_token_id")
-            .and_then(|v| v.as_u32());
+        let bos_token_id = g.kv("tokenizer.ggml.bos_token_id").and_then(|v| v.as_u32());
+        let eos_token_id = g.kv("tokenizer.ggml.eos_token_id").and_then(|v| v.as_u32());
 
         Ok(Self {
             architecture,
@@ -975,10 +966,7 @@ mod tests {
             g.kv("general.architecture").and_then(|v| v.as_str()),
             Some("llama")
         );
-        assert_eq!(
-            g.kv("llama.block_count").and_then(|v| v.as_u32()),
-            Some(30)
-        );
+        assert_eq!(g.kv("llama.block_count").and_then(|v| v.as_u32()), Some(30));
         match g.kv("demo.nums") {
             Some(GgufValue::Array(a)) => {
                 assert_eq!(a.elem_type, GgufValueType::U32 as u32);
@@ -1003,8 +991,7 @@ mod tests {
 
         // Pad so tensor-data starts at an aligned offset.
         let cur_len = buf.len();
-        let pad = (DEFAULT_ALIGNMENT - (cur_len as u64 % DEFAULT_ALIGNMENT))
-            % DEFAULT_ALIGNMENT;
+        let pad = (DEFAULT_ALIGNMENT - (cur_len as u64 % DEFAULT_ALIGNMENT)) % DEFAULT_ALIGNMENT;
         buf.extend(std::iter::repeat_n(0, pad as usize));
         // 2*3*f32 = 24 bytes of payload. Just zeros is fine.
         buf.extend(std::iter::repeat_n(0xAA, 6 * 4));
@@ -1012,7 +999,9 @@ mod tests {
         assert!(buf.len() >= 24, "buffer too tiny: {}", buf.len());
         let g = GgufFile::parse_bytes("t", buf).unwrap();
         assert_eq!(g.tensor_count(), 1);
-        let t = g.tensor_info("my.tensor").expect("tensor should be indexed");
+        let t = g
+            .tensor_info("my.tensor")
+            .expect("tensor should be indexed");
         assert_eq!(t.shape, vec![2, 3]);
         assert_eq!(t.dtype, GgufTensorType::F32);
         assert_eq!(t.size_bytes, Some(24));

@@ -10,7 +10,6 @@ use clap::{Parser, Subcommand};
 mod bench;
 mod burnin;
 mod chat;
-mod status;
 mod doctor;
 mod install;
 mod logs;
@@ -21,6 +20,7 @@ mod ppl;
 mod restart;
 mod say;
 mod skill;
+mod status;
 mod update;
 mod version;
 
@@ -148,37 +148,57 @@ enum Cmd {
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| "halo=info".into()))
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "halo=info".into()),
+        )
         .with_target(false)
         .init();
 
     let cli = Cli::parse();
     match cli.cmd {
-        Cmd::Status                         => status::run().await,
-        Cmd::Logs { service, follow, lines } => logs::run(&service, follow, lines).await,
-        Cmd::Restart { service }            => restart::run(&service).await,
-        Cmd::Doctor                         => doctor::run().await,
-        Cmd::Update { no_build, no_restart } => update::run(no_build, no_restart).await,
-        Cmd::Version                        => version::run().await,
-        Cmd::Install { component, list }    => {
-            match (list, component) {
-                (true, _) | (false, None) => install::list().await,
-                (false, Some(name))       => install::run_install(&name).await,
-            }
-        }
-        Cmd::Say { text, voice, speed }     => {
+        Cmd::Status => status::run().await,
+        Cmd::Logs {
+            service,
+            follow,
+            lines,
+        } => logs::run(&service, follow, lines).await,
+        Cmd::Restart { service } => restart::run(&service).await,
+        Cmd::Doctor => doctor::run().await,
+        Cmd::Update {
+            no_build,
+            no_restart,
+        } => update::run(no_build, no_restart).await,
+        Cmd::Version => version::run().await,
+        Cmd::Install { component, list } => match (list, component) {
+            (true, _) | (false, None) => install::list().await,
+            (false, Some(name)) => install::run_install(&name).await,
+        },
+        Cmd::Say { text, voice, speed } => {
             let phrase = text.join(" ");
             let voice_owned: String = voice.unwrap_or_else(|| say::default_voice().into());
             say::run(&phrase, &voice_owned, speed).await
         }
-        Cmd::Chat  { url, model, max_tokens }            => chat::run(url, model, max_tokens).await,
-        Cmd::Bench { rounds, since }                     => bench::run(rounds, since).await,
-        Cmd::Ppl   { url, stride, max_tokens, bytes }    => ppl::run(url, stride, max_tokens, bytes).await,
-        Cmd::Power { profile, dry_run, list }            => power::run(profile, dry_run, list),
-        Cmd::Skill { cmd }                               => skill::run(cmd),
-        Cmd::Memory { cmd }                              => memory::run(cmd),
-        Cmd::Npu    { cmd }                              => npu::run(cmd),
-        Cmd::Burnin { cmd }                              => burnin::run(cmd).await,
+        Cmd::Chat {
+            url,
+            model,
+            max_tokens,
+        } => chat::run(url, model, max_tokens).await,
+        Cmd::Bench { rounds, since } => bench::run(rounds, since).await,
+        Cmd::Ppl {
+            url,
+            stride,
+            max_tokens,
+            bytes,
+        } => ppl::run(url, stride, max_tokens, bytes).await,
+        Cmd::Power {
+            profile,
+            dry_run,
+            list,
+        } => power::run(profile, dry_run, list),
+        Cmd::Skill { cmd } => skill::run(cmd),
+        Cmd::Memory { cmd } => memory::run(cmd),
+        Cmd::Npu { cmd } => npu::run(cmd),
+        Cmd::Burnin { cmd } => burnin::run(cmd).await,
     }
 }

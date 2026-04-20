@@ -8,7 +8,7 @@
 //
 // Rule A clean: Rust talking to a local C binary, no Python in sight.
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use std::fmt;
 use std::process::{Command, Stdio};
 use std::str::FromStr;
@@ -31,18 +31,33 @@ pub enum Profile {
 #[derive(Debug, Clone, Copy)]
 pub struct Envelope {
     pub stapm_mw: u32,
-    pub fast_mw:  u32,
-    pub slow_mw:  u32,
-    pub tctl_c:   u32,
+    pub fast_mw: u32,
+    pub slow_mw: u32,
+    pub tctl_c: u32,
 }
 
 impl Profile {
     /// Resolve a profile to the concrete limits we hand to ryzenadj.
     pub fn envelope(self) -> Envelope {
         match self {
-            Profile::Inference => Envelope { stapm_mw: 65_000, fast_mw: 80_000, slow_mw: 75_000, tctl_c: 95 },
-            Profile::Chat      => Envelope { stapm_mw: 45_000, fast_mw: 65_000, slow_mw: 55_000, tctl_c: 90 },
-            Profile::Idle      => Envelope { stapm_mw: 20_000, fast_mw: 35_000, slow_mw: 25_000, tctl_c: 80 },
+            Profile::Inference => Envelope {
+                stapm_mw: 65_000,
+                fast_mw: 80_000,
+                slow_mw: 75_000,
+                tctl_c: 95,
+            },
+            Profile::Chat => Envelope {
+                stapm_mw: 45_000,
+                fast_mw: 65_000,
+                slow_mw: 55_000,
+                tctl_c: 90,
+            },
+            Profile::Idle => Envelope {
+                stapm_mw: 20_000,
+                fast_mw: 35_000,
+                slow_mw: 25_000,
+                tctl_c: 80,
+            },
         }
     }
 
@@ -50,16 +65,16 @@ impl Profile {
     pub fn description(self) -> &'static str {
         match self {
             Profile::Inference => "Max sustained decode tok/s — all headroom to package.",
-            Profile::Chat      => "Interactive, balanced, low fan — default after boot.",
-            Profile::Idle      => "Watchdog-triggered quiet-closet mode — no active requests.",
+            Profile::Chat => "Interactive, balanced, low fan — default after boot.",
+            Profile::Idle => "Watchdog-triggered quiet-closet mode — no active requests.",
         }
     }
 
     pub fn name(self) -> &'static str {
         match self {
             Profile::Inference => "inference",
-            Profile::Chat      => "chat",
-            Profile::Idle      => "idle",
+            Profile::Chat => "chat",
+            Profile::Idle => "idle",
         }
     }
 
@@ -70,9 +85,9 @@ impl Profile {
     pub fn ryzenadj_argv(self) -> Vec<String> {
         let e = self.envelope();
         vec![
-            format!("--tctl-temp={}",   e.tctl_c),
-            format!("--slow-limit={}",  e.slow_mw),
-            format!("--fast-limit={}",  e.fast_mw),
+            format!("--tctl-temp={}", e.tctl_c),
+            format!("--slow-limit={}", e.slow_mw),
+            format!("--fast-limit={}", e.fast_mw),
             format!("--stapm-limit={}", e.stapm_mw),
         ]
     }
@@ -89,8 +104,8 @@ impl FromStr for Profile {
     fn from_str(s: &str) -> Result<Self> {
         match s.trim().to_ascii_lowercase().as_str() {
             "inference" | "decode" | "perf" | "performance" => Ok(Profile::Inference),
-            "chat"      | "balanced" | "default"            => Ok(Profile::Chat),
-            "idle"      | "silent"   | "save"               => Ok(Profile::Idle),
+            "chat" | "balanced" | "default" => Ok(Profile::Chat),
+            "idle" | "silent" | "save" => Ok(Profile::Idle),
             other => bail!("unknown power profile '{other}' (try `halo power --list`)"),
         }
     }
@@ -112,8 +127,7 @@ fn which_ryzenadj() -> bool {
         .unwrap_or(false)
 }
 
-const INSTALL_HINT: &str =
-    "ryzenadj not found on PATH. Install on CachyOS with:\n\
+const INSTALL_HINT: &str = "ryzenadj not found on PATH. Install on CachyOS with:\n\
      \n\
      \tsudo pacman -S ryzenadj\n\
      \n\
@@ -173,23 +187,35 @@ pub fn current() -> Result<String> {
 /// Extract stapm / fast / slow / tctl values from `ryzenadj --info` output.
 /// Upstream prints a two-column ASCII table; we just grep the labels so we
 /// don't have to pin exact column widths across ryzenadj versions.
+// Keep the branch-ladder shape intact: each `else if` maps to one ryzenadj
+// label, and collapsing the `thm limit core` arm into the else-if makes the
+// table-lookup intent harder to eyeball. Known-left, net-worse to collapse.
+#[allow(clippy::collapsible_if)]
 fn summarize_info(info: &str) -> String {
     let mut stapm = String::from("?");
-    let mut fast  = String::from("?");
-    let mut slow  = String::from("?");
-    let mut tctl  = String::from("?");
+    let mut fast = String::from("?");
+    let mut slow = String::from("?");
+    let mut tctl = String::from("?");
 
     for line in info.lines() {
         // Normalize both spaces and hyphens to a single form so we catch both
         // ryzenadj's dashed flag-style labels and its space-separated --info
         // headings.
         let norm = line.to_ascii_lowercase().replace('-', " ");
-        if      norm.contains("stapm value")    { /* live reading — ignore */ }
-        else if norm.contains("stapm limit")    { stapm = pick_value(line); }
-        else if norm.contains("ppt limit fast") { fast  = pick_value(line); }
-        else if norm.contains("ppt limit slow") { slow  = pick_value(line); }
-        else if norm.contains("tctl temp")      { tctl  = pick_value(line); }
-        else if norm.contains("thm limit core") { if tctl == "?" { tctl = pick_value(line); } }
+        if norm.contains("stapm value") { /* live reading — ignore */
+        } else if norm.contains("stapm limit") {
+            stapm = pick_value(line);
+        } else if norm.contains("ppt limit fast") {
+            fast = pick_value(line);
+        } else if norm.contains("ppt limit slow") {
+            slow = pick_value(line);
+        } else if norm.contains("tctl temp") {
+            tctl = pick_value(line);
+        } else if norm.contains("thm limit core") {
+            if tctl == "?" {
+                tctl = pick_value(line);
+            }
+        }
     }
     format!("stapm={stapm} fast={fast} slow={slow} tctl={tctl}")
 }
@@ -212,8 +238,14 @@ pub fn print_list() {
     for p in list_profiles() {
         let e = p.envelope();
         println!("  {:<10} {}", p.name(), p.description());
-        println!("  {:<10}   stapm={} W  fast={} W  slow={} W  tctl={} °C",
-                 "", e.stapm_mw / 1000, e.fast_mw / 1000, e.slow_mw / 1000, e.tctl_c);
+        println!(
+            "  {:<10}   stapm={} W  fast={} W  slow={} W  tctl={} °C",
+            "",
+            e.stapm_mw / 1000,
+            e.fast_mw / 1000,
+            e.slow_mw / 1000,
+            e.tctl_c
+        );
     }
     println!("\nApply with: halo power <profile>   (add --dry-run to preview)");
 }
@@ -240,8 +272,14 @@ pub fn run(profile: Option<String>, dry_run: bool, list: bool) -> Result<()> {
                 return Ok(());
             }
             match current() {
-                Ok(summary) => { println!("{summary}"); Ok(()) }
-                Err(e)      => { eprintln!("warning: {e}"); Ok(()) }
+                Ok(summary) => {
+                    println!("{summary}");
+                    Ok(())
+                }
+                Err(e) => {
+                    eprintln!("warning: {e}");
+                    Ok(())
+                }
             }
         }
     }
@@ -257,16 +295,16 @@ mod tests {
     #[test]
     fn profile_from_str_parses_all_three() {
         assert_eq!("inference".parse::<Profile>().unwrap(), Profile::Inference);
-        assert_eq!("chat".parse::<Profile>().unwrap(),      Profile::Chat);
-        assert_eq!("idle".parse::<Profile>().unwrap(),      Profile::Idle);
+        assert_eq!("chat".parse::<Profile>().unwrap(), Profile::Chat);
+        assert_eq!("idle".parse::<Profile>().unwrap(), Profile::Idle);
     }
 
     #[test]
     fn profile_from_str_is_case_insensitive_and_has_aliases() {
         assert_eq!("INFERENCE".parse::<Profile>().unwrap(), Profile::Inference);
-        assert_eq!("Decode".parse::<Profile>().unwrap(),    Profile::Inference);
-        assert_eq!("balanced".parse::<Profile>().unwrap(),  Profile::Chat);
-        assert_eq!("silent".parse::<Profile>().unwrap(),    Profile::Idle);
+        assert_eq!("Decode".parse::<Profile>().unwrap(), Profile::Inference);
+        assert_eq!("balanced".parse::<Profile>().unwrap(), Profile::Chat);
+        assert_eq!("silent".parse::<Profile>().unwrap(), Profile::Idle);
     }
 
     #[test]
@@ -280,12 +318,15 @@ mod tests {
     fn ryzenadj_argv_matches_design_doc() {
         // Design doc says inference = stapm 65 W / fast 80 W / slow 75 W / tctl 95 °C.
         let argv = Profile::Inference.ryzenadj_argv();
-        assert_eq!(argv, vec![
-            "--tctl-temp=95".to_string(),
-            "--slow-limit=75000".to_string(),
-            "--fast-limit=80000".to_string(),
-            "--stapm-limit=65000".to_string(),
-        ]);
+        assert_eq!(
+            argv,
+            vec![
+                "--tctl-temp=95".to_string(),
+                "--slow-limit=75000".to_string(),
+                "--fast-limit=80000".to_string(),
+                "--stapm-limit=65000".to_string(),
+            ]
+        );
 
         // Idle = 20/35/25 W, tctl 80.
         let idle = Profile::Idle.ryzenadj_argv();
@@ -314,6 +355,6 @@ mod tests {
         let s = summarize_info(sample);
         // Each field is parsed best-effort; ensure at least stapm is populated.
         assert!(s.contains("stapm=45.000"), "got: {s}");
-        assert!(s.contains("fast=65.000"),  "got: {s}");
+        assert!(s.contains("fast=65.000"), "got: {s}");
     }
 }

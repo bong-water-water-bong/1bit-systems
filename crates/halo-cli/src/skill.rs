@@ -12,7 +12,7 @@
 // both call. The default entry `run` just constructs the real
 // `SkillStore::new()` (rooted at `~/.halo/skills/`) and delegates.
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use clap::Subcommand;
 use halo_agents::skills::{Skill, SkillStore};
 use std::io::{self, Read, Write};
@@ -90,10 +90,8 @@ pub fn list(store: &SkillStore, json: bool) -> Result<()> {
 
 /// `halo skill show <name>` — dump SKILL.md verbatim.
 pub fn show(store: &SkillStore, name: &str) -> Result<()> {
-    let path = skill_md_path(store, name)?
-        .ok_or_else(|| anyhow!("no skill named '{name}'"))?;
-    let src = std::fs::read_to_string(&path)
-        .with_context(|| format!("read {}", path.display()))?;
+    let path = skill_md_path(store, name)?.ok_or_else(|| anyhow!("no skill named '{name}'"))?;
+    let src = std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
     // Pass through verbatim — no reformat, no trailing newline surgery.
     io::stdout().write_all(src.as_bytes())?;
     Ok(())
@@ -133,8 +131,7 @@ pub fn new_skill(
 
 /// `halo skill edit <name>` — open SKILL.md in $EDITOR (fallback `vi`).
 pub fn edit(store: &SkillStore, name: &str) -> Result<()> {
-    let path = skill_md_path(store, name)?
-        .ok_or_else(|| anyhow!("no skill named '{name}'"))?;
+    let path = skill_md_path(store, name)?.ok_or_else(|| anyhow!("no skill named '{name}'"))?;
     open_editor(&path)
 }
 
@@ -164,8 +161,7 @@ pub fn path(store: &SkillStore, name: Option<&str>) -> Result<()> {
             println!("{}", store.root().display());
         }
         Some(n) => {
-            let path = skill_md_path(store, n)?
-                .ok_or_else(|| anyhow!("no skill named '{n}'"))?;
+            let path = skill_md_path(store, n)?.ok_or_else(|| anyhow!("no skill named '{n}'"))?;
             println!("{}", path.display());
         }
     }
@@ -183,8 +179,8 @@ fn skill_md_path(store: &SkillStore, name: &str) -> Result<Option<PathBuf>> {
     if !root.exists() {
         return Ok(None);
     }
-    for cat_entry in std::fs::read_dir(root)
-        .with_context(|| format!("read_dir {}", root.display()))?
+    for cat_entry in
+        std::fs::read_dir(root).with_context(|| format!("read_dir {}", root.display()))?
     {
         let cat_entry = cat_entry?;
         if !cat_entry.file_type()?.is_dir() {
@@ -204,8 +200,11 @@ fn skill_md_path(store: &SkillStore, name: &str) -> Result<Option<PathBuf>> {
 /// succeeds — the user can edit the file however they like.
 fn open_editor(path: &std::path::Path) -> Result<()> {
     let preferred = std::env::var("EDITOR").ok();
-    let candidates: Vec<&str> = preferred.as_deref().into_iter()
-        .chain(["nvim", "vim", "vi", "nano"]).collect();
+    let candidates: Vec<&str> = preferred
+        .as_deref()
+        .into_iter()
+        .chain(["nvim", "vim", "vi", "nano"])
+        .collect();
     for editor in candidates {
         match Command::new(editor).arg(path).status() {
             Ok(status) if status.success() => return Ok(()),
@@ -214,7 +213,10 @@ fn open_editor(path: &std::path::Path) -> Result<()> {
             Err(e) => return Err(e).with_context(|| format!("spawn editor '{editor}'")),
         }
     }
-    println!("note: no editor found ($EDITOR or nvim/vim/vi/nano). File is at:\n  {}", path.display());
+    println!(
+        "note: no editor found ($EDITOR or nvim/vim/vi/nano). File is at:\n  {}",
+        path.display()
+    );
     Ok(())
 }
 
@@ -271,14 +273,16 @@ pub fn run(cmd: SkillCmd) -> Result<()> {
 /// wanting a per-request isolated root) go through here.
 pub fn run_with_store(store: &mut SkillStore, cmd: SkillCmd) -> Result<()> {
     match cmd {
-        SkillCmd::List { json }                         => list(store, json),
-        SkillCmd::Show { name }                         => show(store, &name),
-        SkillCmd::New { name, category, description }   => {
-            new_skill(store, &name, category.as_deref(), description.as_deref())
-        }
-        SkillCmd::Edit { name }                         => edit(store, &name),
-        SkillCmd::Delete { name, yes }                  => delete(store, &name, yes),
-        SkillCmd::Path { name }                         => path(store, name.as_deref()),
+        SkillCmd::List { json } => list(store, json),
+        SkillCmd::Show { name } => show(store, &name),
+        SkillCmd::New {
+            name,
+            category,
+            description,
+        } => new_skill(store, &name, category.as_deref(), description.as_deref()),
+        SkillCmd::Edit { name } => edit(store, &name),
+        SkillCmd::Delete { name, yes } => delete(store, &name, yes),
+        SkillCmd::Path { name } => path(store, name.as_deref()),
     }
 }
 
@@ -335,8 +339,7 @@ mod tests {
     #[test]
     fn new_then_list_roundtrip_finds_the_skill() {
         let (_td, mut store) = fresh_store();
-        create_skill_no_editor(&mut store, "alpha", Some("demos"), Some("greet the user"))
-            .unwrap();
+        create_skill_no_editor(&mut store, "alpha", Some("demos"), Some("greet the user")).unwrap();
 
         let skills = store.list().unwrap();
         assert_eq!(skills.len(), 1);
@@ -351,8 +354,7 @@ mod tests {
     #[test]
     fn show_returns_full_content_of_a_created_skill() {
         let (_td, mut store) = fresh_store();
-        create_skill_no_editor(&mut store, "showme", Some("demos"), Some("dump test"))
-            .unwrap();
+        create_skill_no_editor(&mut store, "showme", Some("demos"), Some("dump test")).unwrap();
 
         // Re-read via the same path-resolution the CLI uses.
         let path = skill_md_path(&store, "showme").unwrap().unwrap();
@@ -382,8 +384,10 @@ mod tests {
     fn delete_errors_when_skill_missing() {
         let (_td, mut store) = fresh_store();
         let err = delete(&mut store, "ghost", true).unwrap_err();
-        assert!(err.to_string().contains("no skill named 'ghost'"),
-                "got: {err}");
+        assert!(
+            err.to_string().contains("no skill named 'ghost'"),
+            "got: {err}"
+        );
     }
 
     #[test]

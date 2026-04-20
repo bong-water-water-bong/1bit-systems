@@ -13,4 +13,4 @@ pub mod stream;
 pub use client::GaiaClient;
 pub use conversation::{ChatTurn, Conversation, Role};
 pub use session::SessionConfig;
-pub use stream::{parse_sse_line, SseEvent};
+pub use stream::{SseEvent, parse_sse_line};

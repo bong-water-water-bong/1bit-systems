@@ -5,12 +5,12 @@
 
 use crate::conversation::Conversation;
 use crate::session::SessionConfig;
-use crate::stream::{parse_sse_line, SseEvent};
-use anyhow::{anyhow, Context, Result};
+use crate::stream::{SseEvent, parse_sse_line};
+use anyhow::{Context, Result, anyhow};
 use async_stream::try_stream;
-use futures::stream::Stream;
 use futures::StreamExt;
-use serde_json::{json, Value};
+use futures::stream::Stream;
+use serde_json::{Value, json};
 
 pub struct GaiaClient {
     pub cfg: SessionConfig,
@@ -19,7 +19,10 @@ pub struct GaiaClient {
 
 impl GaiaClient {
     pub fn new(cfg: SessionConfig) -> Self {
-        Self { cfg, http: reqwest::Client::new() }
+        Self {
+            cfg,
+            http: reqwest::Client::new(),
+        }
     }
 
     pub fn with_http(cfg: SessionConfig, http: reqwest::Client) -> Self {
@@ -37,7 +40,10 @@ impl GaiaClient {
     }
 
     pub async fn send(&self, conv: &Conversation) -> Result<String> {
-        let url = format!("{}/v1/chat/completions", self.cfg.server_url.trim_end_matches('/'));
+        let url = format!(
+            "{}/v1/chat/completions",
+            self.cfg.server_url.trim_end_matches('/')
+        );
         let mut req = self.http.post(&url).json(&self.build_body(conv));
         if let Some(tok) = &self.cfg.bearer {
             req = req.bearer_auth(tok);
@@ -66,7 +72,10 @@ impl GaiaClient {
         &self,
         conv: &Conversation,
     ) -> impl Stream<Item = Result<String>> + Send + 'static {
-        let url = format!("{}/v1/chat/completions", self.cfg.server_url.trim_end_matches('/'));
+        let url = format!(
+            "{}/v1/chat/completions",
+            self.cfg.server_url.trim_end_matches('/')
+        );
         let mut body = self.build_body(conv);
         body["stream"] = Value::Bool(true);
         let http = self.http.clone();

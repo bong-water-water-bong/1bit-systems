@@ -12,4 +12,4 @@
 
 pub mod store;
 
-pub use store::{MemoryKind, MemoryStore, MAX_MEMORY_CHARS, MAX_USER_CHARS, DELIMITER};
+pub use store::{DELIMITER, MAX_MEMORY_CHARS, MAX_USER_CHARS, MemoryKind, MemoryStore};

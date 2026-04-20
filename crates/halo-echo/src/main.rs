@@ -65,5 +65,8 @@ async fn main() -> Result<()> {
         codec: cli.codec,
     };
 
-    server.run().await.context("halo-echo server exited with error")
+    server
+        .run()
+        .await
+        .context("halo-echo server exited with error")
 }

@@ -86,7 +86,12 @@ impl StdioServer {
         skills: Arc<Mutex<SkillStore>>,
         memory: Arc<Mutex<MemoryStore>>,
     ) -> Self {
-        Self { tools, agents, skills, memory }
+        Self {
+            tools,
+            agents,
+            skills,
+            memory,
+        }
     }
 
     /// Convenience: default tools derived from `halo_agents::Name::ALL`,
@@ -342,14 +347,14 @@ mod tests {
         // 17 specialists + skill_manage + memory_manage.
         assert_eq!(tools.len(), 19);
 
-        let got: Vec<&str> = tools
-            .iter()
-            .map(|t| t["name"].as_str().unwrap())
-            .collect();
+        let got: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         let mut want: Vec<&str> = Name::ALL.iter().map(|n| n.as_str()).collect();
         want.push(crate::skills::TOOL_NAME);
         want.push(crate::memory::TOOL_NAME);
-        assert_eq!(got, want, "tools/list order must match Name::ALL + skill_manage + memory_manage");
+        assert_eq!(
+            got, want,
+            "tools/list order must match Name::ALL + skill_manage + memory_manage"
+        );
 
         for t in tools {
             assert!(t["name"].is_string());
@@ -549,8 +554,14 @@ mod tests {
         let resp: Value = serde_json::from_str(text.trim()).unwrap();
         assert_eq!(resp["id"], 1);
         let inner_text = resp["result"]["content"][0]["text"].as_str().unwrap();
-        assert!(inner_text.contains("\"status\":\"stub\""), "got: {inner_text}");
-        assert!(inner_text.contains("\"echo\":{\"cmd\":\"ping\"}"), "got: {inner_text}");
+        assert!(
+            inner_text.contains("\"status\":\"stub\""),
+            "got: {inner_text}"
+        );
+        assert!(
+            inner_text.contains("\"echo\":{\"cmd\":\"ping\"}"),
+            "got: {inner_text}"
+        );
     }
 
     #[tokio::test]
@@ -588,8 +599,7 @@ mod tests {
     #[tokio::test]
     async fn stdio_loop_skips_empty_lines() {
         let s = server();
-        let input = b"\n\n{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}\n\n"
-            .to_vec();
+        let input = b"\n\n{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}\n\n".to_vec();
         let mut output: Vec<u8> = Vec::new();
         s.run(&input[..], &mut output).await.unwrap();
 
@@ -630,7 +640,10 @@ mod tests {
             }))
             .await;
         let after = Arc::strong_count(s.agents());
-        assert_eq!(before, after, "Arc strong_count should be stable across requests");
+        assert_eq!(
+            before, after,
+            "Arc strong_count should be stable across requests"
+        );
     }
 
     // -------- skill_manage wiring tests --------

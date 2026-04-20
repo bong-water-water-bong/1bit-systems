@@ -155,7 +155,9 @@ fn parse_sse_delta(event: &str) -> Option<String> {
         }
     }
     let p = payload?.trim();
-    if p == "[DONE]" { return Some(String::new()); }
+    if p == "[DONE]" {
+        return Some(String::new());
+    }
     let v: serde_json::Value = serde_json::from_str(p).ok()?;
     let delta = v.get("choices")?.get(0)?.get("delta")?;
     delta.get("content")?.as_str().map(str::to_string)
@@ -167,16 +169,16 @@ fn parse_sse_delta(event: &str) -> Option<String> {
 /// `1.0` via cxxopts; a known upstream bug documented in
 /// `project_halo_kokoro.md`). Caller can override by plumbing `speed` in
 /// future; v0 keeps it simple.
-async fn synthesize(
-    http: &reqwest::Client,
-    cfg: &VoiceConfig,
-    text: &str,
-) -> Result<Bytes> {
+async fn synthesize(http: &reqwest::Client, cfg: &VoiceConfig, text: &str) -> Result<Bytes> {
     let body = serde_json::json!({
         "text": text,
         "voice": cfg.voice,
     });
-    let resp = http.post(&cfg.tts_url).json(&body).send().await
+    let resp = http
+        .post(&cfg.tts_url)
+        .json(&body)
+        .send()
+        .await
         .with_context(|| format!("POST {}", cfg.tts_url))?;
     if !resp.status().is_success() {
         let status = resp.status();

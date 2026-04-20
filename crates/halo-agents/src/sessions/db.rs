@@ -36,8 +36,8 @@ impl SessionDb {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("create parent dir for {}", path.display()))?;
         }
-        let conn = Connection::open(path)
-            .with_context(|| format!("open sqlite at {}", path.display()))?;
+        let conn =
+            Connection::open(path).with_context(|| format!("open sqlite at {}", path.display()))?;
         conn.execute_batch(SCHEMA_SQL)
             .context("run session-db schema bootstrap")?;
         Ok(Self { conn })

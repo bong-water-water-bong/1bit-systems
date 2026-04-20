@@ -14,7 +14,11 @@ pub struct ModelEntry {
 
 impl ModelEntry {
     pub fn new(backend: impl Into<String>, capabilities: Vec<String>) -> Self {
-        Self { backend: backend.into(), capabilities, params: Value::Null }
+        Self {
+            backend: backend.into(),
+            capabilities,
+            params: Value::Null,
+        }
     }
 
     pub fn has_capability(&self, cap: &str) -> bool {
@@ -29,19 +33,29 @@ pub struct ModelRegistry {
 }
 
 impl ModelRegistry {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     pub fn insert(&mut self, id: impl Into<String>, entry: ModelEntry) {
         self.entries.insert(id.into(), entry);
     }
 
-    pub fn get(&self, id: &str) -> Option<&ModelEntry> { self.entries.get(id) }
+    pub fn get(&self, id: &str) -> Option<&ModelEntry> {
+        self.entries.get(id)
+    }
 
-    pub fn ids(&self) -> Vec<&str> { self.entries.keys().map(String::as_str).collect() }
+    pub fn ids(&self) -> Vec<&str> {
+        self.entries.keys().map(String::as_str).collect()
+    }
 
-    pub fn len(&self) -> usize { self.entries.len() }
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
 
-    pub fn is_empty(&self) -> bool { self.entries.is_empty() }
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
 }
 
 #[cfg(test)]

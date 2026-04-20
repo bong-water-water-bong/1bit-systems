@@ -40,8 +40,7 @@ use crate::registry::Tool;
 pub const TOOL_NAME: &str = "skill_manage";
 
 /// Human-readable description shown in `tools/list`.
-pub const DESCRIPTION: &str =
-    "skill_manage — create / patch / edit / delete SKILL.md files in the \
+pub const DESCRIPTION: &str = "skill_manage — create / patch / edit / delete SKILL.md files in the \
      halo skill store. Drives the Hermes-compatible self-improvement loop.";
 
 /// JSON Schema for `skill_manage` arguments. Mirrors the four-variant
@@ -145,16 +144,12 @@ fn parse_action(args: &Value) -> Result<SkillAction> {
             let old = obj
                 .get("old_string")
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| {
-                    anyhow!("skill_manage: action=patch requires 'old_string'")
-                })?
+                .ok_or_else(|| anyhow!("skill_manage: action=patch requires 'old_string'"))?
                 .to_string();
             let new = obj
                 .get("new_string")
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| {
-                    anyhow!("skill_manage: action=patch requires 'new_string'")
-                })?
+                .ok_or_else(|| anyhow!("skill_manage: action=patch requires 'new_string'"))?
                 .to_string();
             Ok(SkillAction::Patch { name, old, new })
         }
@@ -242,7 +237,11 @@ mod tests {
         assert!(msg.contains("unit-test-skill"));
 
         let on_disk = td.path().join("tests/unit-test-skill/SKILL.md");
-        assert!(on_disk.exists(), "SKILL.md not written at {}", on_disk.display());
+        assert!(
+            on_disk.exists(),
+            "SKILL.md not written at {}",
+            on_disk.display()
+        );
         let raw = std::fs::read_to_string(&on_disk).unwrap();
         assert!(raw.contains("name: unit-test-skill"));
         assert!(raw.contains("# test"));
@@ -351,10 +350,7 @@ mod tests {
     #[test]
     fn unknown_action_is_rejected_cleanly() {
         let (_td, store) = fresh_store();
-        let resp = handle(
-            &store,
-            json!({ "action": "nuke", "name": "foo" }),
-        );
+        let resp = handle(&store, json!({ "action": "nuke", "name": "foo" }));
         assert!(resp["error"].as_str().unwrap().contains("nuke"));
     }
 

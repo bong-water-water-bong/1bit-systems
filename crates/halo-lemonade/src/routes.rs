@@ -112,7 +112,14 @@ async fn proxy_to(
         }
     }
 
-    let resp = match s.http.post(&url).headers(forward).body(bytes.to_vec()).send().await {
+    let resp = match s
+        .http
+        .post(&url)
+        .headers(forward)
+        .body(bytes.to_vec())
+        .send()
+        .await
+    {
         Ok(r) => r,
         Err(e) => {
             tracing::warn!(%url, "upstream post failed: {e}");
@@ -126,7 +133,9 @@ async fn proxy_to(
         .headers()
         .get(reqwest::header::CONTENT_TYPE)
         .cloned()
-        .unwrap_or(reqwest::header::HeaderValue::from_static("application/json"));
+        .unwrap_or(reqwest::header::HeaderValue::from_static(
+            "application/json",
+        ));
 
     // Stream the body through unmodified so SSE chat/completions arrive
     // chunk-by-chunk (flush_interval honoured by the caller's proxy).
@@ -161,7 +170,12 @@ mod tests {
     async fn health_ok() {
         let app = build(test_state());
         let res = app
-            .oneshot(Request::builder().uri("/_health").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/_health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
@@ -171,7 +185,12 @@ mod tests {
     async fn lemonade_health_shape() {
         let app = build(test_state());
         let res = app
-            .oneshot(Request::builder().uri("/api/v1/health").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
@@ -185,7 +204,12 @@ mod tests {
     async fn models_lists_registered() {
         let app = build(test_state());
         let res = app
-            .oneshot(Request::builder().uri("/v1/models").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/models")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
@@ -199,7 +223,12 @@ mod tests {
     async fn lemonade_models_alias() {
         let app = build(test_state());
         let res = app
-            .oneshot(Request::builder().uri("/api/v0/models").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v0/models")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
@@ -214,7 +243,12 @@ mod tests {
         s.registry = Arc::new(ModelRegistry::new());
         let app = build(s);
         let res = app
-            .oneshot(Request::builder().uri("/v1/models").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/models")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         let body = axum::body::to_bytes(res.into_body(), 4096).await.unwrap();

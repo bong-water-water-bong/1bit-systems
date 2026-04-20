@@ -138,8 +138,9 @@ impl Sampler {
             // nth_element equivalent: partition so element at (V - k) is the
             // kth-largest; use `select_nth_unstable_by` on a total order.
             let pivot = v - top_k;
-            self.scratch
-                .select_nth_unstable_by(pivot, |a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            self.scratch.select_nth_unstable_by(pivot, |a, b| {
+                a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+            });
             let thresh = self.scratch[pivot];
             for l in logits.iter_mut() {
                 if *l < thresh {

@@ -27,8 +27,7 @@ use halo_voice::{VoiceChunk, VoiceConfig, VoicePipeline};
 #[ignore = "needs live halo-server + halo-kokoro; run with --features real-backend --ignored"]
 async fn speaks_two_sentences_against_live_stack() {
     let fut = async {
-        let pipeline = VoicePipeline::new(VoiceConfig::default())
-            .expect("build VoicePipeline");
+        let pipeline = VoicePipeline::new(VoiceConfig::default()).expect("build VoicePipeline");
 
         let start = Instant::now();
         let mut first_audio_at: Option<Duration> = None;
@@ -55,12 +54,7 @@ async fn speaks_two_sentences_against_live_stack() {
         eprintln!("total wall time:   {:?}", wall);
         eprintln!("total audio bytes: {}", total_bytes);
         for (i, c) in chunks.iter().enumerate() {
-            eprintln!(
-                "  [{}] {} bytes  sentence={:?}",
-                i,
-                c.wav.len(),
-                c.sentence
-            );
+            eprintln!("  [{}] {} bytes  sentence={:?}", i, c.wav.len(), c.sentence);
         }
 
         assert!(

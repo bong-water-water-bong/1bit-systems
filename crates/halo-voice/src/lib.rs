@@ -34,8 +34,8 @@
 //! POST in the live system. When halo-whisper's streaming path lands, we
 //! add it here as the front of the pipeline.
 
-pub mod splitter;
 pub mod pipeline;
+pub mod splitter;
 
-pub use pipeline::{VoiceConfig, VoicePipeline, VoiceChunk};
+pub use pipeline::{VoiceChunk, VoiceConfig, VoicePipeline};
 pub use splitter::SentenceSplitter;
