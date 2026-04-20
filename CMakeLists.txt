@@ -71,11 +71,14 @@ add_library(rocm_cpp SHARED
     src/kv_rotorquant.cpp
     src/h1b_loader.cpp
     src/tokenizer.cpp
+    src/ternary_gemm_smallm.hip
+    src/ternary_gemm_smallm_scalar_ref.hip
     kernels/ternary_gemv_phase5_dot4.hip
     kernels/ternary_gemv_phase5_halo.hip
     kernels/ternary_gemv_sherry.hip
     kernels/ternary_gemv_tq1_halo.hip
-    kernels/rotorquant_pack.hip)
+    kernels/rotorquant_pack.hip
+    kernels/hadamard_rotate_butterfly.hip)
 set_source_files_properties(
     src/ck_gemm.cpp
     src/prefill_standalone.hip
@@ -85,11 +88,14 @@ set_source_files_properties(
     src/kv_cache_attn_i8.hip
     src/kv_cache_attn_fd.hip
     src/kv_cache_attn_fd_rotor.hip
+    src/ternary_gemm_smallm.hip
+    src/ternary_gemm_smallm_scalar_ref.hip
     kernels/ternary_gemv_phase5_dot4.hip
     kernels/ternary_gemv_phase5_halo.hip
     kernels/ternary_gemv_sherry.hip
     kernels/ternary_gemv_tq1_halo.hip
     kernels/rotorquant_pack.hip
+    kernels/hadamard_rotate_butterfly.hip
     PROPERTIES LANGUAGE HIP)
 target_include_directories(rocm_cpp PUBLIC
     $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
@@ -123,6 +129,14 @@ target_compile_options(test_prim_and_attn PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
 target_link_libraries(test_prim_and_attn PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(test_prim_and_attn PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+
+# -- tests/test_ternary_gemm_smallm : tiled small-M ternary GEMM parity + timing
+add_executable(test_ternary_gemm_smallm tests/test_ternary_gemm_smallm.cpp)
+set_source_files_properties(tests/test_ternary_gemm_smallm.cpp PROPERTIES LANGUAGE HIP)
+target_compile_options(test_ternary_gemm_smallm PRIVATE
+    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_link_libraries(test_ternary_gemm_smallm PRIVATE rocm_cpp hip::host hip::device)
+set_target_properties(test_ternary_gemm_smallm PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
 # -- tools/bitnet_decode : end-to-end MVP decode CLI ---------------------------
 add_executable(bitnet_decode tools/bitnet_decode.cpp)

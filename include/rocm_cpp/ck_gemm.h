@@ -329,6 +329,24 @@ rcpp_quantize_fp16_to_i8_rowscale(const void* x_fp16_dev, void* out_i8_dev,
                                   int num_rows, int row_len, void* stream);
 
 // -----------------------------------------------------------------------------
+// BitNet v2 — H-BitLinear Walsh-Hadamard activation rotation (fp16 in/out).
+//
+// One workgroup per B=128-element block, wave32 butterfly, 1/sqrt(B) folded
+// into the store. In-place permitted (x_in == y_out). Caller contract:
+//   - K must be a multiple of 128 (HADAMARD_BLOCK on the device side)
+//   - x_in, y_out device pointers; stream is hipStream_t (nullable → default)
+//
+// Implementation: kernels/hadamard_rotate_butterfly.hip. 7 stages — stages 0..4
+// intra-wave via __shfl_xor, 5..6 cross-wave via 512 B LDS + __syncthreads.
+//
+// Note on signature: the task plan called for (n_blocks, block_size) args,
+// but the device kernel hardcodes block_size via constexpr HADAMARD_BLOCK=128,
+// so we expose only K (= n_blocks * 128) here. Keeps one source of truth for
+// the block size and matches the existing scalar reference launcher shape.
+void rcpp_hadamard_rotate_fp16_butterfly_launch(
+    const void* x_in, void* y_out, int K, void* stream);
+
+// -----------------------------------------------------------------------------
 // Standalone (CK-free) prefill launcher.
 //
 // Same inputs as rcpp_ck_gemm_run. Produces bit-identical output to the CK
