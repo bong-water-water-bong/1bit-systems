@@ -5,7 +5,11 @@
 
 use crate::conversation::Conversation;
 use crate::session::SessionConfig;
+use crate::stream::{parse_sse_line, SseEvent};
 use anyhow::{anyhow, Context, Result};
+use async_stream::try_stream;
+use futures::stream::Stream;
+use futures::StreamExt;
 use serde_json::{json, Value};
 
 pub struct GaiaClient {
@@ -48,6 +52,58 @@ impl GaiaClient {
             .as_str()
             .map(str::to_owned)
             .ok_or_else(|| anyhow!("missing choices[0].message.content in {body}"))
+    }
+
+    /// Streaming variant. POSTs with `stream: true` and yields one content
+    /// chunk at a time by parsing OpenAI-style `data: {...}` SSE lines.
+    ///
+    /// Uses a manual newline splitter over the raw byte stream rather than
+    /// pulling in an EventSource client — SSE for chat completions is trivial
+    /// enough (one `data:` field per event, blank-line separated) that the
+    /// extra dep isn't worth it. The parser itself lives in `stream.rs` and
+    /// is unit-tested against the documented OpenAI shape.
+    pub fn send_stream(
+        &self,
+        conv: &Conversation,
+    ) -> impl Stream<Item = Result<String>> + Send + 'static {
+        let url = format!("{}/v1/chat/completions", self.cfg.server_url.trim_end_matches('/'));
+        let mut body = self.build_body(conv);
+        body["stream"] = Value::Bool(true);
+        let http = self.http.clone();
+        let bearer = self.cfg.bearer.clone();
+
+        try_stream! {
+            let mut req = http.post(&url).json(&body);
+            if let Some(tok) = bearer {
+                req = req.bearer_auth(tok);
+            }
+            let resp = req.send().await.with_context(|| format!("POST {url}"))?;
+            let status = resp.status();
+            let mut bytes = if status.is_success() {
+                resp.bytes_stream()
+            } else {
+                let text = resp.text().await.unwrap_or_default();
+                Err(anyhow!("server {}: {}", status, text))?;
+                unreachable!();
+            };
+            let mut buf: Vec<u8> = Vec::with_capacity(4096);
+            'outer: while let Some(chunk) = bytes.next().await {
+                let chunk = chunk.context("sse chunk")?;
+                buf.extend_from_slice(&chunk);
+                // Split the accumulated buffer on '\n' and keep the trailing
+                // partial fragment in `buf`.
+                while let Some(nl) = buf.iter().position(|b| *b == b'\n') {
+                    let line = buf.drain(..=nl).collect::<Vec<u8>>();
+                    let line = &line[..line.len() - 1]; // drop the '\n'
+                    let line = std::str::from_utf8(line).unwrap_or("");
+                    match parse_sse_line(line) {
+                        SseEvent::Delta(s) => yield s,
+                        SseEvent::Done => break 'outer,
+                        SseEvent::Ignore => {}
+                    }
+                }
+            }
+        }
     }
 }
 

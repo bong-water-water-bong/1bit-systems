@@ -8,7 +8,9 @@
 pub mod client;
 pub mod conversation;
 pub mod session;
+pub mod stream;
 
 pub use client::GaiaClient;
 pub use conversation::{ChatTurn, Conversation, Role};
 pub use session::SessionConfig;
+pub use stream::{parse_sse_line, SseEvent};

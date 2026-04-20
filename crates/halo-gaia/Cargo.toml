@@ -6,10 +6,14 @@ rust-version.workspace = true
 license.workspace      = true
 repository.workspace   = true
 authors.workspace      = true
-description  = "halo-gaia — native Rust desktop client stub (future replacement for lemonade-sdk's Gaia)."
+description  = "halo-gaia — native Rust terminal chat client against halo-server."
 
 [lib]
 path = "src/lib.rs"
+
+[[bin]]
+name = "halo-gaia"
+path = "src/main.rs"
 
 [dependencies]
 anyhow      = { workspace = true }
@@ -17,3 +21,8 @@ reqwest     = { workspace = true }
 serde       = { workspace = true }
 serde_json  = { workspace = true }
 tokio       = { workspace = true }
+futures     = { workspace = true }
+async-stream = { workspace = true }
+# TUI stack — pinned directly, not workspace-level, since nothing else uses them.
+ratatui     = "0.28"
+crossterm   = { version = "0.28", features = ["event-stream"] }
