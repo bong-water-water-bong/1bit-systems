@@ -530,7 +530,16 @@ fn inline(src: &str) -> String {
     let mut out = String::new();
     let mut i = 0;
     while i < bytes.len() {
-        let c = bytes[i] as char;
+        let b = bytes[i];
+        // Non-ASCII byte: copy the whole UTF-8 scalar verbatim and advance past it.
+        if b >= 0x80 {
+            let ch_len = utf8_char_len(b);
+            let end = (i + ch_len).min(bytes.len());
+            out.push_str(&src[i..end]);
+            i = end;
+            continue;
+        }
+        let c = b as char;
 
         // Inline code.
         if c == '`' {
@@ -687,6 +696,34 @@ fn rewrite_link(url: &str) -> String {
     url.to_string()
 }
 
+/// Render a title string: backticks → <code>, HTML-escape the rest. No links, no bold.
+/// Used in sidebar list items, page <title>, and card headings.
+fn inline_title(s: &str) -> String {
+    let mut out = String::new();
+    let mut in_code = false;
+    for c in s.chars() {
+        if c == '`' {
+            if in_code {
+                out.push_str("</code>");
+            } else {
+                out.push_str("<code>");
+            }
+            in_code = !in_code;
+            continue;
+        }
+        match c {
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '&' => out.push_str("&amp;"),
+            c => out.push(c),
+        }
+    }
+    if in_code {
+        out.push_str("</code>");
+    }
+    out
+}
+
 fn escape_html(s: &str) -> String {
     let mut o = String::with_capacity(s.len());
     for c in s.chars() {
@@ -698,6 +735,20 @@ fn escape_html(s: &str) -> String {
         }
     }
     o
+}
+
+fn utf8_char_len(b: u8) -> usize {
+    if b < 0x80 {
+        1
+    } else if b < 0xC0 {
+        1 // continuation byte (shouldn't start a char, but be safe)
+    } else if b < 0xE0 {
+        2
+    } else if b < 0xF0 {
+        3
+    } else {
+        4
+    }
 }
 
 fn escape_attr(s: &str) -> String {
@@ -730,7 +781,7 @@ fn render_sidebar(
                     "<li data-slug=\"{}\"><a href=\"/docs/{}.html\">{}</a></li>\n",
                     slug,
                     slug,
-                    escape_html(title)
+                    inline_title(title)
                 ));
             }
         }
@@ -750,7 +801,7 @@ fn render_sidebar(
                 "<li data-slug=\"{}\"><a href=\"/docs/{}.html\">{}</a></li>\n",
                 slug,
                 slug,
-                escape_html(title)
+                inline_title(title)
             ));
         }
         s.push_str("</ul></div>\n");
@@ -779,7 +830,7 @@ fn render_page(title: &str, sidebar: &str, body: &str, slug: &str) -> String {
 <div class=\"doc-shell\">
 {sidebar}
 <main class=\"doc-main\">
-  <h1>{t}</h1>
+  <h1>{t_html}</h1>
   {body}
 </main>
 </div>
@@ -788,6 +839,7 @@ fn render_page(title: &str, sidebar: &str, body: &str, slug: &str) -> String {
 </html>
 ",
         t = escape_html(title),
+        t_html = inline_title(title),
         t_desc = escape_attr(title),
         slug = slug,
         sidebar = sidebar,
@@ -814,7 +866,7 @@ fn render_landing(
                 cards.push_str(&format!(
                     "<a class=\"doc-card\" href=\"/docs/{}.html\"><h3>{}</h3><p>{}</p></a>\n",
                     slug,
-                    escape_html(title),
+                    inline_title(title),
                     escape_html(&blurb)
                 ));
             }
@@ -835,7 +887,7 @@ fn render_landing(
             cards.push_str(&format!(
                 "<a class=\"doc-card\" href=\"/docs/{}.html\"><h3>{}</h3><p>{}</p></a>\n",
                 slug,
-                escape_html(title),
+                inline_title(title),
                 escape_html(&blurb)
             ));
         }

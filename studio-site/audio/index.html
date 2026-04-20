@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>halo-audio — the APU audio stack | halo-ai.studio</title>
+<meta name="description" content="Local voice I/O on Strix Halo: whisper STT → halo-server inference → kokoro TTS, all on one 128 GB LPDDR5 APU. Sub-second mouth-to-ear. No cloud.">
+<link rel="stylesheet" href="/assets/style.css">
+<link rel="stylesheet" href="assets/audio.css">
+<link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="/">
+    <img src="/assets/logo.svg" alt="" width="28" height="28">
+    <span>halo-<span class="dot">audio</span></span>
+  </a>
+  <nav>
+    <a href="#stack">stack</a>
+    <a href="#latency">latency</a>
+    <a href="#api">api</a>
+    <a href="/docs/">docs</a>
+    <a href="/">halo-ai</a>
+    <a href="https://discord.gg/halo-ai" rel="noopener">Discord</a>
+    <a class="gh-btn" href="https://github.com/bong-water-water-bong" rel="noopener">GitHub</a>
+  </nav>
+</header>
+
+<main id="top">
+
+<section class="hero">
+  <p class="eyebrow">audio world · apu-native · zero cloud</p>
+  <h1>Voice I/O that stays on the box.<br><span class="accent">Sub-second mouth-to-ear.</span></h1>
+  <p class="lede">
+    <b>halo-audio</b> is the voice lane of the halo-ai stack — whisper STT on the way in,
+    halo-server 1-bit inference in the middle, kokoro TTS on the way out. All three share
+    the same 128&nbsp;GB LPDDR5 memory pool on a single Strix Halo APU. No PCIe tax, no
+    cloud round-trip, no subscription gate. The business case is simple: <b>your voice
+    never leaves the machine.</b>
+  </p>
+  <div class="cta-row">
+    <a class="btn primary" href="#install">Install halo-audio</a>
+    <a class="btn ghost" href="/docs/halo-whisper-streaming-plan.html">Read the streaming plan</a>
+  </div>
+</section>
+
+<section id="latency" class="numbers">
+  <h2>honest latency · live</h2>
+  <p class="note">Measured on strixhalo, 2026-04-20. BitNet-b1.58-2B-4T, af_sky voice.</p>
+  <div class="metrics">
+    <div title="Time from POST /v1/chat/completions to first audio byte leaving halo-voice → caller. Measured end-to-end with the --timing flag."><b>1.23&nbsp;s</b><span>first audio (TTS)</span></div>
+    <div title="Old naive loop: LLM finishes full reply, then TTS synthesizes, then playback. halo-voice interleaves — first sentence hits TTS while the LLM writes the second."><b>3-5×</b><span>faster vs naive loop</span></div>
+    <div title="Single-pass whisper.cpp on a 10-second clip, base.en model, gfx1151. Streaming partials roadmap is in docs."><b>0.3&nbsp;s</b><span>STT 10s clip</span></div>
+    <div title="kokoro.cpp single-sentence TTS. 24 kHz mono WAV, onnxruntime. Resampled to 48 kHz by halo-echo for Opus framing."><b>0.5&nbsp;s</b><span>TTS per sentence</span></div>
+    <div title="halo-echo WebSocket voice server ships 20 ms Opus frames at 24 kbps VBR. Browser-consumable."><b>20&nbsp;ms</b><span>Opus frame size</span></div>
+    <div title="Decode throughput during a voice conversation at 64-token context."><b>83</b><span>tok/s inference</span></div>
+  </div>
+</section>
+
+<section id="stack" class="pillars">
+  <h2>the stack</h2>
+  <div class="pillar-grid">
+    <article class="pillar">
+      <h3>halo-whisper · ear</h3>
+      <p>ggerganov/whisper.cpp on gfx1151. Single-pass today; sliding-window streaming with 500&nbsp;ms partials on the roadmap. <a href="/docs/halo-whisper-streaming-plan.html">plan →</a></p>
+    </article>
+    <article class="pillar">
+      <h3>halo-server · brain</h3>
+      <p>Native HIP ternary GEMV. OpenAI-compat /v1 SSE stream. Feeds token deltas to halo-voice as they arrive — not after the reply closes.</p>
+    </article>
+    <article class="pillar">
+      <h3>halo-kokoro · mouth</h3>
+      <p>olokobayusuf/kokoro.cpp fork (stampby/halo-kokoro). Single-header C++, onnxruntime. 24 kHz mono WAV per sentence.</p>
+    </article>
+    <article class="pillar">
+      <h3>halo-voice · conductor</h3>
+      <p>Rust sentence-boundary splitter. LLM SSE → splitter → parallel TTS POSTs → WAV chunks streamed to any stdout sink (paplay, ffplay, your app).</p>
+    </article>
+    <article class="pillar">
+      <h3>halo-echo · wire</h3>
+      <p>axum WebSocket server. Wraps halo-voice, encodes 20&nbsp;ms Opus frames with audiopus + libopus, preamble-then-packets shape. Browser + mobile friendly.</p>
+    </article>
+    <article class="pillar">
+      <h3>halo-mcp · hands</h3>
+      <p>stdio MCP bridge. 19 tools: 17 specialists + skill_manage + memory_manage. Claude Code, Hermes, or any MCP client can drive the voice loop plus mutate the agent's on-disk skills + memory files.</p>
+    </article>
+  </div>
+</section>
+
+<section id="api" class="install">
+  <h2 id="install">point at it</h2>
+  <p class="note">Three surfaces, one hostname. Mix and match.</p>
+<pre><code># OpenAI-compat completions (halo-server)
+curl -sS <span class="accent">https://api.halo-ai.studio/v1/chat/completions</span> \
+  -H 'content-type: application/json' \
+  -d '{"model":"halo-1bit-2b","messages":[{"role":"user","content":"..."}],"stream":true}'
+
+# One-shot voice reply (halo-voice CLI)
+echo "explain ternary" | halo-voice --prompt - --timing --out reply.wav
+
+# Streaming voice over WebSocket (halo-echo)
+wscat -c <span class="accent">wss://audio.halo-ai.studio/ws</span>
+  &gt; explain ternary quantization
+  &lt; {"sample_rate":48000,"channels":1,"frame_ms":20,"codec":"opus"}
+  &lt; &lt;binary opus frame&gt;
+  &lt; &lt;binary opus frame&gt;
+  ...
+</code></pre>
+  <ul class="install-bullets">
+    <li><b>api.halo-ai.studio</b> — OpenAI-compat completions + embeddings. Every client speaks it.</li>
+    <li><b>audio.halo-ai.studio</b> — halo-echo WebSocket for browser / mobile voice sessions with Opus on the wire.</li>
+    <li>Both are the <i>same</i> halo-server behind a Cloudflare Tunnel from strixhalo. No cloud inference, CF just terminates TLS.</li>
+  </ul>
+  <p class="note">Want a local setup? <a href="/#install">halo install core</a> brings up the full audio lane in 60 seconds.</p>
+</section>
+
+<section id="biz" class="pillars">
+  <h2>why this is a business</h2>
+  <div class="pillar-grid">
+    <article class="pillar">
+      <h3>voice data never leaves</h3>
+      <p>Medical dictation, legal transcription, private journaling, kids' devices — any audio use case where cloud STT is a non-starter. Strix Halo + halo-audio is a drop-in compliant surface.</p>
+    </article>
+    <article class="pillar">
+      <h3>cost structure</h3>
+      <p>One mini-PC. No per-minute STT billing, no per-character TTS billing, no per-token inference billing. Pays for itself in a month against a small clinic's whisper-api line item.</p>
+    </article>
+    <article class="pillar">
+      <h3>latency floor</h3>
+      <p>Round-trip-to-cloud is 150-400 ms before any compute starts. On-APU is 0 ms. For real-time voice agents, that's the difference between "conversational" and "walkie-talkie."</p>
+    </article>
+  </div>
+</section>
+
+<footer class="footer">
+  <p><b>halo-audio</b> · a lane of <a href="/">halo-ai.studio</a>. MIT licensed. Built with huge gratitude to <a href="https://github.com/Lightheartdevs" rel="noopener">Light Heart Labs</a> + <a href="https://github.com/ggerganov/whisper.cpp" rel="noopener">whisper.cpp</a> + <a href="https://github.com/olokobayusuf/kokoro.cpp" rel="noopener">kokoro.cpp</a>.</p>
+  <p class="tag">v3 · honest numbers · parity-gated · bare metal · audio lane · thearchitect</p>
+</footer>
+
+</main>
+
+</body>
+</html>
