@@ -185,9 +185,13 @@ impl<T> DeviceMutPtr<T> {
 }
 
 /// Opaque HIP stream handle. `None` = default (null) stream.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
 pub struct HipStream(pub *mut c_void);
+
+impl Default for HipStream {
+    fn default() -> Self { Self::DEFAULT }
+}
 
 // SAFETY: `HipStream` is a pointer-sized opaque handle whose value is
 // only interpreted by the HIP runtime. Sending it between threads is
