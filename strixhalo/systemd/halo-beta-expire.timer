@@ -1,0 +1,18 @@
+[Unit]
+Description=Daily 03:00 timer for halo-beta-expire (10-day beta TTL)
+
+[Timer]
+# Nightly at 03:00 local. Pairs well with halo-archive at 03:00:00 +20min
+# jitter — the expire sweep is the earlier cheap job.
+OnCalendar=*-*-* 03:00:00
+# Don't hammer on boot; wait 5 min for services + mesh to settle before
+# catching up on a missed run.
+OnBootSec=5min
+# If strixhalo was off during a 03:00 slot, run the missed sweep once
+# we're back up.
+Persistent=true
+RandomizedDelaySec=5min
+Unit=halo-beta-expire.service
+
+[Install]
+WantedBy=timers.target

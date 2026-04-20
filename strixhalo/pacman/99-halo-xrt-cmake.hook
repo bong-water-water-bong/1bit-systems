@@ -1,0 +1,10 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = xrt
+
+[Action]
+Description = halo-ai: re-patching /usr/share/cmake/XRT/xrt-targets.cmake (CachyOS xrt ships broken cmake — see memory project_strix_halo_hardware.md)
+When = PostTransaction
+Exec = /usr/local/sbin/halo-xrt-cmake-patch.sh

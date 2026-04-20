@@ -70,11 +70,18 @@ fi
 bearer="sk-halo-$(openssl rand -hex 16)"
 
 # Append to the Caddy bearer file, root-owned + caddy-readable.
+# We tag each line with both `issued` and `expires`. The 10-day TTL is
+# enforced by strixhalo/bin/halo-beta-expire.sh (timer-driven).
+# Keep both fields: `issued` for audit, `expires` for the sweeper.
+# Policy doc: docs/wiki/Beta-10-Day-TTL.md
 tmp=$(mktemp)
 if [[ -f "$BEARER_FILE" ]]; then
     sudo cp "$BEARER_FILE" "$tmp"
 fi
-printf "%s  # %s  # issued %s\n" "$bearer" "$handle" "$(date -u +%Y-%m-%dT%H:%MZ)" >> "$tmp"
+issued_at="$(date -u +%Y-%m-%dT%H:%MZ)"
+expires_at="$(date -u -d '+10 days' +%Y-%m-%dT%H:%MZ)"
+printf "%s  # %s  # issued %s  # expires %s\n" \
+    "$bearer" "$handle" "$issued_at" "$expires_at" >> "$tmp"
 sudo install -o caddy -g caddy -m 0640 "$tmp" "$BEARER_FILE"
 rm -f "$tmp"
 
@@ -114,6 +121,9 @@ same --authkey.
 Browser: once on the mesh, install our root CA cert once —
   https://strixhalo.local:8443/ca/root.crt
 then https://strixhalo.local:8443/studio/ loads natively.
+
+This bearer expires on $expires_at (10-day beta TTL). To extend,
+ask bcloud to re-run halo-mesh-invite.sh for a fresh 10-day token.
 
 Revoke on our side: strixhalo/bin/halo-mesh-revoke.sh $handle
 

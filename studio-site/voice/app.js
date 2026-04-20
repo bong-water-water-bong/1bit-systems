@@ -87,15 +87,79 @@ function openPicker() {
   }, { once: true });
 }
 
+// ─── splash screen (every session, dismisses to picker on first visit) ───
+
+function showSplash(onDismiss) {
+  const el = document.getElementById('splash');
+  if (!el) { onDismiss(); return; }
+
+  const reduced = window.matchMedia &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  let dismissed = false;
+  let autoTimer = null;
+
+  const finish = () => {
+    if (dismissed) return;
+    dismissed = true;
+    if (autoTimer) clearTimeout(autoTimer);
+    el.classList.add('dismissing');
+    const cleanupDelay = reduced ? 150 : 400;
+    setTimeout(() => {
+      el.remove();
+      try { onDismiss(); } catch (e) { /* ignore */ }
+    }, cleanupDelay);
+  };
+
+  const enterBtn = el.querySelector('.enter');
+  if (enterBtn) {
+    enterBtn.addEventListener('click', (e) => { e.stopPropagation(); finish(); });
+    // First-focusable: focus the Enter button for keyboard users.
+    try { enterBtn.focus({ preventScroll: true }); } catch { enterBtn.focus(); }
+  }
+  el.addEventListener('click', finish);
+  const escHandler = (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); finish(); }
+  };
+  document.addEventListener('keydown', escHandler);
+  // Clean up the escape listener once finished.
+  const origFinish = finish;
+  // wrap via closure: remove listener on dismissal
+  el.addEventListener('transitionend', () => {
+    document.removeEventListener('keydown', escHandler);
+  }, { once: true });
+
+  // Auto-dismiss after 5s unless reduced-motion is requested.
+  if (!reduced) {
+    autoTimer = setTimeout(finish, 5000);
+  }
+}
+
 (function initAssistant() {
   const existing = loadAssistantSettings();
-  if (existing) {
-    applyAssistantSettings(existing);
+
+  const afterSplash = () => {
+    if (existing) {
+      applyAssistantSettings(existing);
+    } else {
+      openPicker();
+    }
+  };
+
+  const start = () => {
+    if (existing) {
+      // Apply settings immediately so pings/etc work; splash just visual.
+      applyAssistantSettings(existing);
+      showSplash(() => { /* settings already applied */ });
+    } else {
+      showSplash(afterSplash);
+    }
+  };
+
+  if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', start, { once: true });
   } else {
-    // Defer until DOM + picker dialog are ready.
-    window.addEventListener('DOMContentLoaded', openPicker, { once: true });
-    // If DOMContentLoaded already fired:
-    if (document.readyState !== 'loading') openPicker();
+    start();
   }
 })();
 
