@@ -223,26 +223,38 @@ void kv_cache_attn_decode_split_pq3_kernel(
         for (int k = 0; k < 8; ++k) o_local[k] *= alpha;
 
         // ---- beta * dequant(V_row) accumulated into o_local --------------
+        // ONE lane per pair does triple-load + dequant; the odd partner pulls
+        // the dequant results via intra-wave shfl. Saves ~2× vgpr + ALU on the
+        // V-loop (was: both d0 and d1 lanes did the full dequant+unrotate then
+        // dropped half via a ternary). Pairs always span adjacent lanes within
+        // a wave on wave32 for head_dim ≤ 128, so shfl stays intra-wave.
         const uint8_t* V_row = V_idx + (size_t)(t * num_kv_heads + kv_head) * row_bytes;
-        // Iterate per-pair again to reuse the same unrotate.
         for (int ei = 0; ei < elems_per_thread; ++ei) {
             const int d = tid + ei * BLOCK;
             if (d >= head_dim) continue;
             const int p       = d >> 1;
             const int d0      = p * 2;
-            const int d1      = d0 + 1;
             const int g       = d0 >> 3;
             const int in_trip = d0 & 7;
-            const uint32_t triple = load_packed_triple(V_row + g * 3);
-            const uint32_t idx0 = (triple >> (in_trip * 3))     & 7u;
-            const uint32_t idx1 = (triple >> ((in_trip + 1) * 3)) & 7u;
-            const float v0q = dequant_idx(idx0, s_lut_scaled);
-            const float v1q = dequant_idx(idx1, s_lut_scaled);
-            const float c = s_pair_cs[p][0];
+
+            float v0q = 0.0f, v1q = 0.0f;
+            if ((d & 1) == 0) {
+                const uint32_t triple = load_packed_triple(V_row + g * 3);
+                const uint32_t idx0   = (triple >> (in_trip * 3))       & 7u;
+                const uint32_t idx1   = (triple >> ((in_trip + 1) * 3)) & 7u;
+                v0q = dequant_idx(idx0, s_lut_scaled);
+                v1q = dequant_idx(idx1, s_lut_scaled);
+            }
+            // Both d0 and d1 lanes read from the even (d0) lane.
+            const int partner = (tid & 31) & ~1;
+            v0q = __shfl(v0q, partner);
+            v1q = __shfl(v1q, partner);
+
+            const float c  = s_pair_cs[p][0];
             const float sn = s_pair_cs[p][1];
-            const float v0 =  c * v0q + sn * v1q;
-            const float v1 = -sn * v0q + c  * v1q;
-            const float v_scalar = (d == d0) ? v0 : v1;
+            const float v_scalar = (d == d0)
+                ?  c  * v0q + sn * v1q
+                : -sn * v0q + c  * v1q;
             o_local[ei] += beta * v_scalar;
         }
 
