@@ -9,16 +9,18 @@
 
 set -u
 
-PEER="bcloud@100.64.0.4"
-DEST_BASE="/ZFSPool/archive/strixhalo"
+# Override via HALO_ARCHIVE_PEER / HALO_ARCHIVE_DEST / $HOME to match the
+# operator's box. Defaults match the strixhalo reference machine.
+PEER="${HALO_ARCHIVE_PEER:-$USER@100.64.0.4}"
+DEST_BASE="${HALO_ARCHIVE_DEST:-/ZFSPool/archive/strixhalo}"
 
-# Each entry: "<local_path> <remote_subdir>"
+# Each entry: "<local_path> <remote_subdir>". Paths resolve under $HOME.
 SETS=(
-    "/home/bcloud/halo-ai                                    halo-ai"
-    "/home/bcloud/repos                                      repos"
-    "/home/bcloud/models                                     models"
-    "/home/bcloud/.claude/projects/-home-bcloud/memory       claude-memory"
-    "/home/bcloud/claude output                              claude-output"
+    "$HOME/halo-ai                    halo-ai"
+    "$HOME/repos                      repos"
+    "$HOME/models                     models"
+    "$HOME/.claude/projects           claude-memory"
+    "$HOME/claude output              claude-output"
 )
 
 RSYNC_OPTS=(

@@ -4,9 +4,19 @@ use anyhow::{bail, Context, Result};
 use std::path::Path;
 use std::process::Command;
 
-const WORKSPACE: &str = "/home/bcloud/repos/halo-workspace";
-const ROCM_CPP:  &str = "/home/bcloud/repos/rocm-cpp";
-const ANVIL:     &str = "/home/bcloud/bin/halo-anvil.sh";
+// Paths resolved at runtime via $HOME so the CLI isn't tied to any one
+// operator's username. Override via HALO_WORKSPACE / HALO_ROCM_CPP /
+// HALO_ANVIL env if the layout diverges from the default.
+fn home() -> std::path::PathBuf { dirs::home_dir().unwrap_or_else(|| ".".into()) }
+fn workspace_dir() -> std::path::PathBuf {
+    std::env::var_os("HALO_WORKSPACE").map(Into::into).unwrap_or_else(|| home().join("repos/halo-workspace"))
+}
+fn rocm_cpp_dir() -> std::path::PathBuf {
+    std::env::var_os("HALO_ROCM_CPP").map(Into::into).unwrap_or_else(|| home().join("repos/rocm-cpp"))
+}
+fn anvil_path() -> std::path::PathBuf {
+    std::env::var_os("HALO_ANVIL").map(Into::into).unwrap_or_else(|| home().join("bin/halo-anvil.sh"))
+}
 
 fn step(title: &str) { println!("\n── {title} ──"); }
 
@@ -19,33 +29,34 @@ fn run_in(dir: &Path, bin: &str, args: &[&str]) -> Result<()> {
 }
 
 pub async fn run(no_build: bool, no_restart: bool) -> Result<()> {
-    let ws = Path::new(WORKSPACE);
-    let rc = Path::new(ROCM_CPP);
+    let ws = workspace_dir();
+    let rc = rocm_cpp_dir();
+    let anvil = anvil_path();
 
     step("pull");
-    run_in(ws, "git", &["pull", "--ff-only"])?;
+    run_in(&ws, "git", &["pull", "--ff-only"])?;
     if rc.exists() {
-        run_in(rc, "git", &["pull", "--ff-only"]).ok(); // rocm-cpp pull is best-effort
+        run_in(&rc, "git", &["pull", "--ff-only"]).ok(); // rocm-cpp pull is best-effort
     }
 
     if !no_build {
         step("build rust workspace");
-        run_in(ws, "cargo", &["build", "--release", "--workspace"])?;
-        run_in(ws, "cargo", &["install", "--path", "crates/halo-cli",    "--force", "--quiet"])?;
-        run_in(ws, "cargo", &["install", "--path", "crates/halo-server", "--force", "--quiet",
-                              "--features", "real-backend"])?;
+        run_in(&ws, "cargo", &["build", "--release", "--workspace"])?;
+        run_in(&ws, "cargo", &["install", "--path", "crates/halo-cli",    "--force", "--quiet"])?;
+        run_in(&ws, "cargo", &["install", "--path", "crates/halo-server", "--force", "--quiet",
+                               "--features", "real-backend"])?;
 
-        if Path::new(ANVIL).exists() {
+        if anvil.exists() {
             step("delegate rocm-cpp rebuild to anvil");
-            run_in(ws, ANVIL, &[])?;
+            run_in(&ws, anvil.to_str().unwrap_or("halo-anvil.sh"), &[])?;
         } else {
-            println!("  (anvil missing at {ANVIL}, skip kernel rebuild)");
+            println!("  (anvil missing at {}, skip kernel rebuild)", anvil.display());
         }
     }
 
     if !no_restart {
         step("restart gen-2 server");
-        run_in(ws, "systemctl", &["--user", "restart", "strix-server.service"])?;
+        run_in(&ws, "systemctl", &["--user", "restart", "strix-server.service"])?;
     }
 
     println!("\n✓ update complete");

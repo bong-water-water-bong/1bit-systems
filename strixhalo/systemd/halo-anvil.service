@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/home/bcloud/bin/halo-anvil.sh
+ExecStart=__HOME__/bin/halo-anvil.sh
 Nice=10
 IOSchedulingClass=idle
 StandardOutput=journal

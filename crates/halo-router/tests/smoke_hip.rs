@@ -17,13 +17,16 @@ use std::path::Path;
 use halo_router::{BackendKind, HipBackend, Router, RouterRequest, detect};
 use halo_core::sampler::SamplerConfig;
 
-const DEFAULT_MODEL: &str = "/home/bcloud/halo-ai/models/halo-1bit-2b.h1b";
+fn default_model() -> String {
+    std::env::var("HOME")
+        .map(|h| format!("{h}/halo-ai/models/halo-1bit-2b.h1b"))
+        .unwrap_or_else(|_| "halo-1bit-2b.h1b".into())
+}
 
 #[test]
 #[ignore = "requires ROCm + halo-1bit-2b.h1b on disk; run with --ignored"]
 fn first_token_matches_gen1_argmax() {
-    let model_path = std::env::var("HALO_SMOKE_MODEL")
-        .unwrap_or_else(|_| DEFAULT_MODEL.into());
+    let model_path = std::env::var("HALO_SMOKE_MODEL").unwrap_or_else(|_| default_model());
     if !Path::new(&model_path).exists() {
         eprintln!("skipping: model not found at {model_path}");
         return;

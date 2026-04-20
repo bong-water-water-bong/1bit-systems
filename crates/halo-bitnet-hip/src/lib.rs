@@ -1179,8 +1179,11 @@ mod tests {
         use std::ffi::c_char;
         use std::path::PathBuf;
 
-        let lib_dir = std::env::var("ROCM_CPP_LIB_DIR")
-            .unwrap_or_else(|_| "/home/bcloud/repos/rocm-cpp/build".into());
+        let lib_dir = std::env::var("ROCM_CPP_LIB_DIR").unwrap_or_else(|_| {
+            std::env::var("HOME")
+                .map(|h| format!("{h}/repos/rocm-cpp/build"))
+                .unwrap_or_else(|_| "rocm-cpp/build".into())
+        });
         let so_path = PathBuf::from(lib_dir).join("librocm_cpp.so");
         if !so_path.exists() {
             eprintln!("skipping: {} not present", so_path.display());

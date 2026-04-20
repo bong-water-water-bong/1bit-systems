@@ -894,15 +894,17 @@ mod tests {
         use crate::backend::RealBackend;
         use std::path::PathBuf;
 
-        let h1b = PathBuf::from("/home/bcloud/halo-ai/models/halo-1bit-2b.h1b");
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+        let h1b = std::env::var("HALO_MODEL_H1B")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from(format!("{home}/halo-ai/models/halo-1bit-2b.h1b")));
         if !h1b.exists() {
             eprintln!("skipping: {} not found", h1b.display());
             return;
         }
-        let wikitext = std::fs::read_to_string(
-            "/home/bcloud/halo-ai/datasets/wikitext-103-test.txt",
-        )
-        .expect("wikitext file");
+        let wikitext_path = std::env::var("HALO_WIKITEXT")
+            .unwrap_or_else(|_| format!("{home}/halo-ai/datasets/wikitext-103-test.txt"));
+        let wikitext = std::fs::read_to_string(&wikitext_path).expect("wikitext file");
         let text: String = wikitext.chars().take(6_000).collect();
 
         let backend = Arc::new(RealBackend::new(&h1b).expect("real backend init"));

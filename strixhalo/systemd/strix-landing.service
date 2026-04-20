@@ -5,7 +5,7 @@ Wants=network.target
 
 [Service]
 Type=simple
-ExecStart=/home/bcloud/.cargo/bin/halo-landing
+ExecStart=__HOME__/.cargo/bin/halo-landing
 Restart=on-failure
 RestartSec=5
 Environment=RUST_LOG=halo_landing=info

@@ -9,7 +9,7 @@ Wants=network-online.target
 Type=oneshot
 Nice=10
 IOSchedulingClass=idle
-ExecStart=/home/bcloud/bin/halo-archive.sh
+ExecStart=__HOME__/bin/halo-archive.sh
 # Never succeed silently on mesh failure — systemd logs the non-zero exit
 # and the next timer fire still tries. No retry-now.
 SuccessExitStatus=0

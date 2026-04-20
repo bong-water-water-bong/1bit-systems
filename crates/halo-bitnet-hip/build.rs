@@ -6,7 +6,7 @@
 //!
 //! Resolution order for the .so directory:
 //!   1. `ROCM_CPP_LIB_DIR` environment variable (packaging / CI override)
-//!   2. `/home/bcloud/repos/rocm-cpp/build`              (canonical dev path)
+//!   2. `$HOME/repos/rocm-cpp/build`                     (canonical dev path)
 //!   3. `/usr/local/lib`, `/usr/lib`                      (system-install)
 //!
 //! If the `link-rocm` feature is off, we emit NO link directives — the crate
@@ -97,10 +97,12 @@ fn find_rocm_cpp_dir() -> Option<PathBuf> {
         }
     }
 
-    // 2. Canonical developer checkout.
-    let canonical = PathBuf::from("/home/bcloud/repos/rocm-cpp/build");
-    if contains_rocm_cpp_so(&canonical) {
-        return Some(canonical);
+    // 2. Canonical developer checkout — $HOME/repos/rocm-cpp/build.
+    if let Some(home) = env::var_os("HOME") {
+        let canonical = PathBuf::from(home).join("repos/rocm-cpp/build");
+        if contains_rocm_cpp_so(&canonical) {
+            return Some(canonical);
+        }
     }
 
     // 3. System-install fallbacks.

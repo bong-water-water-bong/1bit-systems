@@ -20,7 +20,7 @@ edition      = "2024"
 rust-version = "1.86"
 license      = "MIT"
 repository   = "https://github.com/strix-ai-rs/halo-workspace"
-authors      = ["strix-ai-rs <bcloud@strixhalo>"]
+authors      = ["strix-ai-rs contributors"]
 
 [workspace.dependencies]
 # Runtime primitives

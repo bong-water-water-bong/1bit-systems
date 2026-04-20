@@ -5,7 +5,7 @@ Wants=network.target
 
 [Service]
 Type=simple
-ExecStart=/home/bcloud/.cargo/bin/halo-lemonade --bind 127.0.0.1:8200
+ExecStart=__HOME__/.cargo/bin/halo-lemonade --bind 127.0.0.1:8200
 Restart=on-failure
 RestartSec=5
 Environment=RUST_LOG=halo_lemonade=info

@@ -5,7 +5,7 @@ Wants=network.target
 
 [Service]
 Type=simple
-ExecStart=/home/bcloud/.local/bin/lemond --host 127.0.0.1 --port 8000 /home/bcloud/.cache/lemonade
+ExecStart=__HOME__/.local/bin/lemond --host 127.0.0.1 --port 8000 __HOME__/.cache/lemonade
 Restart=on-failure
 RestartSec=5
 Nice=10
