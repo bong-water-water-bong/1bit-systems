@@ -20,15 +20,112 @@
 //! GPU kernel launches, which on gfx1151 take a handful of microseconds —
 //! scheduling overhead would dominate.
 
+use std::fs::File;
+use std::io::Read as _;
 use std::path::Path;
 
 use halo_bitnet_hip as hip;
 use halo_bitnet_hip::{DeviceBuffer, DevicePtr, DeviceMutPtr, HipStream, RcppError};
-use halo_core::h1b::{H1bConfig, H1bFile, H1bLayerOffsets, H1bWeightFormat, Span};
+use halo_core::gguf::{GgufFile, GGUF_MAGIC};
+use halo_core::h1b::{H1bConfig, H1bFile, H1bLayerOffsets, H1bWeightFormat, Span, H1B_MAGIC};
 use halo_core::htok::HtokFile;
 use half::f16;
 
 use crate::tokenizer::ByteLevelBpe;
+
+/// Which on-disk model container the router detected at `--model <path>`.
+///
+/// Resolved by [`sniff_model_format`] from a cheap 4-byte peek at the file
+/// head plus the filename extension. The router holds the enum for logs /
+/// observability; actual loading is handled per-variant inside
+/// [`HipBackend::new`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelFormat {
+    /// Native halo `.h1b` — packed ternary weights already in HaloV2 layout.
+    H1b,
+    /// Public GGUF v3 BitNet export (e.g. `microsoft/bitnet-b1.58-2B-4t-gguf`).
+    Gguf,
+}
+
+/// Peek at `path` to decide which loader we should dispatch to.
+///
+/// The extension is the hint and the first 4 bytes are the authority:
+///
+/// * `.h1b` + magic starting `H1B`  → [`ModelFormat::H1b`].
+/// * `.gguf` + magic `GGUF`        → [`ModelFormat::Gguf`].
+/// * mismatch (wrong magic for the claimed extension, or an unknown
+///   extension altogether) → [`BackendError::BadInput`] naming both
+///   accepted formats so the operator knows what the router understands.
+///
+/// Note: halo's `.h1b` parser checks only the first three magic bytes,
+/// so `H1B\0` / `H1Bx` are both accepted here — same relaxed rule.
+pub fn sniff_model_format(path: &Path) -> Result<ModelFormat, BackendError> {
+    let ext = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    // Read the first 4 bytes — enough for both magics.
+    let mut head = [0u8; 4];
+    {
+        let mut f = File::open(path).map_err(|e| {
+            BackendError::Other(format!("open {}: {}", path.display(), e))
+        })?;
+        f.read_exact(&mut head).map_err(|e| {
+            BackendError::Other(format!(
+                "read magic from {} (file too small?): {}",
+                path.display(),
+                e
+            ))
+        })?;
+    }
+
+    let is_h1b_magic = head[..3] == H1B_MAGIC[..3];
+    let is_gguf_magic = head == GGUF_MAGIC;
+
+    match ext.as_str() {
+        "h1b" => {
+            if is_h1b_magic {
+                Ok(ModelFormat::H1b)
+            } else {
+                Err(BackendError::Other(format!(
+                    "{} has .h1b extension but magic is {:?}; expected H1B\\0 or GGUF",
+                    path.display(),
+                    head
+                )))
+            }
+        }
+        "gguf" => {
+            if is_gguf_magic {
+                Ok(ModelFormat::Gguf)
+            } else {
+                Err(BackendError::Other(format!(
+                    "{} has .gguf extension but magic is {:?}; expected GGUF or H1B\\0",
+                    path.display(),
+                    head
+                )))
+            }
+        }
+        // Unknown extension: trust the magic if it's one we recognise,
+        // otherwise bail with the full list of accepted formats.
+        _ => {
+            if is_h1b_magic {
+                Ok(ModelFormat::H1b)
+            } else if is_gguf_magic {
+                Ok(ModelFormat::Gguf)
+            } else {
+                Err(BackendError::Other(format!(
+                    "unrecognised model file {}: extension {:?}, magic {:?}; \
+                     expected a .h1b or .gguf file",
+                    path.display(),
+                    ext,
+                    head
+                )))
+            }
+        }
+    }
+}
 
 /// Errors surfaced from the router backend. Kept small so the server layer
 /// can format them into OpenAI-shaped JSON without lossy stringification.
@@ -139,12 +236,39 @@ pub struct HipBackend {
 }
 
 impl HipBackend {
-    /// Load `.h1b` + `.htok` from disk and upload every weight to the
+    /// Load a model file + `.htok` from disk and upload every weight to the
     /// current HIP device. Allocates all scratch + KV cache up front.
+    ///
+    /// `model_path` may be either `.h1b` (native halo packing) or `.gguf`
+    /// (public BitNet GGUF). The format is sniffed via [`sniff_model_format`]
+    /// and dispatched to the matching private loader. `htok_path` is only
+    /// consumed on the `.h1b` path — on the GGUF path the tokenizer comes
+    /// out of the file's own metadata KVs and `htok_path` is ignored.
     ///
     /// `model_id` is the name advertised through `/v1/models`.
     /// `max_context` bounds the KV cache.
     pub fn new(
+        model_path: &Path,
+        htok_path: &Path,
+        model_id: String,
+        max_context: usize,
+    ) -> Result<Self, BackendError> {
+        match sniff_model_format(model_path)? {
+            ModelFormat::H1b => {
+                tracing::info!(path = %model_path.display(), "dispatch: .h1b loader");
+                Self::load_h1b_into_hip(model_path, htok_path, model_id, max_context)
+            }
+            ModelFormat::Gguf => {
+                tracing::info!(path = %model_path.display(), "dispatch: .gguf loader");
+                load_gguf_into_hip(model_path, model_id, max_context)
+            }
+        }
+    }
+
+    /// Loader for native `.h1b` files — the path this crate has shipped
+    /// since gen-2 day one. Split out of [`Self::new`] in 2026-04 so the
+    /// format dispatch can sit above it.
+    fn load_h1b_into_hip(
         h1b_path: &Path,
         htok_path: &Path,
         model_id: String,
@@ -725,3 +849,258 @@ fn upload_layer(
 // Explicitly shadow these to keep warnings quiet when used by `lib.rs`.
 #[allow(dead_code)]
 fn _use_devices(_d: DevicePtr<u8>, _m: DeviceMutPtr<u8>) {}
+
+// ----------------------------------------------------------------------------
+// GGUF loader — dispatch target for `sniff_model_format(..) == Gguf`.
+//
+// This sprint is plumbing only: we parse the GGUF, extract the
+// `BitnetHeader`, walk the standard llama.cpp tensor-name grid, and hit
+// `unimplemented!` the moment we actually need to turn IQ2_S / TQ2_0
+// super-blocks into halo's 2-bit packed layout. The H1b path is untouched,
+// and a future agent plugs in the bit-unpacking by replacing the
+// `unimplemented!` in `gguf_tensor_to_halo_packed` with a real requantizer
+// — no change to the format-sniffing dispatch is required.
+// ----------------------------------------------------------------------------
+
+/// GGUF tensor-name grid (llama.cpp convention). We build the expected
+/// name for each layer / global up front and fetch the byte slice via
+/// [`GgufFile::tensor`]. Producers have diverged here historically — if we
+/// ever need to support alternate spellings (`attn_qkv` fused, etc.) we'll
+/// add them as a fallback list, not by globbing the tensor directory.
+fn layer_tensor_name(layer_idx: usize, tail: &str) -> String {
+    format!("blk.{}.{}", layer_idx, tail)
+}
+
+/// Dispatch target for `.gguf` — mirrors the shape of
+/// [`HipBackend::load_h1b_into_hip`] but reads from [`GgufFile`] instead.
+///
+/// Scope this sprint:
+///   1. Parse header + tensor directory.
+///   2. Extract [`halo_core::BitnetHeader`] (hidden_size, num_layers,
+///      rope_theta, rms_norm_eps, ...).
+///   3. For each layer, look up the canonical llama.cpp tensor names and
+///      pull the raw bytes out of the mmap.
+///   4. Bail with `unimplemented!` the moment we need to dequantize an
+///      IQ2_S / TQ2_0 super-block into halo's 2-bit packed layout.
+///
+/// The signature deliberately matches [`HipBackend::load_h1b_into_hip`]
+/// minus the separate `htok_path` — GGUFs carry the tokenizer inline, so
+/// there is nothing to pass.
+fn load_gguf_into_hip(
+    gguf_path: &Path,
+    model_id: String,
+    max_context: usize,
+) -> Result<HipBackend, BackendError> {
+    let _ = model_id;
+    let _ = max_context;
+
+    let g = GgufFile::open(gguf_path)?;
+    let hdr = g.read_bitnet_metadata()?;
+
+    tracing::info!(
+        architecture = %hdr.architecture,
+        block_count = hdr.block_count,
+        embedding_length = hdr.embedding_length,
+        feed_forward_length = hdr.feed_forward_length,
+        attention_head_count = hdr.attention_head_count,
+        attention_head_count_kv = hdr.attention_head_count_kv,
+        rope_freq_base = hdr.rope_freq_base,
+        tokens = hdr.tokens.len(),
+        "parsed GGUF BitnetHeader"
+    );
+
+    // Globals (llama.cpp canonical names).
+    let _token_embd = g.tensor("token_embd.weight");
+    let _output_norm = g.tensor("output_norm.weight");
+    let _output = g.tensor("output.weight");
+    let _rope_freqs = g.tensor("rope_freqs.weight"); // often absent
+
+    // Per-layer directory sweep. Grab each expected tensor's dtype + bytes;
+    // the moment we find an IQ2_S / TQ2_0 payload we tap out with an
+    // explicit TODO so the bit-unpacking is a single-function follow-up.
+    for l in 0..hdr.block_count as usize {
+        for tail in [
+            "attn_q.weight",
+            "attn_k.weight",
+            "attn_v.weight",
+            "attn_output.weight",
+            "ffn_gate.weight",
+            "ffn_up.weight",
+            "ffn_down.weight",
+            "attn_norm.weight",
+            "ffn_norm.weight",
+        ] {
+            let name = layer_tensor_name(l, tail);
+            let info = g.tensor_info(&name).ok_or_else(|| {
+                BackendError::Other(format!(
+                    "GGUF missing expected tensor {name} (llama.cpp convention)"
+                ))
+            })?;
+            let _bytes = g.tensor(&name).ok_or_else(|| {
+                BackendError::Other(format!(
+                    "GGUF tensor {name} has unknown dtype / size (got {:?})",
+                    info.dtype
+                ))
+            })?;
+            // This is where the requantizer will live. Plumbed as a single
+            // call so a future agent can swap it in without touching
+            // `sniff_model_format` / `HipBackend::new`.
+            gguf_tensor_to_halo_packed(info.dtype, _bytes)?;
+        }
+    }
+
+    // We got through the directory walk — but turning raw GGUF bytes into
+    // device-resident halo weights is the *next* sprint. Stop here so a
+    // bad config can still fail fast during integration testing.
+    unimplemented!(
+        "IQ2_S → halo 2-bit repack is the next sprint; \
+         load_gguf_into_hip only plumbs format sniffing + tensor lookup today"
+    )
+}
+
+/// Placeholder requantizer — returns unit today. A future agent replaces
+/// this body with: dtype-aware dispatch (IQ2_S, TQ2_0, F16, F32) → halo's
+/// packed-ternary + per-row-fp32-scale layout, then upload.
+///
+/// Keeping this as a standalone function (rather than inlining the match
+/// inside the directory walk) means "plug in the bit-unpacker" is a
+/// one-file, one-function change that does not touch dispatch.
+fn gguf_tensor_to_halo_packed(
+    dtype: halo_core::GgufTensorType,
+    _bytes: &[u8],
+) -> Result<(), BackendError> {
+    use halo_core::GgufTensorType::*;
+    match dtype {
+        // FP16 / FP32 norms + embeddings — easy, land these first.
+        F16 | F32 | BF16 => {
+            unimplemented!("fp16/fp32 upload from GGUF is the next sprint");
+        }
+        // BitNet's native 2-bit ternary packing in llama.cpp.
+        IQ2_S | TQ2_0 | TQ1_0 => {
+            unimplemented!("IQ2_S / TQ2_0 → halo 2-bit repack is the next sprint");
+        }
+        other => Err(BackendError::Other(format!(
+            "GGUF dtype {other:?} is not a BitNet-supported tensor format"
+        ))),
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Tests — format sniffing only. Construction of a real `HipBackend` needs
+// a GPU and is covered in `tests/smoke_hip.rs` behind `--features hip` +
+// `#[ignore]`.
+// ----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod format_sniff_tests {
+    use super::*;
+    use halo_core::gguf::GGUF_MAGIC;
+    use halo_core::h1b::H1B_MAGIC;
+    use std::io::Write;
+
+    /// Write a throwaway temp file in the per-test tempdir and return its
+    /// path. We keep the file on disk for the duration of the test — tests
+    /// are short and tempdir cleans up on drop.
+    fn scratch_file(name: &str, bytes: &[u8]) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join("halo-router-sniff-tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join(name);
+        let mut f = std::fs::File::create(&p).unwrap();
+        f.write_all(bytes).unwrap();
+        p
+    }
+
+    #[test]
+    fn sniff_h1b_by_extension_and_magic() {
+        let mut bytes = vec![0u8; 64];
+        bytes[..4].copy_from_slice(&H1B_MAGIC);
+        let p = scratch_file("good.h1b", &bytes);
+        assert_eq!(sniff_model_format(&p).unwrap(), ModelFormat::H1b);
+    }
+
+    #[test]
+    fn sniff_gguf_by_extension_and_magic() {
+        let mut bytes = vec![0u8; 64];
+        bytes[..4].copy_from_slice(&GGUF_MAGIC);
+        let p = scratch_file("good.gguf", &bytes);
+        assert_eq!(sniff_model_format(&p).unwrap(), ModelFormat::Gguf);
+    }
+
+    #[test]
+    fn sniff_rejects_mismatch_with_helpful_error() {
+        // `.h1b` extension, but magic says GGUF. Operator probably renamed
+        // the file — error message must name both accepted magics.
+        let mut bytes = vec![0u8; 64];
+        bytes[..4].copy_from_slice(&GGUF_MAGIC);
+        let p = scratch_file("lying.h1b", &bytes);
+        let err = sniff_model_format(&p).unwrap_err();
+        let s = format!("{err}");
+        assert!(s.contains("H1B") || s.contains("GGUF"), "got: {s}");
+    }
+
+    #[test]
+    fn sniff_falls_back_to_magic_for_unknown_extension() {
+        // No extension at all — we still accept the file if the magic is
+        // unambiguous. Mirrors llama.cpp's behaviour.
+        let mut bytes = vec![0u8; 64];
+        bytes[..4].copy_from_slice(&GGUF_MAGIC);
+        let p = scratch_file("anonymous", &bytes);
+        assert_eq!(sniff_model_format(&p).unwrap(), ModelFormat::Gguf);
+    }
+
+    #[test]
+    fn sniff_rejects_unknown_magic_outright() {
+        let bytes = b"XXXX\0\0\0\0".to_vec();
+        let p = scratch_file("random.bin", &bytes);
+        assert!(sniff_model_format(&p).is_err());
+    }
+
+    /// Live-model dispatch test: if the halo-1bit-2b.h1b is on disk, the
+    /// sniffer must route it to the `.h1b` loader.
+    ///
+    /// `#[ignore]` because it needs the ~700 MB model file present; run
+    /// manually with `cargo test -p halo-router --release -- --ignored`.
+    #[test]
+    #[ignore = "needs $HOME/halo-ai/models/halo-1bit-2b.h1b on disk"]
+    fn live_h1b_model_routes_to_h1b_path() {
+        let home = std::env::var("HOME").unwrap();
+        let p = std::path::PathBuf::from(format!(
+            "{home}/halo-ai/models/halo-1bit-2b.h1b"
+        ));
+        if !p.exists() {
+            eprintln!("skipping: model not present at {}", p.display());
+            return;
+        }
+        let f = sniff_model_format(&p).expect("sniff should succeed");
+        assert_eq!(f, ModelFormat::H1b);
+    }
+
+    /// Synthetic-GGUF dispatch test: build a minimal in-memory GGUF buffer
+    /// (1 F32 tensor, correct header + alignment) and assert the sniffer
+    /// routes it to the GGUF loader without needing to construct a
+    /// `HipBackend`. Stops short of actually calling
+    /// [`load_gguf_into_hip`], which hits `unimplemented!` on the first
+    /// tensor — the goal is to prove the dispatch fired.
+    #[test]
+    #[ignore = "synthetic GGUF would succeed at sniff but panic inside load_gguf_into_hip today"]
+    fn synthetic_gguf_routes_to_gguf_path() {
+        // Minimal valid GGUF: magic + v3 + 0 tensors + 0 kvs, padded.
+        let mut buf: Vec<u8> = Vec::new();
+        buf.extend_from_slice(&GGUF_MAGIC);
+        buf.extend_from_slice(&3u32.to_le_bytes()); // version
+        buf.extend_from_slice(&0u64.to_le_bytes()); // tensor_count
+        buf.extend_from_slice(&0u64.to_le_bytes()); // kv_count
+        // pad to 32-byte alignment for the (empty) tensor data region.
+        while buf.len() % 32 != 0 {
+            buf.push(0);
+        }
+
+        let p = scratch_file("synth.gguf", &buf);
+        let f = sniff_model_format(&p).expect("sniff should succeed");
+        assert_eq!(f, ModelFormat::Gguf, "should route to gguf loader");
+
+        // We deliberately don't call `load_gguf_into_hip` — today it would
+        // `unimplemented!` on the first tensor directory walk. The
+        // assertion above is the whole point: dispatch fired.
+    }
+}

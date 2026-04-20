@@ -24,11 +24,12 @@ struct Args {
     #[arg(long, env = "HALO_SERVER_BIND", default_value = "127.0.0.1:8080")]
     bind: SocketAddr,
 
-    /// Path to a `.h1b` model to load via halo-router.
+    /// Path to a .h1b OR .gguf file to load via halo-router.
     ///
     /// Ignored when the binary is built without `--features real-backend`.
-    /// When set, the tokenizer is resolved by replacing the `.h1b` extension
-    /// with `.htok` (matches gen-1's on-disk layout).
+    /// Format is sniffed from magic bytes + extension; `.h1b` reads its
+    /// tokenizer from a sibling `.htok` (matches gen-1's on-disk layout),
+    /// `.gguf` reads its tokenizer from the GGUF metadata block.
     #[arg(long, env = "HALO_SERVER_MODEL")]
     model: Option<PathBuf>,
 }

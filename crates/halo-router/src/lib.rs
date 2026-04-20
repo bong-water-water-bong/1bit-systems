@@ -42,7 +42,7 @@ use halo_core::sampler::{Sampler, SamplerConfig};
 use halo_core::types::TokenId;
 use tokio::sync::Mutex;
 
-pub use backend_impl::{BackendError, HipBackend};
+pub use backend_impl::{BackendError, HipBackend, ModelFormat, sniff_model_format};
 pub use detect::{BackendKind, detect};
 
 // Re-exported below once the type is declared — see PerplexityResult.
