@@ -28,16 +28,23 @@
 <li data-slug="why-no-python"><a href="/docs/why-no-python.html">Why no Python at runtime? (Rule A)</a></li>
 <li data-slug="why-no-npu-yet"><a href="/docs/why-no-npu-yet.html">Why no NPU yet?</a></li>
 <li data-slug="why-this-way-how"><a href="/docs/why-this-way-how.html">Why this way + how — the design walkthrough</a></li>
-<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why `halo power`?</a></li>
+<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why <code>halo power</code>?</a></li>
 </ul></div>
 <div class="group"><h4>Research</h4><ul>
 <li data-slug="medusa-integration-plan"><a href="/docs/medusa-integration-plan.html">Medusa Integration Plan (halo-ai-rs / gen-2)</a></li>
 <li data-slug="halo-whisper-streaming-plan"><a href="/docs/halo-whisper-streaming-plan.html">Halo-Whisper Streaming Plan</a></li>
-<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via `--kv-quant rotor-3`</a></li>
+<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via <code>--kv-quant rotor-3</code></a></li>
 </ul></div>
 <div class="group"><h4>Integrations</h4><ul>
 <li data-slug="hermes-integration"><a href="/docs/hermes-integration.html">Hermes Agent integration</a></li>
 <li data-slug="cloudflare-tunnel-setup"><a href="/docs/cloudflare-tunnel-setup.html">Cloudflare Tunnel Setup — api.halo-ai.studio</a></li>
+</ul></div>
+<div class="group"><h4>Other</h4><ul>
+<li data-slug="benchmarks"><a href="/docs/benchmarks.html">Live tok/s + PPL</a></li>
+<li data-slug="why-caddy-systemd"><a href="/docs/why-caddy-systemd.html">Why Caddy + user-scope systemd?</a></li>
+<li data-slug="why-h1b-format"><a href="/docs/why-h1b-format.html">Why our own <code>.h1b</code> format?</a></li>
+<li data-slug="why-halo-agents"><a href="/docs/why-halo-agents.html">Why halo-agents?</a></li>
+<li data-slug="why-parity-gates"><a href="/docs/why-parity-gates.html">Why shadow-traffic parity gates?</a></li>
 </ul></div>
 </nav>
 
@@ -59,16 +66,23 @@
 <a class="doc-card" href="/docs/why-no-python.html"><h3>Why no Python at runtime? (Rule A)</h3><p>Python is fine as a caller or a build-time tool. It's banned inside any systemd service, any HTTP endpoint, any hot-path process. We've been burned too many times by dependency hell, silent import failures, and 300 MB inter…</p></a>
 <a class="doc-card" href="/docs/why-no-npu-yet.html"><h3>Why no NPU yet?</h3><p>evaluated four stacks (ONNX-RT + Vitis EP, FastFlowLM, IREE-AIE, direct xrt). Deferred — no path runs BitNet-b1.58 on Strix Halo's XDNA 2 in Linux today, and the realistic decode ceiling is below our current iGPU. Update …</p></a>
 <a class="doc-card" href="/docs/why-this-way-how.html"><h3>Why this way + how — the design walkthrough</h3><p>Long-form explainer paired with the reddit-relaunch announcement. Covers why each major decision was made and how the pieces actually plug together in practice.</p></a>
-<a class="doc-card" href="/docs/why-halo-power.html"><h3>Why `halo power`?</h3><p>Strix Halo shares one LPDDR5 memory controller between CPU and GPU, so package-power spent on idle x86 cores directly costs decode tok/s. halo power exposes three named envelopes that you can flip between without memorizing…</p></a>
+<a class="doc-card" href="/docs/why-halo-power.html"><h3>Why <code>halo power</code>?</h3><p>Strix Halo shares one LPDDR5 memory controller between CPU and GPU, so package-power spent on idle x86 cores directly costs decode tok/s. halo power exposes three named envelopes that you can flip between without memorizing…</p></a>
 </div></section>
 <section class="doc-group"><h2>Research</h2><div class="doc-cards">
 <a class="doc-card" href="/docs/medusa-integration-plan.html"><h3>Medusa Integration Plan (halo-ai-rs / gen-2)</h3><p>Status: research brief, no code written. Date: 2026-04-20. Recommendation: DEFER (details in §5).</p></a>
 <a class="doc-card" href="/docs/halo-whisper-streaming-plan.html"><h3>Halo-Whisper Streaming Plan</h3><p>Status: research + planning, 2026-04-20. No crate halo-whisper exists yet; voice input is currently batch-POST whole-file transcription (outside this workspace). This doc is the design for the streaming rewrite that will let halo-voice star…</p></a>
-<a class="doc-card" href="/docs/rotorquant-default-decision.html"><h3>Rotorquant default: OFF on 2B, opt-in via `--kv-quant rotor-3`</h3><p>PlanarQuant-3 (2D-Givens rotation + 3-bit Lloyd-Max) landed as an optional KV-cache compression path in rocm-cpp:</p></a>
+<a class="doc-card" href="/docs/rotorquant-default-decision.html"><h3>Rotorquant default: OFF on 2B, opt-in via <code>--kv-quant rotor-3</code></h3><p>PlanarQuant-3 (2D-Givens rotation + 3-bit Lloyd-Max) landed as an optional KV-cache compression path in rocm-cpp:</p></a>
 </div></section>
 <section class="doc-group"><h2>Integrations</h2><div class="doc-cards">
 <a class="doc-card" href="/docs/hermes-integration.html"><h3>Hermes Agent integration</h3><p>NousResearch/hermes-agent is a self-improving agent with a skill-creation loop, FTS5 session search, Honcho dialectic user modeling, messaging-gateway (Telegram/Discord/Slack/WhatsApp/Signal), cron scheduler, MCP integration, and subagent s…</p></a>
 <a class="doc-card" href="/docs/cloudflare-tunnel-setup.html"><h3>Cloudflare Tunnel Setup — api.halo-ai.studio</h3><p>Status 2026-04-20: halo-ai.studio apex is already live as a Hugo site on Cloudflare Pages (HTTP/2, CF-Ray header, 172.67.134.39). That is the marketing site, served from an external repo, unrelated to this tunnel.</p></a>
+</div></section>
+<section class="doc-group"><h2>Other</h2><div class="doc-cards">
+<a class="doc-card" href="/docs/benchmarks.html"><h3>Live tok/s + PPL</h3><p>What we measure and what each number means. All numbers taken on the production box (strixhalo, 100.64.0.1) unless noted.</p></a>
+<a class="doc-card" href="/docs/why-caddy-systemd.html"><h3>Why Caddy + user-scope systemd?</h3><p>Caddy handles TLS, HTTP/3, reverse-proxy, and reload semantics with a 20-line config. systemd --user lets every halo-ai process restart without root. Snapper catches any mistake. No Docker, no k8s, no YAML jungle.</p></a>
+<a class="doc-card" href="/docs/why-h1b-format.html"><h3>Why our own <code>.h1b</code> format?</h3><p>GGUF was built for LLaMA-family FP/Q4/Q8 shapes and force-fits ternary weights into metadata that the kernel has to un-fit at load time. .h1b ("halo 1-bit") is pre-tiled for one kernel layout, memory-mapped, zero-copy. The …</p></a>
+<a class="doc-card" href="/docs/why-halo-agents.html"><h3>Why halo-agents?</h3><p>17 typed specialists in one Rust file. Not a framework, not a DAG engine, not a "multi-agent orchestrator" — just a registry of concrete ops the box needs to do, with typed inputs and typed outputs. Each one is tiny; the …</p></a>
+<a class="doc-card" href="/docs/why-parity-gates.html"><h3>Why shadow-traffic parity gates?</h3><p>unit tests verify behaviors; parity gates verify indistinguishability from the previous version. A PR that adds a feature and keeps tests green can still subtly shift logits. Parity says: prove it's the same.</p></a>
 </div></section>
 
 </main>

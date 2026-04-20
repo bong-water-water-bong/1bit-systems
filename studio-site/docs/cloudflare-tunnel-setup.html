@@ -28,31 +28,38 @@
 <li data-slug="why-no-python"><a href="/docs/why-no-python.html">Why no Python at runtime? (Rule A)</a></li>
 <li data-slug="why-no-npu-yet"><a href="/docs/why-no-npu-yet.html">Why no NPU yet?</a></li>
 <li data-slug="why-this-way-how"><a href="/docs/why-this-way-how.html">Why this way + how — the design walkthrough</a></li>
-<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why `halo power`?</a></li>
+<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why <code>halo power</code>?</a></li>
 </ul></div>
 <div class="group"><h4>Research</h4><ul>
 <li data-slug="medusa-integration-plan"><a href="/docs/medusa-integration-plan.html">Medusa Integration Plan (halo-ai-rs / gen-2)</a></li>
 <li data-slug="halo-whisper-streaming-plan"><a href="/docs/halo-whisper-streaming-plan.html">Halo-Whisper Streaming Plan</a></li>
-<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via `--kv-quant rotor-3`</a></li>
+<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via <code>--kv-quant rotor-3</code></a></li>
 </ul></div>
 <div class="group"><h4>Integrations</h4><ul>
 <li data-slug="hermes-integration"><a href="/docs/hermes-integration.html">Hermes Agent integration</a></li>
 <li data-slug="cloudflare-tunnel-setup"><a href="/docs/cloudflare-tunnel-setup.html">Cloudflare Tunnel Setup — api.halo-ai.studio</a></li>
+</ul></div>
+<div class="group"><h4>Other</h4><ul>
+<li data-slug="benchmarks"><a href="/docs/benchmarks.html">Live tok/s + PPL</a></li>
+<li data-slug="why-caddy-systemd"><a href="/docs/why-caddy-systemd.html">Why Caddy + user-scope systemd?</a></li>
+<li data-slug="why-h1b-format"><a href="/docs/why-h1b-format.html">Why our own <code>.h1b</code> format?</a></li>
+<li data-slug="why-halo-agents"><a href="/docs/why-halo-agents.html">Why halo-agents?</a></li>
+<li data-slug="why-parity-gates"><a href="/docs/why-parity-gates.html">Why shadow-traffic parity gates?</a></li>
 </ul></div>
 </nav>
 
 <main class="doc-main">
   <h1>Cloudflare Tunnel Setup — api.halo-ai.studio</h1>
   <p><strong>Status 2026-04-20:</strong> <code>halo-ai.studio</code> apex is <strong>already live</strong> as a Hugo site on Cloudflare Pages (HTTP/2, CF-Ray header, 172.67.134.39). That is the marketing site, served from an external repo, unrelated to this tunnel.</p>
-<p><strong>This tunnel exposes a _different_ subdomain: <code>api.halo-ai.studio</code> â halo-server <code>:8180</code></strong>. Purpose: public OpenAI-compat endpoint so Hermes / OpenWebUI / third-party clients can point at us over the open internet without needing Tailscale.</p>
+<p><strong>This tunnel exposes a _different_ subdomain: <code>api.halo-ai.studio</code> → halo-server <code>:8180</code></strong>. Purpose: public OpenAI-compat endpoint so Hermes / OpenWebUI / third-party clients can point at us over the open internet without needing Tailscale.</p>
 <h2 id="state-on-strixhalo">State on strixhalo</h2>
 <ul>
-<li><code>cloudflared 2026.3.0</code> installed (<code>pacman -S cloudflared</code>, already in <code>cachyos-extra-znver4</code> repo â no AUR needed).</li>
+<li><code>cloudflared 2026.3.0</code> installed (<code>pacman -S cloudflared</code>, already in <code>cachyos-extra-znver4</code> repo — no AUR needed).</li>
 <li><code>~/.cloudflared/</code> exists, empty except <code>config.yml.template</code> (staged, ready to rename after tunnel create).</li>
 <li><code>~/.config/systemd/user/strix-cloudflared.service</code> staged.</li>
 <li><code>strixhalo/cloudflared/config.yml.template</code> + <code>strixhalo/systemd/strix-cloudflared.service</code> tracked in the repo for fresh-box installs.</li>
 </ul>
-<p>Nothing is running or reachable yet â auth + UUID fill-in still needed.</p>
+<p>Nothing is running or reachable yet — auth + UUID fill-in still needed.</p>
 <h2 id="why-cloudflare-tunnel-not-port-forward">Why Cloudflare Tunnel (not port-forward)</h2>
 <ul>
 <li><strong>No public IP exposure.</strong> Outbound-only WebSocket from strixhalo to CF edge. Home router stays closed.</li>
@@ -97,7 +104,7 @@ sudo loginctl enable-linger bcloud
 systemctl --user status strix-cloudflared.service
 journalctl --user -u strix-cloudflared.service -n 20
 </code></pre>
-<h2 id="config-reference-cloudflared-config-yml">Config reference â <code>~/.cloudflared/config.yml</code></h2>
+<h2 id="config-reference-cloudflared-config-yml">Config reference — <code>~/.cloudflared/config.yml</code></h2>
 <pre><code class="language-yaml">tunnel: &lt;UUID&gt;
 credentials-file: /home/bcloud/.cloudflared/&lt;UUID&gt;.json
 
@@ -114,10 +121,10 @@ ingress:
 <table>
 <thead><tr><th>Listener</th><th>Source</th><th>Untouched by tunnel</th></tr></thead>
 <tbody>
-<tr><td><code>strixhalo.local:443</code> (Caddy, tls internal)</td><td>LAN mesh</td><td>â</td></tr>
-<tr><td><code>strixhalo.local:8443</code></td><td>LAN mesh</td><td>â</td></tr>
-<tr><td><code>10.0.0.10:8099</code> (Caddy bootstrap HTTP)</td><td>LAN</td><td>â</td></tr>
-<tr><td><code>127.0.0.1:8180</code> (halo-server)</td><td>loopback</td><td><strong>now also routed via CF tunnel â api.halo-ai.studio</strong></td></tr>
+<tr><td><code>strixhalo.local:443</code> (Caddy, tls internal)</td><td>LAN mesh</td><td>✓</td></tr>
+<tr><td><code>strixhalo.local:8443</code></td><td>LAN mesh</td><td>✓</td></tr>
+<tr><td><code>10.0.0.10:8099</code> (Caddy bootstrap HTTP)</td><td>LAN</td><td>✓</td></tr>
+<tr><td><code>127.0.0.1:8180</code> (halo-server)</td><td>loopback</td><td><strong>now also routed via CF tunnel → api.halo-ai.studio</strong></td></tr>
 <tr><td><code>127.0.0.1:8190</code> (halo-landing)</td><td>loopback</td><td>keep LAN-only for now</td></tr>
 </tbody></table>
 <p>No Caddyfile change required.</p>
@@ -136,8 +143,8 @@ cloudflared tunnel delete api-halo-ai-studio
 </code></pre>
 <h2 id="references">References</h2>
 <ul>
-<li><a href="../../strixhalo/systemd/strix-cloudflared.service"><code>strixhalo/systemd/strix-cloudflared.service</code></a> â tracked copy of the user unit</li>
-<li><a href="../../strixhalo/cloudflared/config.yml.template"><code>strixhalo/cloudflared/config.yml.template</code></a> â tracked template with PLACEHOLDER_UUID</li>
+<li><a href="../../strixhalo/systemd/strix-cloudflared.service"><code>strixhalo/systemd/strix-cloudflared.service</code></a> — tracked copy of the user unit</li>
+<li><a href="../../strixhalo/cloudflared/config.yml.template"><code>strixhalo/cloudflared/config.yml.template</code></a> — tracked template with PLACEHOLDER_UUID</li>
 <li>Cloudflare Tunnel docs: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/</li>
 <li>halo-server port: <code>crates/halo-server/src/lib.rs</code> (bind <code>127.0.0.1:8180</code>)</li>
 </ul>

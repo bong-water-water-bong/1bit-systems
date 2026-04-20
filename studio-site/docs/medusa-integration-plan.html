@@ -28,62 +28,69 @@
 <li data-slug="why-no-python"><a href="/docs/why-no-python.html">Why no Python at runtime? (Rule A)</a></li>
 <li data-slug="why-no-npu-yet"><a href="/docs/why-no-npu-yet.html">Why no NPU yet?</a></li>
 <li data-slug="why-this-way-how"><a href="/docs/why-this-way-how.html">Why this way + how — the design walkthrough</a></li>
-<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why `halo power`?</a></li>
+<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why <code>halo power</code>?</a></li>
 </ul></div>
 <div class="group"><h4>Research</h4><ul>
 <li data-slug="medusa-integration-plan"><a href="/docs/medusa-integration-plan.html">Medusa Integration Plan (halo-ai-rs / gen-2)</a></li>
 <li data-slug="halo-whisper-streaming-plan"><a href="/docs/halo-whisper-streaming-plan.html">Halo-Whisper Streaming Plan</a></li>
-<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via `--kv-quant rotor-3`</a></li>
+<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via <code>--kv-quant rotor-3</code></a></li>
 </ul></div>
 <div class="group"><h4>Integrations</h4><ul>
 <li data-slug="hermes-integration"><a href="/docs/hermes-integration.html">Hermes Agent integration</a></li>
 <li data-slug="cloudflare-tunnel-setup"><a href="/docs/cloudflare-tunnel-setup.html">Cloudflare Tunnel Setup — api.halo-ai.studio</a></li>
 </ul></div>
+<div class="group"><h4>Other</h4><ul>
+<li data-slug="benchmarks"><a href="/docs/benchmarks.html">Live tok/s + PPL</a></li>
+<li data-slug="why-caddy-systemd"><a href="/docs/why-caddy-systemd.html">Why Caddy + user-scope systemd?</a></li>
+<li data-slug="why-h1b-format"><a href="/docs/why-h1b-format.html">Why our own <code>.h1b</code> format?</a></li>
+<li data-slug="why-halo-agents"><a href="/docs/why-halo-agents.html">Why halo-agents?</a></li>
+<li data-slug="why-parity-gates"><a href="/docs/why-parity-gates.html">Why shadow-traffic parity gates?</a></li>
+</ul></div>
 </nav>
 
 <main class="doc-main">
   <h1>Medusa Integration Plan (halo-ai-rs / gen-2)</h1>
-  <p>Status: research brief, no code written. Date: 2026-04-20. Recommendation: <strong>DEFER</strong> (details in Â§5).</p>
+  <p>Status: research brief, no code written. Date: 2026-04-20. Recommendation: <strong>DEFER</strong> (details in §5).</p>
 <hr>
 <h2 id="1-what-medusabitnet-actually-is">1. What MedusaBitNet actually is</h2>
-<p>Medusa is the 2024 speculative-decoding framework from Cai et al. (arXiv <a href="https://arxiv.org/abs/2401.10774">2401.10774</a>, published at ICML 2024, repo <a href="https://github.com/FasterDecoding/Medusa">FasterDecoding/Medusa</a>). Instead of running a separate small draft model, Medusa bolts N extra MLP "heads" onto the frozen backbone. Each head predicts the token at position t+1, t+2, â¦ t+N from the same backbone hidden state. At decode time, the heads produce a set of candidate continuations that are laid out as a tree; the backbone verifies the whole tree in a single forward pass using a <strong>tree-attention mask</strong> (causal within each branch, with predecessors-only attention). Accepted prefix advances the KV cache; rejected branches are discarded. Medusa-1 (frozen backbone) reports ~2.2Ã wall-clock speedup on Vicuna at batch=1; Medusa-2 (joint-train) reports 2.3â3.6Ã (<a href="https://www.together.ai/blog/medusa">Together AI blog</a>, paper Â§4).</p>
-<p><strong>MedusaBitNet</strong> is not a combined framework â a web search for "MedusaBitNet" returns nothing indexed outside our own memory file. What exists is a specific HuggingFace artifact: <a href="https://huggingface.co/parrishcorcoran/MedusaBitNet-2B-4T">parrishcorcoran/MedusaBitNet-2B-4T</a> â 4 Medusa heads (13 MB total, fp16) trained against the frozen Microsoft <code>bitnet-b1.58-2B-4T</code> backbone (751 MB, I2_S). Measured acceptance: head-1 63.0%, head-2 29.0%, head-3 11.1%, head-4 4.6%; end-to-end **2.08 tokens per backbone step** on CPU. Trained ~11 h on a Ryzen AI MAX+ 395 (same silicon class as Strix Halo). Inference paths: a verified PyTorch loop and an incomplete llama.cpp/bitnet.cpp C++ path; the author's notes explicitly flag "kernel compatibility issues with I2_S" â the C++ throughput is not validated. There is no HIP/ROCm path and the artifact card does not mention tree attention; the Python reference appears to be naive per-head verify.</p>
+<p>Medusa is the 2024 speculative-decoding framework from Cai et al. (arXiv <a href="https://arxiv.org/abs/2401.10774">2401.10774</a>, published at ICML 2024, repo <a href="https://github.com/FasterDecoding/Medusa">FasterDecoding/Medusa</a>). Instead of running a separate small draft model, Medusa bolts N extra MLP "heads" onto the frozen backbone. Each head predicts the token at position t+1, t+2, … t+N from the same backbone hidden state. At decode time, the heads produce a set of candidate continuations that are laid out as a tree; the backbone verifies the whole tree in a single forward pass using a <strong>tree-attention mask</strong> (causal within each branch, with predecessors-only attention). Accepted prefix advances the KV cache; rejected branches are discarded. Medusa-1 (frozen backbone) reports ~2.2× wall-clock speedup on Vicuna at batch=1; Medusa-2 (joint-train) reports 2.3–3.6× (<a href="https://www.together.ai/blog/medusa">Together AI blog</a>, paper §4).</p>
+<p><strong>MedusaBitNet</strong> is not a combined framework — a web search for "MedusaBitNet" returns nothing indexed outside our own memory file. What exists is a specific HuggingFace artifact: <a href="https://huggingface.co/parrishcorcoran/MedusaBitNet-2B-4T">parrishcorcoran/MedusaBitNet-2B-4T</a> — 4 Medusa heads (13 MB total, fp16) trained against the frozen Microsoft <code>bitnet-b1.58-2B-4T</code> backbone (751 MB, I2_S). Measured acceptance: head-1 63.0%, head-2 29.0%, head-3 11.1%, head-4 4.6%; end-to-end **2.08 tokens per backbone step** on CPU. Trained ~11 h on a Ryzen AI MAX+ 395 (same silicon class as Strix Halo). Inference paths: a verified PyTorch loop and an incomplete llama.cpp/bitnet.cpp C++ path; the author's notes explicitly flag "kernel compatibility issues with I2_S" — the C++ throughput is not validated. There is no HIP/ROCm path and the artifact card does not mention tree attention; the Python reference appears to be naive per-head verify.</p>
 <h2 id="2-where-it-would-bolt-into-our-tree">2. Where it would bolt into our tree</h2>
 <p>Our decode loop is a tight line through three crates. Speculative decoding breaks the <code>1 token in → 1 token out</code> assumption at every level, so changes touch all three.</p>
 <h3 id="2-1-rocm-cpp-hip-kernels">2.1 <code>rocm-cpp</code> (HIP kernels)</h3>
 <ul>
-<li><code>src/kv_cache_attn_fd.hip</code> â current Flash-Decoding attention. Splits</li>
-<p>  KV along the sequence axis, one query per head. Medusa needs **tree   attention*<em>: a </em>set* of query tokens (the speculated candidates) all   attending to the same KV but with a sparse mask that says   "candidate q_i attends to its own branch only." Either extend this kernel   with a mask-table argument or add a sibling file   <code>src/kv_cache_attn_tree.hip</code>. The FD split still applies along KV; the   query axis grows from 1 to <code>tree_size</code> (Medusa paper uses trees of 42â64   nodes).</p>
-<li><code>kernels/ternary_gemv_*.hip</code> â all current ternary kernels assume</li>
+<li><code>src/kv_cache_attn_fd.hip</code> — current Flash-Decoding attention. Splits</li>
+<p>  KV along the sequence axis, one query per head. Medusa needs **tree   attention*<em>: a </em>set* of query tokens (the speculated candidates) all   attending to the same KV but with a sparse mask that says   "candidate q_i attends to its own branch only." Either extend this kernel   with a mask-table argument or add a sibling file   <code>src/kv_cache_attn_tree.hip</code>. The FD split still applies along KV; the   query axis grows from 1 to <code>tree_size</code> (Medusa paper uses trees of 42–64   nodes).</p>
+<li><code>kernels/ternary_gemv_*.hip</code> — all current ternary kernels assume</li>
 <p>  <strong>GEMV</strong> (batch-1). A Medusa verify pass needs a small <strong>GEMM</strong> over the   speculated query set against the same weights. Two options:</p>
 </ul>
 <ol>
-<li>Call the existing GEMV <code>tree_size</code> times in a loop â simple, but</li>
-<p>       you re-stream the weights from LPDDR5 each call. Our Phase-1        memory report already says we're at 92% of LPDDR5 peak on the        backbone weights (<code>project_bitnet_rocprof_plan.md</code>), so naÃ¯ve        iteration <strong>eats the entire speculative win</strong>.</p>
+<li>Call the existing GEMV <code>tree_size</code> times in a loop — simple, but</li>
+<p>       you re-stream the weights from LPDDR5 each call. Our Phase-1        memory report already says we're at 92% of LPDDR5 peak on the        backbone weights (<code>project_bitnet_rocprof_plan.md</code>), so naïve        iteration <strong>eats the entire speculative win</strong>.</p>
 <li>Promote one kernel (candidate: <code>ternary_gemv_phase5_halo.hip</code>) to</li>
-<p>       tile over a small M axis. New file        <code>kernels/ternary_gemm_small_m.hip</code>, M â {1â¦8}. This is new HIP        work, not a flag flip.</p>
+<p>       tile over a small M axis. New file        <code>kernels/ternary_gemm_small_m.hip</code>, M ∈ {1…8}. This is new HIP        work, not a flag flip.</p>
 </ol>
 <ul>
 <li>New kernel: the Medusa <strong>heads themselves</strong> are dense fp16 MLPs (~3 MB</li>
-<p>  each). An fp16 GEMV path already exists (<code>src/prim_kernels.hip</code>   <code>fp16_gemv</code>). Call it 4Ã per decode step, one per head. No new kernel   needed for the heads.</p>
+<p>  each). An fp16 GEMV path already exists (<code>src/prim_kernels.hip</code>   <code>fp16_gemv</code>). Call it 4× per decode step, one per head. No new kernel   needed for the heads.</p>
 <li>New kernel: <strong>tree-mask builder / argmax-topk per head</strong>. Small, fits</li>
 <p>  in <code>src/prim_kernels.hip</code>. Needs a device-side top-k (current   <code>argmax_fp32</code> is top-1 only).</p>
-<li><code>tools/bitnet_decode.cpp</code> â gen-1 CLI. Only touch if we want a gen-1</li>
+<li><code>tools/bitnet_decode.cpp</code> — gen-1 CLI. Only touch if we want a gen-1</li>
 <p>  reference loop for parity-checking; otherwise leave.</p>
 </ul>
 <h3 id="2-2-halo-workspace-crates-halo-bitnet-hip-rust-ffi">2.2 <code>halo-workspace/crates/halo-bitnet-hip</code> (Rust FFI)</h3>
 <ul>
-<li><code>src/lib.rs</code> â add FFI bindings for the new kernels:</li>
+<li><code>src/lib.rs</code> — add FFI bindings for the new kernels:</li>
 <li><code>kv_cache_attn_tree_fd(...)</code> mirroring <code>kv_cache_attn_decode_fd</code> at</li>
 <p>    line 424, plus a <code>mask: *const u8</code> arg.</p>
 <li><code>ternary_gemm_small_m(...)</code> next to the existing</li>
 <p>    <code>ternary_gemv_halo_f16</code> at line 258.</p>
 <li><code>fp16_gemv_batched(...)</code> if we choose path (1) for the heads.</li>
-<li><code>src/ffi.rs</code> â matching <code>extern "C"</code> prototypes.</li>
+<li><code>src/ffi.rs</code> — matching <code>extern "C"</code> prototypes.</li>
 </ul>
 <h3 id="2-3-halo-workspace-crates-halo-router-decode-driver">2.3 <code>halo-workspace/crates/halo-router</code> (decode driver)</h3>
 <ul>
-<li><code>src/backend_impl.rs:410</code> â <code>HipBackend::forward_token</code> is the hot loop.</li>
+<li><code>src/backend_impl.rs:410</code> — <code>HipBackend::forward_token</code> is the hot loop.</li>
 <p>  It takes one token id and returns one. Medusa requires a new sibling   method:</p>
 </ul>
 <pre><code class="language-rust">  fn forward_tree(
@@ -94,54 +101,54 @@
       logits_out: &amp;mut [f32], // one row per candidate
   ) -&gt; Result&lt;usize /*accepted_len*/, BackendError&gt;
 </code></pre>
-<p>  The existing <code>forward_token</code> stays for prefill and as the non-spec   fallback. Medusa heads need a handle to the post-<code>lm_head</code> hidden   state, so <code>forward_token</code>'s internal buffer layout has to expose the   pre-softmax residual â right now it's scratch-local.</p>
+<p>  The existing <code>forward_token</code> stays for prefill and as the non-spec   fallback. Medusa heads need a handle to the post-<code>lm_head</code> hidden   state, so <code>forward_token</code>'s internal buffer layout has to expose the   pre-softmax residual — right now it's scratch-local.</p>
 <ul>
-<li><code>src/lib.rs:319</code> and <code>:429</code> â the two <code>forward_token</code> call sites in the</li>
+<li><code>src/lib.rs:319</code> and <code>:429</code> — the two <code>forward_token</code> call sites in the</li>
 <p>  decode loop. Wrap behind a <code>SpecConfig</code> struct on <code>GenRequest</code>; if   <code>None</code>, call <code>forward_token</code> unchanged; if <code>Some</code>, call <code>forward_tree</code>   and advance <code>cur</code> / <code>pos</code> by the accepted length.</p>
 <li><code>halo-core::sampler::Sampler</code> at</li>
-<p>  <code>crates/halo-core/src/sampler.rs</code> â currently samples one token from   one logits row. Needs a batched variant that takes a 2D logits buffer   and returns the argmax <em>per row</em> so the verify step can pick the   accepted prefix. Rep-penalty bookkeeping has to be applied to the   accepted tokens only (not the rejected branches) â easy to get wrong.</p>
+<p>  <code>crates/halo-core/src/sampler.rs</code> — currently samples one token from   one logits row. Needs a batched variant that takes a 2D logits buffer   and returns the argmax <em>per row</em> so the verify step can pick the   accepted prefix. Rep-penalty bookkeeping has to be applied to the   accepted tokens only (not the rejected branches) — easy to get wrong.</p>
 </ul>
 <h3 id="2-4-things-that-don-t-change">2.4 Things that <strong>don't</strong> change</h3>
 <ul>
 <li>Tokenizer (<code>crates/halo-router/src/tokenizer.rs</code>,</li>
-<p>  <code>crates/halo-core/src/htok.rs</code>) â vocabulary is the same backbone; heads   share <code>lm_head</code>.</p>
-<li>GGUF/.h1b loaders â heads are a separate 13 MB fp16 file; add one new</li>
+<p>  <code>crates/halo-core/src/htok.rs</code>) — vocabulary is the same backbone; heads   share <code>lm_head</code>.</p>
+<li>GGUF/.h1b loaders — heads are a separate 13 MB fp16 file; add one new</li>
 <p>  loader path, don't touch the backbone loader.</p>
-<li>RoPE / RMSNorm kernels â reused as-is for the tree verify pass.</li>
+<li>RoPE / RMSNorm kernels — reused as-is for the tree verify pass.</li>
 </ul>
 <h2 id="3-realistic-wall-clock-speedup-on-our-2b-batch-1">3. Realistic wall-clock speedup on our 2B, batch=1</h2>
 <p>Upstream numbers:</p>
 <ul>
-<li>Medusa-1 paper / Together blog: <strong>~2.2Ã</strong> on Vicuna 7B/13B batch=1,</li>
-<p>  on A100-class GPUs (<a href="https://arxiv.org/abs/2401.10774">paper Â§4</a>,   <a href="https://www.together.ai/blog/medusa">Together</a>).</p>
-<li>Medusa-2 (joint-train): <strong>2.3â3.6Ã</strong>.</li>
+<li>Medusa-1 paper / Together blog: <strong>~2.2×</strong> on Vicuna 7B/13B batch=1,</li>
+<p>  on A100-class GPUs (<a href="https://arxiv.org/abs/2401.10774">paper §4</a>,   <a href="https://www.together.ai/blog/medusa">Together</a>).</p>
+<li>Medusa-2 (joint-train): <strong>2.3–3.6×</strong>.</li>
 <li>MedusaBitNet-2B-4T card: <strong>2.08 tokens/backbone-step</strong> measured on</li>
 <p>  Ryzen AI MAX+ 395 <strong>CPU</strong>, PyTorch. CPU absolute throughput there is   72.7 tok/s for the Medusa path.</p>
 </ul>
-<p>NaÃ¯ve extrapolation to our GPU path: 83 tok/s Ã 2.08 â <strong>172 tok/s</strong>. That is the upper bound and is almost certainly not reachable. Three reasons we'd lose headroom vs. the Vicuna 2.2Ã figure:</p>
+<p>Naïve extrapolation to our GPU path: 83 tok/s × 2.08 ≈ <strong>172 tok/s</strong>. That is the upper bound and is almost certainly not reachable. Three reasons we'd lose headroom vs. the Vicuna 2.2× figure:</p>
 <ol>
 <li>Our backbone decode is already <strong>bandwidth-bound</strong> at 92% of LPDDR5</li>
-<p>   peak on the ternary GEMV (<code>project_bitnet_rocprof_plan.md</code>). Medusa's    win comes from amortizing one weight-stream across multiple accepted    tokens. If the small-M GEMM doesn't keep <em>the same</em> LPDDR5 efficiency,    we re-pay the bandwidth bill per verified token and the speedup    collapses toward 1Ã.</p>
+<p>   peak on the ternary GEMV (<code>project_bitnet_rocprof_plan.md</code>). Medusa's    win comes from amortizing one weight-stream across multiple accepted    tokens. If the small-M GEMM doesn't keep <em>the same</em> LPDDR5 efficiency,    we re-pay the bandwidth bill per verified token and the speedup    collapses toward 1×.</p>
 <li>Tree-attention kernel overhead is non-trivial at small tree sizes;</li>
-<p>   the paper uses trees of 42â64 nodes to hide it, but 64 nodes Ã 2B â    prefill pressure on a 4 GB/s inference budget.</p>
+<p>   the paper uses trees of 42–64 nodes to hide it, but 64 nodes × 2B ≈    prefill pressure on a 4 GB/s inference budget.</p>
 <li>The MedusaBitNet-2B-4T heads were trained <strong>only on Alpaca 52K</strong></li>
-<p>   (loss 9.85 â 3.32). Acceptance rate on our realistic prompts (code,    long-context chat) is **unknown â would need offline eval on our own    workload to verify**.</p>
+<p>   (loss 9.85 → 3.32). Acceptance rate on our realistic prompts (code,    long-context chat) is **unknown — would need offline eval on our own    workload to verify**.</p>
 </ol>
-<p>Honest estimate, with sources: **1.4â1.8Ã wall-clock on our batch=1 path, if the small-M GEMM holds its bandwidth**. Higher is possible if Medusa-2-style joint-training is done; lower if we hit GEMM inefficiency. Anything â¥ 2Ã on our silicon is unverified claim territory.</p>
+<p>Honest estimate, with sources: **1.4–1.8× wall-clock on our batch=1 path, if the small-M GEMM holds its bandwidth**. Higher is possible if Medusa-2-style joint-training is done; lower if we hit GEMM inefficiency. Anything ≥ 2× on our silicon is unverified claim territory.</p>
 <h2 id="4-prerequisites-not-yet-met">4. Prerequisites not yet met</h2>
 <p>Ranked by how much of a blocker each one is.</p>
 <ol>
-<li><strong>New HIP kernels â two of them.</strong></li>
+<li><strong>New HIP kernels — two of them.</strong></li>
 </ol>
 <ul>
 <li>Tree-attention variant of <code>kv_cache_attn_fd.hip</code>. Not a flag flip.</li>
-<p>     Estimate: 1â2 weeks of kernel work + bit-exact vs. reference PyTorch.</p>
+<p>     Estimate: 1–2 weeks of kernel work + bit-exact vs. reference PyTorch.</p>
 <li>Small-M ternary GEMM. Required to preserve the LPDDR5 efficiency</li>
 <p>     we already have. Can reuse layout / dequant logic from      <code>ternary_gemv_phase5_halo.hip</code>, but the tiling is new.</p>
 </ul>
 <ol>
 <li><strong>Draft heads retrained on our data.</strong> The public MedusaBitNet heads</li>
-<p>   are Alpaca-only. For any workload that isn't instruction-follow chat,    acceptance rate will drop. Medusa-1 training is cheap (~11 h CPU per    the model card, or one overnight on the Intel B770 slot in    <code>project_battlemage_distill.md</code>) but it <em>is</em> a training step we have    to run. Medusa-2 (joint finetune of backbone) is out â it would    destroy our bit-exact match with the Microsoft backbone and blow up    our ternary format guarantees.</p>
+<p>   are Alpaca-only. For any workload that isn't instruction-follow chat,    acceptance rate will drop. Medusa-1 training is cheap (~11 h CPU per    the model card, or one overnight on the Intel B770 slot in    <code>project_battlemage_distill.md</code>) but it <em>is</em> a training step we have    to run. Medusa-2 (joint finetune of backbone) is out — it would    destroy our bit-exact match with the Microsoft backbone and blow up    our ternary format guarantees.</p>
 <li><strong>Hidden-state exposure from <code>forward_token</code>.</strong> The current FFI</li>
 <p>   returns an int (the sampled token). Medusa needs the pre-<code>lm_head</code>    residual to feed the heads. This is a visibility change in    <code>halo-bitnet-hip</code>, not a new kernel, but it does ripple through the    FFI surface.</p>
 <li><strong>Batched sampler + rep-penalty accounting.</strong> Minor; Rust-side only.</li>
@@ -158,25 +165,25 @@
 <table>
 <thead><tr><th>Item</th><th>Expected win</th><th>Risk</th><th>Prereqs</th></tr></thead>
 <tbody>
-<tr><td><strong>Sherry 1.25-bit</strong></td><td>bytes-read â21% â ~15% decode speedup at 1024 tok</td><td>low â kernels already landed (<code>ternary_gemv_sherry.hip</code>), PPL pending</td><td>finish PPL eval, loader wiring</td></tr>
-<tr><td><strong>BitNet v2 (Hadamard, native W1.58A4)</strong></td><td>supersedes a4.8 staged recipe</td><td>medium â format churn if MS re-releases 2B weights; new act quant kernel</td><td>paper drop 2025-04, code TBD</td></tr>
-<tr><td><strong>Activation sparsity Phase 2</strong></td><td>upper bound 10â15%, we measured 79.91% sparsity</td><td>low speedup due to 600:1 weight-bandwidth domination</td><td>already deferred, see memory</td></tr>
-<tr><td><strong>Medusa (this plan)</strong></td><td>1.4â1.8Ã if everything works</td><td><strong>high</strong> â two new HIP kernels, retrained heads, bandwidth fight, end-to-end measurement from zero</td><td>kernels + heads + FFI reshape</td></tr>
+<tr><td><strong>Sherry 1.25-bit</strong></td><td>bytes-read −21% → ~15% decode speedup at 1024 tok</td><td>low — kernels already landed (<code>ternary_gemv_sherry.hip</code>), PPL pending</td><td>finish PPL eval, loader wiring</td></tr>
+<tr><td><strong>BitNet v2 (Hadamard, native W1.58A4)</strong></td><td>supersedes a4.8 staged recipe</td><td>medium — format churn if MS re-releases 2B weights; new act quant kernel</td><td>paper drop 2025-04, code TBD</td></tr>
+<tr><td><strong>Activation sparsity Phase 2</strong></td><td>upper bound 10–15%, we measured 79.91% sparsity</td><td>low speedup due to 600:1 weight-bandwidth domination</td><td>already deferred, see memory</td></tr>
+<tr><td><strong>Medusa (this plan)</strong></td><td>1.4–1.8× if everything works</td><td><strong>high</strong> — two new HIP kernels, retrained heads, bandwidth fight, end-to-end measurement from zero</td><td>kernels + heads + FFI reshape</td></tr>
 </tbody></table>
 <p><strong>Firm recommendation: defer.</strong> The expected-value per engineering-week is worse than Sherry. Sherry is an in-flight kernel with the slow part already written; Medusa is two fresh kernels, a training run, and an FFI redesign, with the payoff capped by the same LPDDR5 ceiling Sherry directly attacks. Revisit Medusa <strong>after</strong>:</p>
 <ul>
 <li>Sherry 1.25-bit is benched end-to-end (need the real post-Sherry</li>
 <p>  baseline; the Medusa speedup is multiplicative on whatever the new   baseline is).</p>
-<li>BitNet v2 decision lands (format churn risk â no point training</li>
+<li>BitNet v2 decision lands (format churn risk — no point training</li>
 <p>  Medusa heads against an about-to-be-replaced backbone).</p>
 <li>We have one confirmed workload where Alpaca-style acceptance rate</li>
 <p>  is <em>not</em> the best-case (i.e., we've measured heads-1 acceptance on   code or long-context and it isn't 63%).</p>
 </ul>
-<p>If all three clear and the batch=1 decode is still the bottleneck users complain about, spin up Medusa as its own 2â3-week sprint: one week kernels, one week retrain heads on our traffic, one week wiring and bit-exact verify.</p>
+<p>If all three clear and the batch=1 decode is still the bottleneck users complain about, spin up Medusa as its own 2–3-week sprint: one week kernels, one week retrain heads on our traffic, one week wiring and bit-exact verify.</p>
 <h2 id="sources">Sources</h2>
 <ul>
 <li>Cai et al., *Medusa: Simple LLM Inference Acceleration Framework with</li>
-<p>  Multiple Decoding Heads* â arXiv   <a href="https://arxiv.org/abs/2401.10774">2401.10774</a>, ICML 2024.</p>
+<p>  Multiple Decoding Heads* — arXiv   <a href="https://arxiv.org/abs/2401.10774">2401.10774</a>, ICML 2024.</p>
 <li><a href="https://github.com/FasterDecoding/Medusa">FasterDecoding/Medusa</a>.</li>
 <li><a href="https://www.together.ai/blog/medusa">Together AI Medusa blog</a>.</li>
 <li><a href="https://huggingface.co/parrishcorcoran/MedusaBitNet-2B-4T">parrishcorcoran/MedusaBitNet-2B-4T</a>.</li>

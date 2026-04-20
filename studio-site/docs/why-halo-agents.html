@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Why halo-agents? · halo-ai docs</title>
+  <meta name="description" content="halo-ai docs: Why halo-agents?">
+  <link rel="stylesheet" href="/docs/docs.css">
+</head>
+<body data-slug="why-halo-agents">
+<nav class="doc-topbar">
+  <a href="/" class="logo">halo-<span>ai</span></a>
+  <a href="/docs/">docs</a>
+  <input type="search" placeholder="filter…" id="q" autocomplete="off">
+</nav>
+<div class="doc-shell">
+<nav class="doc-sidebar" id="sidebar">
+<a class="home-link" href="/docs/">&larr; all docs</a>
+<div class="group"><h4>Getting started</h4><ul>
+<li data-slug="home"><a href="/docs/home.html">halo-ai-rs wiki</a></li>
+<li data-slug="faq"><a href="/docs/faq.html">FAQ</a></li>
+</ul></div>
+<div class="group"><h4>Why we built it this way</h4><ul>
+<li data-slug="why-ternary"><a href="/docs/why-ternary.html">Why 1.58-bit ternary?</a></li>
+<li data-slug="why-rust"><a href="/docs/why-rust.html">Why Rust above, C++ below?</a></li>
+<li data-slug="why-strix-halo"><a href="/docs/why-strix-halo.html">Why Strix Halo (gfx1151)?</a></li>
+<li data-slug="why-shadow-burnin"><a href="/docs/why-shadow-burnin.html">Why shadow-burnin?</a></li>
+<li data-slug="why-no-python"><a href="/docs/why-no-python.html">Why no Python at runtime? (Rule A)</a></li>
+<li data-slug="why-no-npu-yet"><a href="/docs/why-no-npu-yet.html">Why no NPU yet?</a></li>
+<li data-slug="why-this-way-how"><a href="/docs/why-this-way-how.html">Why this way + how — the design walkthrough</a></li>
+<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why <code>halo power</code>?</a></li>
+</ul></div>
+<div class="group"><h4>Research</h4><ul>
+<li data-slug="medusa-integration-plan"><a href="/docs/medusa-integration-plan.html">Medusa Integration Plan (halo-ai-rs / gen-2)</a></li>
+<li data-slug="halo-whisper-streaming-plan"><a href="/docs/halo-whisper-streaming-plan.html">Halo-Whisper Streaming Plan</a></li>
+<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via <code>--kv-quant rotor-3</code></a></li>
+</ul></div>
+<div class="group"><h4>Integrations</h4><ul>
+<li data-slug="hermes-integration"><a href="/docs/hermes-integration.html">Hermes Agent integration</a></li>
+<li data-slug="cloudflare-tunnel-setup"><a href="/docs/cloudflare-tunnel-setup.html">Cloudflare Tunnel Setup — api.halo-ai.studio</a></li>
+</ul></div>
+<div class="group"><h4>Other</h4><ul>
+<li data-slug="benchmarks"><a href="/docs/benchmarks.html">Live tok/s + PPL</a></li>
+<li data-slug="why-caddy-systemd"><a href="/docs/why-caddy-systemd.html">Why Caddy + user-scope systemd?</a></li>
+<li data-slug="why-h1b-format"><a href="/docs/why-h1b-format.html">Why our own <code>.h1b</code> format?</a></li>
+<li data-slug="why-halo-agents"><a href="/docs/why-halo-agents.html">Why halo-agents?</a></li>
+<li data-slug="why-parity-gates"><a href="/docs/why-parity-gates.html">Why shadow-traffic parity gates?</a></li>
+</ul></div>
+</nav>
+
+<main class="doc-main">
+  <h1>Why halo-agents?</h1>
+  <p><strong>One-line answer</strong>: 17 typed specialists in one Rust file. Not a framework, not a DAG engine, not a "multi-agent orchestrator" — just a registry of concrete ops the box needs to do, with typed inputs and typed outputs. Each one is tiny; the boundary between them is a <code>Name</code> enum.</p>
+<h2 id="one-file-one-source-of-truth">One file, one source of truth</h2>
+<p>Everything lives in <a href="../../crates/halo-agents/src/lib.rs"><code>crates/halo-agents/src/lib.rs</code></a>. The enum and its <code>ALL</code> constant are the registry:</p>
+<pre><code class="language-rust">pub enum Name {
+    Anvil, Carpenter, Cartograph, EchoEar, EchoMouth, Forge, Gateway, Herald,
+    Librarian, Magistrate, Muse, Planner, Quartermaster, Scribe, Sentinel,
+    Sommelier, Warden,
+}
+
+impl Name {
+    pub const ALL: &amp;'static [Name] = &amp;[ /* 17 entries */ ];
+}
+</code></pre>
+<p>One test asserts <code>Name::ALL.len() == 17</code>. Add a specialist, the test breaks until you list it. No runtime registration, no plugin loader, no YAML.</p>
+<h2 id="the-17-specialists">The 17 specialists</h2>
+<p>Each name maps to one concrete job on strixhalo — not a "role" or a "persona":</p>
+<ul>
+<li><strong>anvil</strong> — kernel builder (hipcc + rocprof wrappers)</li>
+<li><strong>carpenter</strong> — scaffolds new Rust crates</li>
+<li><strong>cartograph</strong> — repo-graph + dep analyzer</li>
+<li><strong>echo_ear</strong> — whisper.cpp STT driver</li>
+<li><strong>echo_mouth</strong> — kokoro TTS driver</li>
+<li><strong>forge</strong> — requantizer frontend (safetensors → <code>.h1b</code>)</li>
+<li><strong>gateway</strong> — OpenAI-compat router smoke tests</li>
+<li><strong>herald</strong> — announcement + changelog drafter</li>
+<li><strong>librarian</strong> — MEMORY.md / USER.md curator</li>
+<li><strong>magistrate</strong> — PPL + parity gate enforcer</li>
+<li><strong>muse</strong> — prompt refiner + sampler sweep</li>
+<li><strong>planner</strong> — task decomposition for Claude / Hermes</li>
+<li><strong>quartermaster</strong> — <code>halo install</code> packager</li>
+<li><strong>scribe</strong> — session transcript writer</li>
+<li><strong>sentinel</strong> — shadow-burnin watcher + alerter</li>
+<li><strong>sommelier</strong> — model picker (size vs quality trade)</li>
+<li><strong>warden</strong> — <code>halo doctor</code> health checks</li>
+</ul>
+<p>Not 17 as a target — 17 as today's count of recurring ops tasks. Growth is fine; churn breaks the test, which is the point.</p>
+<h2 id="typedspecialist-dspy-style-serde-typed">TypedSpecialist: DSPy-style, serde-typed</h2>
+<p>Every specialist declares <code>Input</code> + <code>Output</code> structs with <code>#[derive(Serialize, Deserialize, JsonSchema)]</code>:</p>
+<pre><code class="language-rust">impl TypedSpecialist for AnvilSpecialist {
+    type Input = AnvilInput;
+    type Output = AnvilOutput;
+    const NAME: Name = Name::Anvil;
+    const DESCRIPTION: &amp;'static str = "Build + profile a HIP kernel";
+    async fn handle_typed(&amp;self, req: AnvilInput) -&gt; Result&lt;AnvilOutput&gt; { ... }
+}
+</code></pre>
+<p>The <code>Typed&lt;T&gt;</code> adapter wraps any <code>TypedSpecialist</code> and implements the dyn-safe <code>Specialist</code> trait. One blanket impl drives serde + <code>schema_for!</code>. MCP <code>tools/list</code> falls out for free — Claude Code and DSPy render typed call UIs without round-tripping through the specialist first.</p>
+<h2 id="why-not-langchain-crewai-autogen">Why not LangChain / CrewAI / AutoGen</h2>
+<ul>
+<li><strong>Python in the runtime.</strong> Rule A. Not negotiable.</li>
+<li><strong>`</strong>kwargs` contracts.** No typed input/output. A bad field fails six levels deep in a stack trace the user sees as a 500.</li>
+<li><strong>Runtime agent graphs.</strong> We need 17 one-shot tools, not a graph engine.</li>
+</ul>
+<h2 id="why-not-one-god-class">Why not one god-class</h2>
+<p>Hermes' <code>AIAgent</code> is ~10,700 LOC in one file. That shape means:</p>
+<ul>
+<li>Every tool share globals; blast radius on a bug is the whole agent.</li>
+<li>Test fixtures need the full instantiation of the god-object.</li>
+<li>Inputs are untyped <code>Value</code> — schema lives in the prompt.</li>
+</ul>
+<p>Our 17 specialists are each 100-400 LOC. Tests are per-specialist. Inputs are typed. Blast radius = one crate.</p>
+<h2 id="how-claude-hermes-see-them">How Claude / Hermes see them</h2>
+<p>Via <a href="../../crates/halo-mcp/"><code>halo-mcp</code></a> — a tokio stdio JSON-RPC bridge. All 17 specialists surface as MCP tools, plus <code>skill_manage</code> and <code>memory_manage</code> (file-backed, see <a href="/docs/hermes-integration.html">Hermes Integration</a>). That's <strong>19 MCP tools total</strong>. Any MCP-speaking client drives the box.</p>
+<h2 id="pointers">Pointers</h2>
+<ul>
+<li>Registry: <a href="../../crates/halo-agents/src/lib.rs"><code>crates/halo-agents/src/lib.rs</code></a></li>
+<li>Bridge: <a href="../../crates/halo-mcp/"><code>crates/halo-mcp/</code></a></li>
+<li>External client setup: <a href="/docs/hermes-integration.html">Hermes Integration</a></li>
+</ul>
+
+</main>
+</div>
+<script src="/docs/docs.js"></script>
+</body>
+</html>

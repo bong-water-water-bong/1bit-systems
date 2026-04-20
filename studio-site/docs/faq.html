@@ -28,16 +28,23 @@
 <li data-slug="why-no-python"><a href="/docs/why-no-python.html">Why no Python at runtime? (Rule A)</a></li>
 <li data-slug="why-no-npu-yet"><a href="/docs/why-no-npu-yet.html">Why no NPU yet?</a></li>
 <li data-slug="why-this-way-how"><a href="/docs/why-this-way-how.html">Why this way + how — the design walkthrough</a></li>
-<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why `halo power`?</a></li>
+<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why <code>halo power</code>?</a></li>
 </ul></div>
 <div class="group"><h4>Research</h4><ul>
 <li data-slug="medusa-integration-plan"><a href="/docs/medusa-integration-plan.html">Medusa Integration Plan (halo-ai-rs / gen-2)</a></li>
 <li data-slug="halo-whisper-streaming-plan"><a href="/docs/halo-whisper-streaming-plan.html">Halo-Whisper Streaming Plan</a></li>
-<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via `--kv-quant rotor-3`</a></li>
+<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via <code>--kv-quant rotor-3</code></a></li>
 </ul></div>
 <div class="group"><h4>Integrations</h4><ul>
 <li data-slug="hermes-integration"><a href="/docs/hermes-integration.html">Hermes Agent integration</a></li>
 <li data-slug="cloudflare-tunnel-setup"><a href="/docs/cloudflare-tunnel-setup.html">Cloudflare Tunnel Setup — api.halo-ai.studio</a></li>
+</ul></div>
+<div class="group"><h4>Other</h4><ul>
+<li data-slug="benchmarks"><a href="/docs/benchmarks.html">Live tok/s + PPL</a></li>
+<li data-slug="why-caddy-systemd"><a href="/docs/why-caddy-systemd.html">Why Caddy + user-scope systemd?</a></li>
+<li data-slug="why-h1b-format"><a href="/docs/why-h1b-format.html">Why our own <code>.h1b</code> format?</a></li>
+<li data-slug="why-halo-agents"><a href="/docs/why-halo-agents.html">Why halo-agents?</a></li>
+<li data-slug="why-parity-gates"><a href="/docs/why-parity-gates.html">Why shadow-traffic parity gates?</a></li>
 </ul></div>
 </nav>
 
@@ -51,7 +58,7 @@
 <ul>
 <li>83 tok/s at 64-token generation</li>
 <li>68 tok/s at 1024-token generation</li>
-<li>Perplexity 9.18 on wikitext-103 (matches Microsoft paper's 9.1607 within Â±0.05)</li>
+<li>Perplexity 9.18 on wikitext-103 (matches Microsoft paper's 9.1607 within ±0.05)</li>
 <li>96.66% byte-identical output vs the reference C++ server after ~10 000 side-by-side rounds</li>
 </ul>
 <h2 id="how-do-i-install-it">How do I install it?</h2>
@@ -63,49 +70,49 @@ cd halo-ai-core
 <h2 id="what-clients-work-with-it">What clients work with it?</h2>
 <p>Anything that accepts an OpenAI-compatible <code>base_url</code>:</p>
 <ul>
-<li><strong>Open WebUI</strong> â polished desktop-style chat, full RAG + MCP</li>
-<li><strong>LibreChat</strong> â yaml-configured OpenAI alternative</li>
-<li><strong>DSPy</strong> (Stanford) â compile declarative LM programs against halo-server</li>
-<li><strong>Claude Code</strong> â halo-mcp registers as MCP server; 17 specialists appear as tools</li>
-<li><strong>halo-gaia</strong> â our own terminal TUI</li>
+<li><strong>Open WebUI</strong> — polished desktop-style chat, full RAG + MCP</li>
+<li><strong>LibreChat</strong> — yaml-configured OpenAI alternative</li>
+<li><strong>DSPy</strong> (Stanford) — compile declarative LM programs against halo-server</li>
+<li><strong>Claude Code</strong> — halo-mcp registers as MCP server; 17 specialists appear as tools</li>
+<li><strong>halo-gaia</strong> — our own terminal TUI</li>
 <li><strong>lemonade-python-sdk</strong> via the Lemonade-compat shim on <code>:8200</code></li>
 </ul>
 <h2 id="why-1-58-bit-and-not-1-bit">Why 1.58-bit and not 1-bit?</h2>
-<p>See <a href="/docs/why-ternary.html"><code>Why-Ternary.md</code></a>. Summary: ternary has a load-bearing zero that maps to activation sparsity, hardware efficiency, and 10Ã memory reduction with near-zero accuracy loss.</p>
+<p>See <a href="/docs/why-ternary.html"><code>Why-Ternary.md</code></a>. Summary: ternary has a load-bearing zero that maps to activation sparsity, hardware efficiency, and 10× memory reduction with near-zero accuracy loss.</p>
 <h2 id="why-rust-and-not-python">Why Rust and not Python?</h2>
 <p>See <a href="/docs/why-no-python.html"><code>Why-No-Python.md</code></a>. Summary: 200 ms cold-start vs 10 seconds, 15 MB binary vs 1.2 GB venv, <code>Result&lt;T, E&gt;</code> vs <code>KeyError</code> at line unknown.</p>
 <h2 id="is-it-ready">Is it ready?</h2>
 <p>For private-beta testers, yes. PPL parity proven, shadow-burnin at 96.66% byte-exact, CI green, tester-installable. Public launch (reddit post, Steam-community-style rollout) after the 72-hour burnin gate clears. See <a href="../../CUTOVER.md"><code>../../CUTOVER.md</code></a>.</p>
 <h2 id="can-i-run-it-on-apple-silicon">Can I run it on Apple Silicon?</h2>
-<p>Yes. The workspace is feature-gated â <code>cargo build --workspace --features mlx-apple</code> pulls in <code>bitnet-mlx-rs</code> and targets M-series via MLX. Same code, different kernel backend. AMD is the performance target; Apple is supported but not optimized.</p>
+<p>Yes. The workspace is feature-gated — <code>cargo build --workspace --features mlx-apple</code> pulls in <code>bitnet-mlx-rs</code> and targets M-series via MLX. Same code, different kernel backend. AMD is the performance target; Apple is supported but not optimized.</p>
 <h2 id="can-i-run-it-on-nvidia">Can I run it on NVIDIA?</h2>
-<p>Not today. Our kernels are HIP. A future CUDA port is technically doable (HIP â CUDA is mostly mechanical) but not planned. A Windows/NVIDIA build would need a new maintainer.</p>
+<p>Not today. Our kernels are HIP. A future CUDA port is technically doable (HIP → CUDA is mostly mechanical) but not planned. A Windows/NVIDIA build would need a new maintainer.</p>
 <h2 id="can-i-use-my-own-model">Can I use my own model?</h2>
 <p>Partially:</p>
 <ul>
-<li>Any BitNet GGUF with IQ2_S weights should load through our <code>halo-core::gguf</code> path (commit <code>2d1ec89</code>). Currently parse-only; the IQ2_S â <code>.h1b</code> bit-unpack lands next sprint.</li>
+<li>Any BitNet GGUF with IQ2_S weights should load through our <code>halo-core::gguf</code> path (commit <code>2d1ec89</code>). Currently parse-only; the IQ2_S → <code>.h1b</code> bit-unpack lands next sprint.</li>
 <li>Microsoft's <code>bitnet-b1.58-2B-4T</code> works today via our <code>.h1b</code> format + requantizer.</li>
 <li>Non-BitNet architectures (Llama, Mistral, Qwen) don't run on the ternary kernels. Those models use their own non-1.58-bit formats.</li>
 </ul>
 <h2 id="what-s-halo-agents">What's halo-agents?</h2>
-<p>17 specialist agents running in the background â anvil rebuilds kernels on commit, librarian keeps the changelog, quartermaster triages issues, magistrate scans PRs for secrets + commit-msg compliance. See the <code>halo-agents</code> crate. Exposed via MCP so Claude Code and DSPy can call them as tools.</p>
+<p>17 specialist agents running in the background — anvil rebuilds kernels on commit, librarian keeps the changelog, quartermaster triages issues, magistrate scans PRs for secrets + commit-msg compliance. See the <code>halo-agents</code> crate. Exposed via MCP so Claude Code and DSPy can call them as tools.</p>
 <h2 id="what-s-shadow-burnin">What's shadow-burnin?</h2>
 <p>See <a href="/docs/why-shadow-burnin.html"><code>Why-Shadow-Burnin.md</code></a>. Continuous parity check between the gen-1 C++ server and gen-2 Rust server so we can cut over with evidence, not faith.</p>
 <h2 id="why-not-just-use-ollama-lm-studio-vllm">Why not just use Ollama / LM Studio / vLLM?</h2>
 <ul>
-<li><strong>Ollama</strong> â CPU-first, runs BitNet via llama.cpp's ternary kernels, no native gfx1151 optimization. We're ~5Ã faster on the same box.</li>
-<li><strong>LM Studio</strong> â GUI-only, closed-source. Can't drive it from automation.</li>
-<li><strong>vLLM</strong> â NVIDIA-first, CUDA-only. No AMD iGPU path today.</li>
+<li><strong>Ollama</strong> — CPU-first, runs BitNet via llama.cpp's ternary kernels, no native gfx1151 optimization. We're ~5× faster on the same box.</li>
+<li><strong>LM Studio</strong> — GUI-only, closed-source. Can't drive it from automation.</li>
+<li><strong>vLLM</strong> — NVIDIA-first, CUDA-only. No AMD iGPU path today.</li>
 </ul>
 <p>Also: none of them ship an MCP server, self-maintaining agents, Lemonade-compat gateway, or a recording-ready landing page. halo-ai is the batteries-included bundle, not just the kernel.</p>
 <h2 id="is-it-open-source">Is it open source?</h2>
 <ul>
-<li>Kernels (<code>bong-water-water-bong/rocm-cpp</code>) â MIT, public.</li>
-<li>Rust monorepo (<code>halo-ai-rs</code>) â private until launch. Collaborator invites available.</li>
+<li>Kernels (<code>bong-water-water-bong/rocm-cpp</code>) — MIT, public.</li>
+<li>Rust monorepo (<code>halo-ai-rs</code>) — private until launch. Collaborator invites available.</li>
 <li>Everything we fork or borrow is credited in <a href="../../CONTRIBUTING.md"><code>../../CONTRIBUTING.md</code></a>.</li>
 </ul>
 <h2 id="who-s-behind-it">Who's behind it?</h2>
-<p>One operator, one box, one Claude Code session that won't quit. See <a href="../../CONTRIBUTING.md"><code>../../CONTRIBUTING.md</code></a> for acknowledgements â huge thanks to Light Heart Labs, Microsoft's BitNet team, the llama.cpp/ggml maintainers, and everyone whose shoulders we're standing on.</p>
+<p>One operator, one box, one Claude Code session that won't quit. See <a href="../../CONTRIBUTING.md"><code>../../CONTRIBUTING.md</code></a> for acknowledgements — huge thanks to Light Heart Labs, Microsoft's BitNet team, the llama.cpp/ggml maintainers, and everyone whose shoulders we're standing on.</p>
 
 </main>
 </div>

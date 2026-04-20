@@ -28,16 +28,23 @@
 <li data-slug="why-no-python"><a href="/docs/why-no-python.html">Why no Python at runtime? (Rule A)</a></li>
 <li data-slug="why-no-npu-yet"><a href="/docs/why-no-npu-yet.html">Why no NPU yet?</a></li>
 <li data-slug="why-this-way-how"><a href="/docs/why-this-way-how.html">Why this way + how — the design walkthrough</a></li>
-<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why `halo power`?</a></li>
+<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why <code>halo power</code>?</a></li>
 </ul></div>
 <div class="group"><h4>Research</h4><ul>
 <li data-slug="medusa-integration-plan"><a href="/docs/medusa-integration-plan.html">Medusa Integration Plan (halo-ai-rs / gen-2)</a></li>
 <li data-slug="halo-whisper-streaming-plan"><a href="/docs/halo-whisper-streaming-plan.html">Halo-Whisper Streaming Plan</a></li>
-<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via `--kv-quant rotor-3`</a></li>
+<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via <code>--kv-quant rotor-3</code></a></li>
 </ul></div>
 <div class="group"><h4>Integrations</h4><ul>
 <li data-slug="hermes-integration"><a href="/docs/hermes-integration.html">Hermes Agent integration</a></li>
 <li data-slug="cloudflare-tunnel-setup"><a href="/docs/cloudflare-tunnel-setup.html">Cloudflare Tunnel Setup — api.halo-ai.studio</a></li>
+</ul></div>
+<div class="group"><h4>Other</h4><ul>
+<li data-slug="benchmarks"><a href="/docs/benchmarks.html">Live tok/s + PPL</a></li>
+<li data-slug="why-caddy-systemd"><a href="/docs/why-caddy-systemd.html">Why Caddy + user-scope systemd?</a></li>
+<li data-slug="why-h1b-format"><a href="/docs/why-h1b-format.html">Why our own <code>.h1b</code> format?</a></li>
+<li data-slug="why-halo-agents"><a href="/docs/why-halo-agents.html">Why halo-agents?</a></li>
+<li data-slug="why-parity-gates"><a href="/docs/why-parity-gates.html">Why shadow-traffic parity gates?</a></li>
 </ul></div>
 </nav>
 
@@ -46,12 +53,12 @@
   <p>Status: research + planning, 2026-04-20. No crate <code>halo-whisper</code> exists yet; voice input is currently batch-POST whole-file transcription (outside this workspace). This doc is the design for the streaming rewrite that will let <code>halo-voice</code> start reacting before the user stops talking.</p>
 <p>Companion notes:</p>
 <ul>
-<li><code>project_halo_kokoro.md</code> â TTS side (kokoro, echo_mouth)</li>
-<li><code>project_voice_latency_sharding.md</code> â current 1â3 s mouth-to-ear budget</li>
-<li><code>docs/wiki/Why-Rust.md</code> â Rule A/B: C++ kernel, Rust everywhere else</li>
+<li><code>project_halo_kokoro.md</code> — TTS side (kokoro, echo_mouth)</li>
+<li><code>project_voice_latency_sharding.md</code> — current 1–3 s mouth-to-ear budget</li>
+<li><code>docs/wiki/Why-Rust.md</code> — Rule A/B: C++ kernel, Rust everywhere else</li>
 </ul>
 <h2 id="1-does-whisper-cpp-have-streaming-today">1. Does whisper.cpp have streaming today?</h2>
-<p><strong>Partially â there is a <code>stream</code> example, not a streaming API.</strong></p>
+<p><strong>Partially — there is a <code>stream</code> example, not a streaming API.</strong></p>
 <p><code>whisper.cpp/examples/stream/stream.cpp</code> runs a tight loop that:</p>
 <ol>
 <li>reads <code>step_ms</code> (default ~500 ms) of fresh PCM16 from SDL2,</li>
@@ -64,7 +71,7 @@
 <p>   <code>params.prompt_tokens</code> / <code>params.prompt_n_tokens</code> for context.</p>
 </ol>
 <p>Flags exposed: <code>--step</code>, <code>--length</code>, <code>--keep</code>, and VAD mode via <code>--step 0</code> + <code>-vth</code>. VAD path uses an internal <code>vad_simple()</code> energy detector and only fires <code>whisper_full</code> once silence closes a phrase, trading latency for one-shot accuracy.</p>
-<p>So the "streaming" mode is <strong>still batch under the hood</strong> â it is just many small batches with overlap. There is no token-by-token partial emission in the model itself; every call re-decodes the whole window from the encoder output. The partial-transcript behaviour users see comes from the fact that each window is small (3â5 s).</p>
+<p>So the "streaming" mode is <strong>still batch under the hood</strong> — it is just many small batches with overlap. There is no token-by-token partial emission in the model itself; every call re-decodes the whole window from the encoder output. The partial-transcript behaviour users see comes from the fact that each window is small (3–5 s).</p>
 <p>Key public API functions this proves are stable in <code>whisper.h</code>:</p>
 <table>
 <thead><tr><th>Function</th><th>Role in our streaming plan</th></tr></thead>
@@ -86,28 +93,28 @@
 <li><strong>Latency</strong>: bounded by <code>step_ms</code>. 500 ms is the typical floor; pushing</li>
 <p>  below that starves the decoder because a single <code>whisper_full</code> call   still costs tens of ms on a tiny/base model.</p>
 <li><strong>Cost per emission</strong>: each tick re-encodes <code>length_ms</code> (commonly</li>
-<p>  3000â5000) and re-decodes the whole window. That is <strong>wasted work</strong>   â most of the window hasn't changed.</p>
+<p>  3000–5000) and re-decodes the whole window. That is <strong>wasted work</strong>   — most of the window hasn't changed.</p>
 <li><strong>Hallucination risk</strong>: very short chunks with no linguistic context</li>
 <p>  make whisper hallucinate. <code>keep_ms</code> (typically 200 ms) and   <code>params.prompt_tokens</code> from the last segment mitigate this but do   not eliminate it.</p>
 <li><strong>Good for</strong>: Echo's "start reacting while user is mid-sentence"</li>
-<p>  use case â we want the partial even if it's noisy, halo-voice can   gate on confidence.</p>
+<p>  use case — we want the partial even if it's noisy, halo-voice can   gate on confidence.</p>
 </ul>
 <h3 id="vad-triggered-one-phrase-at-a-time">VAD-triggered (one phrase at a time)</h3>
 <ul>
-<li><strong>Latency</strong>: only emits after trailing silence â¥ threshold (e.g.</li>
-<p>  250â500 ms). Adds a silence-hangover delay on top of model time.</p>
+<li><strong>Latency</strong>: only emits after trailing silence ≥ threshold (e.g.</li>
+<p>  250–500 ms). Adds a silence-hangover delay on top of model time.</p>
 <li><strong>Cost per emission</strong>: single <code>whisper_full</code> per utterance, so much</li>
 <p>  lower total CPU.</p>
-<li><strong>Accuracy</strong>: highest â the model sees the whole phrase end-to-end.</li>
+<li><strong>Accuracy</strong>: highest — the model sees the whole phrase end-to-end.</li>
 <li><strong>Good for</strong>: halo-mcp voice tool invocations, dictation mode.</li>
-<li><strong>Bad for</strong>: barge-in / duplex conversation â we lose the pre-end</li>
+<li><strong>Bad for</strong>: barge-in / duplex conversation — we lose the pre-end</li>
 <p>  partial we need to start warming the LLM.</p>
 </ul>
 <h3 id="re-hypothesis-cost-on-overlap">Re-hypothesis cost on overlap</h3>
 <p>Every sliding call redoes:</p>
 <ul>
-<li>mel spectrogram of <code>length_ms</code> (cheap, ~1â2% of the call),</li>
-<li>encoder pass (expensive â dominant cost, scales ~linearly with</li>
+<li>mel spectrogram of <code>length_ms</code> (cheap, ~1–2% of the call),</li>
+<li>encoder pass (expensive — dominant cost, scales ~linearly with</li>
 <p>  <code>length_ms</code>),</p>
 <li>beam/greedy decode (bounded by <code>max_tokens</code>).</li>
 </ul>
@@ -115,7 +122,7 @@
 <h3 id="our-pick">Our pick</h3>
 <p><strong>Fixed window + VAD-on-tail hybrid.</strong> Run the sliding window for partials while speech is active, then on trailing silence do one <strong>committed</strong> <code>whisper_full</code> over the whole utterance to replace the streamed partials with the final hypothesis. halo-voice treats partials as "draft" and the committed result as "final". This mirrors what Google / Deepgram APIs expose (<code>is_final: bool</code>) and keeps halo-voice's state machine simple.</p>
 <h2 id="3-rust-side-ffi-shape">3. Rust-side FFI shape</h2>
-<p><code>crates/halo-whisper</code> (pending â <strong>does not exist on disk today</strong>, verified 2026-04-20) will own the FFI boundary. <code>halo-bitnet-hip</code> provides the pattern: thin <code>-sys</code> module + safe wrapper, no kernel reimplementation. whisper.cpp is CPU-only in our use (the mel + encoder + decoder are tiny relative to BitNet); no HIP port needed.</p>
+<p><code>crates/halo-whisper</code> (pending — <strong>does not exist on disk today</strong>, verified 2026-04-20) will own the FFI boundary. <code>halo-bitnet-hip</code> provides the pattern: thin <code>-sys</code> module + safe wrapper, no kernel reimplementation. whisper.cpp is CPU-only in our use (the mel + encoder + decoder are tiny relative to BitNet); no HIP port needed.</p>
 <p>Proposed core trait:</p>
 <pre><code class="language-rust">pub struct Partial {
     pub text: String,      // UTF-8
@@ -138,24 +145,24 @@ pub trait WhisperStream {
     fn drain_partials(&amp;mut self) -&gt; Vec&lt;Partial&gt;;
 }
 </code></pre>
-<h3 id="method-c-function-mapping">Method â C function mapping</h3>
+<h3 id="method-c-function-mapping">Method → C function mapping</h3>
 <table>
 <thead><tr><th>Rust trait surface</th><th>whisper.cpp function(s) called</th></tr></thead>
 <tbody>
 <tr><td><code>WhisperStream::new(ctx, cfg)</code></td><td><code>whisper_init_state(ctx)</code> once per stream; <code>whisper_full_default_params(sampling)</code> cached</td></tr>
-<tr><td><code>feed_pcm16(&amp;mut self, &amp;[i16])</code></td><td><strong>no FFI call</strong>. Converts i16âf32 and pushes into a ring buffer owned by the Rust side. The scheduler on the worker thread decides when to fire a window.</td></tr>
-<tr><td>worker: window tick (sliding)</td><td><code>whisper_full_with_state(ctx, state, params, pcm_f32, n)</code> â <code>params.no_context=false</code>, <code>params.single_segment=true</code> (for low latency), <code>params.prompt_tokens</code> carries last segment's tail tokens</td></tr>
-<tr><td>worker: harvest partials</td><td><code>whisper_full_n_segments_with_state(state)</code> â loop <code>whisper_full_get_segment_text_with_state(state, i)</code> + <code>..._get_segment_t0/_t1(state, i)</code>. Build <code>Partial { is_final: false, ... }</code></td></tr>
-<tr><td>worker: VAD tail â commit</td><td>one more <code>whisper_full_with_state</code> over the whole utterance with <code>params.no_context=true, params.single_segment=false</code>; emit <code>Partial { is_final: true, ... }</code></td></tr>
-<tr><td><code>drain_partials()</code></td><td>pop from crossbeam channel fed by worker â no FFI</td></tr>
+<tr><td><code>feed_pcm16(&amp;mut self, &amp;[i16])</code></td><td><strong>no FFI call</strong>. Converts i16→f32 and pushes into a ring buffer owned by the Rust side. The scheduler on the worker thread decides when to fire a window.</td></tr>
+<tr><td>worker: window tick (sliding)</td><td><code>whisper_full_with_state(ctx, state, params, pcm_f32, n)</code> — <code>params.no_context=false</code>, <code>params.single_segment=true</code> (for low latency), <code>params.prompt_tokens</code> carries last segment's tail tokens</td></tr>
+<tr><td>worker: harvest partials</td><td><code>whisper_full_n_segments_with_state(state)</code> → loop <code>whisper_full_get_segment_text_with_state(state, i)</code> + <code>..._get_segment_t0/_t1(state, i)</code>. Build <code>Partial { is_final: false, ... }</code></td></tr>
+<tr><td>worker: VAD tail → commit</td><td>one more <code>whisper_full_with_state</code> over the whole utterance with <code>params.no_context=true, params.single_segment=false</code>; emit <code>Partial { is_final: true, ... }</code></td></tr>
+<tr><td><code>drain_partials()</code></td><td>pop from crossbeam channel fed by worker — no FFI</td></tr>
 <tr><td><code>Drop for WhisperStreamImpl</code></td><td><code>whisper_free_state(state)</code> (ctx stays alive, shared)</td></tr>
 </tbody></table>
 <p>Notes:</p>
 <ul>
 <li>VAD: whisper.cpp exposes its internal <code>vad_simple</code> only inside the</li>
-<p>  stream example, not in <code>whisper.h</code>. We reimplement it in Rust   (energy + zero-crossing over a 30 ms frame) â it is ~40 lines and   avoids pulling in another dep. Silero-VAD is overkill here.</p>
+<p>  stream example, not in <code>whisper.h</code>. We reimplement it in Rust   (energy + zero-crossing over a 30 ms frame) — it is ~40 lines and   avoids pulling in another dep. Silero-VAD is overkill here.</p>
 <li>Thread model: one <strong>blocking</strong> worker thread per stream holding</li>
-<p>  the <code>whisper_state *</code>. The audio producer is wait-free via a   SPSC ringbuffer (e.g. <code>ringbuf</code> crate). <code>drain_partials</code> is also   wait-free via an MPSC channel. No <code>async</code> at the FFI boundary â   whisper.cpp is synchronous and long-running.</p>
+<p>  the <code>whisper_state *</code>. The audio producer is wait-free via a   SPSC ringbuffer (e.g. <code>ringbuf</code> crate). <code>drain_partials</code> is also   wait-free via an MPSC channel. No <code>async</code> at the FFI boundary —   whisper.cpp is synchronous and long-running.</p>
 <li>The global <code>whisper_context *</code> is <code>Arc</code>-shared and treated as</li>
 <p>  read-only after init (mel filters, model weights). All mutable   per-call state is in the <code>whisper_state *</code>. This is the   upstream-blessed multi-session pattern.</p>
 <li>Memory: each <code>whisper_state</code> allocates KV + logits buffers for the</li>
@@ -165,9 +172,9 @@ pub trait WhisperStream {
 <ul>
 <li>GPU backend for whisper encoder (Vulkan / Metal exist upstream;</li>
 <p>  we stay CPU; CPU cost is dominated by BitNet anyway).</p>
-<li>Word-level timestamps (<code>whisper_full_get_token_t0</code>) â dictation-only</li>
+<li>Word-level timestamps (<code>whisper_full_get_token_t0</code>) — dictation-only</li>
 <p>  feature; halo-voice doesn't need them.</p>
-<li>Language auto-detect streaming (<code>whisper_lang_auto_detect</code>) â we</li>
+<li>Language auto-detect streaming (<code>whisper_lang_auto_detect</code>) — we</li>
 <p>  pin <code>en</code> at init. Multilingual is a later knob.</p>
 </ul>
 <h2 id="4-halo-voice-integration">4. halo-voice integration</h2>
@@ -176,13 +183,13 @@ pub trait WhisperStream {
 <ol>
 <li><strong>New input type on <code>VoicePipeline</code>.</strong> Add a <code>speak_from_stream</code></li>
 <p>   entrypoint that takes <code>impl Stream&lt;Item = Partial&gt;</code> instead of a    <code>String</code> prompt. Keep <code>speak(prompt)</code> for CLI / batch callers.</p>
-<li><strong>Partial â prompt policy.</strong> Two options:</li>
+<li><strong>Partial → prompt policy.</strong> Two options:</li>
 </ol>
 <ul>
 <li><strong>Eager</strong> (recommended v1): every time a new <code>Partial</code> arrives</li>
 <p>     with <code>is_final=false</code> and changes the prefix, <strong>cancel</strong> the      in-flight LLM SSE request and start a new one with the fresh      partial. halo-server must learn <code>POST /v1/chat/completions</code> with      <code>X-Halo-Cancel-Prev: &lt;session&gt;</code> or we accept wasted tokens. Ship      the wasted-tokens version first; <code>halo-server</code> cancel path is      follow-up.</p>
 <li><strong>Gated</strong>: only fire the LLM once <code>is_final=true</code> arrives. This is</li>
-<p>     just a 200â500 ms speedup over today (mic-stop â final partial)      and misses the point of streaming STT. Rejected for v1.</p>
+<p>     just a 200–500 ms speedup over today (mic-stop → final partial)      and misses the point of streaming STT. Rejected for v1.</p>
 </ul>
 <ol>
 <li><strong>halo-kokoro side unchanged.</strong> Sentence-splitter streaming TTS</li>
@@ -194,27 +201,27 @@ pub trait WhisperStream {
 <ul>
 <li><code>halo-whisper</code> crate + 3 tests (ctx load, one-shot tiny WAV,</li>
 <p>     partial emission from synthetic PCM).</p>
-<li><code>halo-voice::input</code> module with <code>MicSource</code> (cpal) â</li>
-<p>     <code>WhisperStream</code> â <code>mpsc&lt;Partial&gt;</code>.</p>
+<li><code>halo-voice::input</code> module with <code>MicSource</code> (cpal) →</li>
+<p>     <code>WhisperStream</code> → <code>mpsc&lt;Partial&gt;</code>.</p>
 <li><code>halo-voice::pipeline::speak_from_stream</code>.</li>
 <li>halo-server cancel endpoint.</li>
-<li>halo-echo WS frames for browser peer (Opus in â Partial out, via</li>
+<li>halo-echo WS frames for browser peer (Opus in → Partial out, via</li>
 <p>     the same trait).</p>
 </ul>
-<p>Estimated effort: ~3â4 sit-down days end-to-end, of which 1 is the FFI crate, 1 is the cancel path on halo-server, and 1â2 is polishing barge-in + dedup on overlap.</p>
+<p>Estimated effort: ~3–4 sit-down days end-to-end, of which 1 is the FFI crate, 1 is the cancel path on halo-server, and 1–2 is polishing barge-in + dedup on overlap.</p>
 <h2 id="5-rank-vs-medusabitnet">5. Rank vs MedusaBitNet</h2>
 <p><strong>MedusaBitNet ships first.</strong> Reasoning:</p>
 <ul>
 <li>Medusa buys us tokens/s on the generation side. That compounds with</li>
-<p>  every latency optimization we ever make â faster LLM = faster voice   = faster mouth-to-ear, period.</p>
+<p>  every latency optimization we ever make — faster LLM = faster voice   = faster mouth-to-ear, period.</p>
 <li>Streaming STT only helps the <strong>input</strong> side of Echo. Current mic-up</li>
-<p>  â first-LLM-token latency budget (from   <code>project_voice_latency_sharding.md</code>) is ~500â700 ms, roughly   evenly split between whisper-batch and LLM TTFT. Streaming STT   cuts a few hundred ms off the STT half; Medusa multiplies the LLM   half by 1.5â2Ã.</p>
+<p>  → first-LLM-token latency budget (from   <code>project_voice_latency_sharding.md</code>) is ~500–700 ms, roughly   evenly split between whisper-batch and LLM TTFT. Streaming STT   cuts a few hundred ms off the STT half; Medusa multiplies the LLM   half by 1.5–2×.</p>
 <li>Medusa needs a BitNet-aware head, which is net-new kernel work on</li>
-<p>  gfx1151 â it is also the kind of thing only we are positioned to   do. Streaming whisper is a commoditized capability: the stream   example already runs; we are just wrapping it.</p>
-<li>Streaming whisper can ship behind Medusa without blocking anyone â</li>
+<p>  gfx1151 — it is also the kind of thing only we are positioned to   do. Streaming whisper is a commoditized capability: the stream   example already runs; we are just wrapping it.</p>
+<li>Streaming whisper can ship behind Medusa without blocking anyone —</li>
 <p>  halo-voice works today with batch STT. Medusa is a no-op until it   lands.</p>
 </ul>
-<p>Order: <strong>Medusa â streaming-whisper â halo-echo WS â barge-in.</strong> Revisit if Medusa's timeline slips past one calendar month; at that point streaming-whisper becomes a cheap morale-win ship.</p>
+<p>Order: <strong>Medusa → streaming-whisper → halo-echo WS → barge-in.</strong> Revisit if Medusa's timeline slips past one calendar month; at that point streaming-whisper becomes a cheap morale-win ship.</p>
 <h2 id="references">References</h2>
 <ul>
 <li>Upstream stream example:</li>

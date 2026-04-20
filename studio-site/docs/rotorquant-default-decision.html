@@ -28,57 +28,64 @@
 <li data-slug="why-no-python"><a href="/docs/why-no-python.html">Why no Python at runtime? (Rule A)</a></li>
 <li data-slug="why-no-npu-yet"><a href="/docs/why-no-npu-yet.html">Why no NPU yet?</a></li>
 <li data-slug="why-this-way-how"><a href="/docs/why-this-way-how.html">Why this way + how — the design walkthrough</a></li>
-<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why `halo power`?</a></li>
+<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why <code>halo power</code>?</a></li>
 </ul></div>
 <div class="group"><h4>Research</h4><ul>
 <li data-slug="medusa-integration-plan"><a href="/docs/medusa-integration-plan.html">Medusa Integration Plan (halo-ai-rs / gen-2)</a></li>
 <li data-slug="halo-whisper-streaming-plan"><a href="/docs/halo-whisper-streaming-plan.html">Halo-Whisper Streaming Plan</a></li>
-<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via `--kv-quant rotor-3`</a></li>
+<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via <code>--kv-quant rotor-3</code></a></li>
 </ul></div>
 <div class="group"><h4>Integrations</h4><ul>
 <li data-slug="hermes-integration"><a href="/docs/hermes-integration.html">Hermes Agent integration</a></li>
 <li data-slug="cloudflare-tunnel-setup"><a href="/docs/cloudflare-tunnel-setup.html">Cloudflare Tunnel Setup — api.halo-ai.studio</a></li>
 </ul></div>
+<div class="group"><h4>Other</h4><ul>
+<li data-slug="benchmarks"><a href="/docs/benchmarks.html">Live tok/s + PPL</a></li>
+<li data-slug="why-caddy-systemd"><a href="/docs/why-caddy-systemd.html">Why Caddy + user-scope systemd?</a></li>
+<li data-slug="why-h1b-format"><a href="/docs/why-h1b-format.html">Why our own <code>.h1b</code> format?</a></li>
+<li data-slug="why-halo-agents"><a href="/docs/why-halo-agents.html">Why halo-agents?</a></li>
+<li data-slug="why-parity-gates"><a href="/docs/why-parity-gates.html">Why shadow-traffic parity gates?</a></li>
+</ul></div>
 </nav>
 
 <main class="doc-main">
-  <h1>Rotorquant default: OFF on 2B, opt-in via `--kv-quant rotor-3`</h1>
+  <h1>Rotorquant default: OFF on 2B, opt-in via <code>--kv-quant rotor-3</code></h1>
   <p>PlanarQuant-3 (2D-Givens rotation + 3-bit Lloyd-Max) landed as an optional KV-cache compression path in <code>rocm-cpp</code>:</p>
 <ul>
-<li><code>src/kv_cache_attn_fd_rotor.hip</code> â split-KV Flash-Decoding with inline</li>
+<li><code>src/kv_cache_attn_fd_rotor.hip</code> — split-KV Flash-Decoding with inline</li>
 <p>  dequant + inverse Givens.</p>
-<li><code>kernels/rotorquant_pack.hip</code> â fp16 â 3-bit packed requantizer.</li>
+<li><code>kernels/rotorquant_pack.hip</code> — fp16 → 3-bit packed requantizer.</li>
 </ul>
-<p>5.33Ã KV compression (fp16 16 B/elem â packed 3 B/elem, exactly). Numerically clean: <code>mean_abs_diff ~ 0.02–0.05</code>, <code>max_abs_diff</code> tracks <code>ref_max_abs</code>. <strong>Perf is the problem.</strong></p>
+<p>5.33× KV compression (fp16 16 B/elem → packed 3 B/elem, exactly). Numerically clean: <code>mean_abs_diff ~ 0.02–0.05</code>, <code>max_abs_diff</code> tracks <code>ref_max_abs</code>. <strong>Perf is the problem.</strong></p>
 <h2 id="1-current-bench-numbers-bitnet-2b-4t-shape-nh-20-nkv-5-hd-128">1. Current bench numbers (BitNet-2B-4T shape: NH=20, NKV=5, HD=128)</h2>
 <p>Source: <code>/home/bcloud/claude output/rotor_bench-20260420T133827Z.txt</code> (post wave-shfl V-loop fix). <code>us_pq3_total = pq3_attn + pq3_requant</code> (the requantize cost must be amortised because a freshly-written KV row must be packed before any subsequent read).</p>
 <table>
-<thead><tr><th style="text-align:right">seq_len</th><th style="text-align:right">fp16 attn Âµs</th><th style="text-align:right">pq3 attn Âµs</th><th style="text-align:right">pq3 requant Âµs</th><th style="text-align:right">pq3 total Âµs</th><th style="text-align:right">fp16 tok/s</th><th style="text-align:right">pq3 tok/s</th><th style="text-align:right">ratio</th></tr></thead>
+<thead><tr><th style="text-align:right">seq_len</th><th style="text-align:right">fp16 attn µs</th><th style="text-align:right">pq3 attn µs</th><th style="text-align:right">pq3 requant µs</th><th style="text-align:right">pq3 total µs</th><th style="text-align:right">fp16 tok/s</th><th style="text-align:right">pq3 tok/s</th><th style="text-align:right">ratio</th></tr></thead>
 <tbody>
-<tr><td style="text-align:right">512</td><td style="text-align:right">68.1</td><td style="text-align:right">81.0</td><td style="text-align:right">5.1</td><td style="text-align:right">86.1</td><td style="text-align:right">14 675</td><td style="text-align:right">11 617</td><td style="text-align:right">0.79Ã</td></tr>
-<tr><td style="text-align:right">1024</td><td style="text-align:right">88.8</td><td style="text-align:right">92.3</td><td style="text-align:right">5.0</td><td style="text-align:right">97.4</td><td style="text-align:right">11 263</td><td style="text-align:right">10 272</td><td style="text-align:right">0.91Ã</td></tr>
-<tr><td style="text-align:right">2048</td><td style="text-align:right">95.1</td><td style="text-align:right">106.4</td><td style="text-align:right">5.0</td><td style="text-align:right">111.4</td><td style="text-align:right">10 516</td><td style="text-align:right">8 977</td><td style="text-align:right">0.85Ã</td></tr>
-<tr><td style="text-align:right">4096</td><td style="text-align:right">184.7</td><td style="text-align:right">208.0</td><td style="text-align:right">5.0</td><td style="text-align:right">213.0</td><td style="text-align:right">5 413</td><td style="text-align:right">4 696</td><td style="text-align:right">0.87Ã</td></tr>
+<tr><td style="text-align:right">512</td><td style="text-align:right">68.1</td><td style="text-align:right">81.0</td><td style="text-align:right">5.1</td><td style="text-align:right">86.1</td><td style="text-align:right">14 675</td><td style="text-align:right">11 617</td><td style="text-align:right">0.79×</td></tr>
+<tr><td style="text-align:right">1024</td><td style="text-align:right">88.8</td><td style="text-align:right">92.3</td><td style="text-align:right">5.0</td><td style="text-align:right">97.4</td><td style="text-align:right">11 263</td><td style="text-align:right">10 272</td><td style="text-align:right">0.91×</td></tr>
+<tr><td style="text-align:right">2048</td><td style="text-align:right">95.1</td><td style="text-align:right">106.4</td><td style="text-align:right">5.0</td><td style="text-align:right">111.4</td><td style="text-align:right">10 516</td><td style="text-align:right">8 977</td><td style="text-align:right">0.85×</td></tr>
+<tr><td style="text-align:right">4096</td><td style="text-align:right">184.7</td><td style="text-align:right">208.0</td><td style="text-align:right">5.0</td><td style="text-align:right">213.0</td><td style="text-align:right">5 413</td><td style="text-align:right">4 696</td><td style="text-align:right">0.87×</td></tr>
 </tbody></table>
-<p><strong>We do not yet have 8k or 16k numbers.</strong> The bench harness caps at 4096 today. An 8k / 16k sweep is explicitly a prerequisite for flipping the default (see Â§4).</p>
-<p>Pre-fix baseline for reference (<code>rotor_bench-20260420T121449Z.txt</code>, before the V-loop wave-shfl): 4096 was 2271 tok/s, i.e. the shfl fix doubled it. PQ3 is now consistently ~0.8â0.9Ã fp16 at the sizes we can measure. It does not overtake. The slope of fp16 attn Âµs/tok flattens with seq_len (the grid scales with <code>num_kv_tiles</code>), so the gap does not obviously close at 8k+ either.</p>
-<h2 id="2-why-it-is-slower-despite-5-33-fewer-bytes-read">2. Why it is slower despite 5.33Ã fewer bytes read</h2>
+<p><strong>We do not yet have 8k or 16k numbers.</strong> The bench harness caps at 4096 today. An 8k / 16k sweep is explicitly a prerequisite for flipping the default (see §4).</p>
+<p>Pre-fix baseline for reference (<code>rotor_bench-20260420T121449Z.txt</code>, before the V-loop wave-shfl): 4096 was 2271 tok/s, i.e. the shfl fix doubled it. PQ3 is now consistently ~0.8–0.9× fp16 at the sizes we can measure. It does not overtake. The slope of fp16 attn µs/tok flattens with seq_len (the grid scales with <code>num_kv_tiles</code>), so the gap does not obviously close at 8k+ either.</p>
+<h2 id="2-why-it-is-slower-despite-5-33-fewer-bytes-read">2. Why it is slower despite 5.33× fewer bytes read</h2>
 <p>At HD=128, NKV=5, the pass-1 block does <code>TILE=128</code> positions per tile. Per position the fp16 path streams <code>5 × 128 × 2 = 1280 B</code> of K plus 1280 B of V from the KV cache. PQ3 streams <code>5 × 128 × 3/8 = 240 B</code> of K plus 240 B of V. Net savings: roughly <strong>2080 B/pos read-bandwidth</strong>.</p>
 <p>Against that, PQ3 pays per-position, per-pair (<code>pairs = head_dim / 2 = 64</code>):</p>
 <ol>
-<li><strong>3-byte triple load + unpack</strong> â byte-wise loads (not coalesced as</li>
+<li><strong>3-byte triple load + unpack</strong> — byte-wise loads (not coalesced as</li>
 <p>   cleanly as the fp16 <code>ld_global_u16x2</code>), shift assemble into <code>u32</code>,    then two 3-bit extract-and-mask operations.</p>
-<li><strong>LUT dequant</strong> â one LDS read per scalar into a scaled 8-entry LUT.</li>
+<li><strong>LUT dequant</strong> — one LDS read per scalar into a scaled 8-entry LUT.</li>
 <p>   Bank-conflict-free (8 entries replicated), but an extra LDS round-trip    per scalar vs the fp16 path which reads K/V directly.</p>
-<li><strong>Inverse Givens rotation</strong> â 2 fmas + 2 muls per pair, per position,</li>
+<li><strong>Inverse Givens rotation</strong> — 2 fmas + 2 muls per pair, per position,</li>
 <p>   on both K and V. Plus an LDS read of <code>s_pair_cs[p][{0,1}]</code> per pair.</p>
-<li><strong>V-side wave shfl</strong> â the recent fix; saves vgpr on the V accumulate</li>
+<li><strong>V-side wave shfl</strong> — the recent fix; saves vgpr on the V accumulate</li>
 <p>   but still leaves the dequant+unrotate on the critical path.</p>
 </ol>
-<p>At gfx1151's LPDDR5 bandwidth (~256 GB/s, ~77â80 GB/s realized to iGPU), the fp16 attn decode kernel is <strong>not memory-bound</strong> at these shapes â we sit well under the roofline because the per-position compute is tiny and the launch/grid/online-softmax overhead dominates below ~2k. So trading bandwidth for compute <em>loses</em> at HD=128/NKV=5. The 5.33Ã compression doesn't buy us anything we need; the inverse-rotation is pure overhead.</p>
-<p>This would flip at large NKV Ã HD Ã seq_len where the KV read genuinely saturates LPDDR5 â i.e. 70B-class or 32k-context regimes.</p>
+<p>At gfx1151's LPDDR5 bandwidth (~256 GB/s, ~77–80 GB/s realized to iGPU), the fp16 attn decode kernel is <strong>not memory-bound</strong> at these shapes — we sit well under the roofline because the per-position compute is tiny and the launch/grid/online-softmax overhead dominates below ~2k. So trading bandwidth for compute <em>loses</em> at HD=128/NKV=5. The 5.33× compression doesn't buy us anything we need; the inverse-rotation is pure overhead.</p>
+<p>This would flip at large NKV × HD × seq_len where the KV read genuinely saturates LPDDR5 — i.e. 70B-class or 32k-context regimes.</p>
 <h2 id="3-recommendation">3. Recommendation</h2>
-<p><strong>Default <code>rotor-3</code> OFF on BitNet-2B-4T and any â¤4B model.</strong> Keep the path fully built and wired, expose it behind <code>--kv-quant rotor-3</code> on the CLI (and a matching field in the router config). Flip the default ON <strong>only</strong> when we ship either:</p>
+<p><strong>Default <code>rotor-3</code> OFF on BitNet-2B-4T and any ≤4B model.</strong> Keep the path fully built and wired, expose it behind <code>--kv-quant rotor-3</code> on the CLI (and a matching field in the router config). Flip the default ON <strong>only</strong> when we ship either:</p>
 <ul>
 <li>A 70B-class model where fp16 KV exceeds working-set headroom in</li>
 <p>  128 GB LPDDR5 under realistic multi-session load, or</p>
@@ -87,19 +94,19 @@
 </ul>
 <p>This matches how the stack is used today (2B short-context on a single box) while keeping the compression path alive for the two futures that actually need it. Numeric parity is already good enough for opt-in; we are not shipping a correctness risk, only a perf trade.</p>
 <h2 id="4-what-to-measure-before-flipping-the-default">4. What to measure before flipping the default</h2>
-<p>Hard gates, all on gfx1151, <code>bench.sh</code>-style harness, 3Ã20-iter rounds:</p>
+<p>Hard gates, all on gfx1151, <code>bench.sh</code>-style harness, 3×20-iter rounds:</p>
 <ol>
-<li><strong>8k and 16k sweeps</strong> â extend <code>rotor_bench</code> to <code>seq_len ∈ {8192, 16384}</code>.</li>
-<p>   PQ3 needs to beat fp16 by â¥1.1Ã at <em>some</em> seq_len to justify a default    flip for long-context.</p>
-<li><strong>70B shape microbench</strong> â re-run the microbench at (roughly) NH=64,</li>
+<li><strong>8k and 16k sweeps</strong> — extend <code>rotor_bench</code> to <code>seq_len ∈ {8192, 16384}</code>.</li>
+<p>   PQ3 needs to beat fp16 by ≥1.1× at <em>some</em> seq_len to justify a default    flip for long-context.</p>
+<li><strong>70B shape microbench</strong> — re-run the microbench at (roughly) NH=64,</li>
 <p>   NKV=8, HD=128 to mimic a 70B LLaMA-family layer. Confirm the    bandwidth crossover appears in that shape.</p>
-<li><strong>Service-level bench</strong> â end-to-end tok/s via <code>bitnet_decode</code> (not</li>
+<li><strong>Service-level bench</strong> — end-to-end tok/s via <code>bitnet_decode</code> (not</li>
 <p>   just the kernel microbench) at 4k / 8k / 16k prompt + 1024 gen. The    microbench excludes the K/V write-path requantize called on every    new token; we need to confirm the amortisation assumption holds.</p>
-<li><strong>PPL on wikitext-103 at 1024 ctx</strong> â fp16 baseline 9.1607. PQ3 must</li>
-<p>   stay within â¤0.25 absolute PPL to be default-eligible (current    microbench numeric error suggests this is comfortable, but it has not    been measured end-to-end).</p>
-<li><strong>rocprof counters</strong> â confirm <code>SQ_WAVES</code> / <code>VALU_UTIL</code> for PQ3 is</li>
+<li><strong>PPL on wikitext-103 at 1024 ctx</strong> — fp16 baseline 9.1607. PQ3 must</li>
+<p>   stay within ≤0.25 absolute PPL to be default-eligible (current    microbench numeric error suggests this is comfortable, but it has not    been measured end-to-end).</p>
+<li><strong>rocprof counters</strong> — confirm <code>SQ_WAVES</code> / <code>VALU_UTIL</code> for PQ3 is</li>
 <p>   the bottleneck (compute-bound today) and that it inverts at the    target shape (becomes bandwidth-bound).</p>
-<li><strong>Working-set headroom</strong> â on the target model, verify that fp16 KV</li>
+<li><strong>Working-set headroom</strong> — on the target model, verify that fp16 KV</li>
 </ol>
 <ul>
 <li>activations + weights actually spill out of the iGPU's 96 GB</li>

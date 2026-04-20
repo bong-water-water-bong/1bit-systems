@@ -28,40 +28,47 @@
 <li data-slug="why-no-python"><a href="/docs/why-no-python.html">Why no Python at runtime? (Rule A)</a></li>
 <li data-slug="why-no-npu-yet"><a href="/docs/why-no-npu-yet.html">Why no NPU yet?</a></li>
 <li data-slug="why-this-way-how"><a href="/docs/why-this-way-how.html">Why this way + how — the design walkthrough</a></li>
-<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why `halo power`?</a></li>
+<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why <code>halo power</code>?</a></li>
 </ul></div>
 <div class="group"><h4>Research</h4><ul>
 <li data-slug="medusa-integration-plan"><a href="/docs/medusa-integration-plan.html">Medusa Integration Plan (halo-ai-rs / gen-2)</a></li>
 <li data-slug="halo-whisper-streaming-plan"><a href="/docs/halo-whisper-streaming-plan.html">Halo-Whisper Streaming Plan</a></li>
-<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via `--kv-quant rotor-3`</a></li>
+<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via <code>--kv-quant rotor-3</code></a></li>
 </ul></div>
 <div class="group"><h4>Integrations</h4><ul>
 <li data-slug="hermes-integration"><a href="/docs/hermes-integration.html">Hermes Agent integration</a></li>
 <li data-slug="cloudflare-tunnel-setup"><a href="/docs/cloudflare-tunnel-setup.html">Cloudflare Tunnel Setup — api.halo-ai.studio</a></li>
 </ul></div>
+<div class="group"><h4>Other</h4><ul>
+<li data-slug="benchmarks"><a href="/docs/benchmarks.html">Live tok/s + PPL</a></li>
+<li data-slug="why-caddy-systemd"><a href="/docs/why-caddy-systemd.html">Why Caddy + user-scope systemd?</a></li>
+<li data-slug="why-h1b-format"><a href="/docs/why-h1b-format.html">Why our own <code>.h1b</code> format?</a></li>
+<li data-slug="why-halo-agents"><a href="/docs/why-halo-agents.html">Why halo-agents?</a></li>
+<li data-slug="why-parity-gates"><a href="/docs/why-parity-gates.html">Why shadow-traffic parity gates?</a></li>
+</ul></div>
 </nav>
 
 <main class="doc-main">
   <h1>Why no NPU yet?</h1>
-  <p><strong>One-line answer</strong>: evaluated four stacks (ONNX-RT + Vitis EP, FastFlowLM, IREE-AIE, direct xrt). <strong>Deferred</strong> â no path runs BitNet-b1.58 on Strix Halo's XDNA 2 in Linux today, and the realistic decode ceiling is below our current iGPU. Update posture: quarterly passive monitoring, not active work.</p>
+  <p><strong>One-line answer</strong>: evaluated four stacks (ONNX-RT + Vitis EP, FastFlowLM, IREE-AIE, direct xrt). <strong>Deferred</strong> — no path runs BitNet-b1.58 on Strix Halo's XDNA 2 in Linux today, and the realistic decode ceiling is below our current iGPU. Update posture: quarterly passive monitoring, not active work.</p>
 <h2 id="what-s-on-the-box">What's on the box</h2>
 <ul>
-<li><strong>AMD XDNA 2</strong> â 50 TOPS int8 matrix accelerator in the Strix Halo APU package.</li>
-<li><strong><code>amdxdna</code> kernel driver</strong> â shipped with kernel 7.x on CachyOS (one of the two reasons the landing page insists on CachyOS).</li>
-<li><strong>HSA/XRT userspace</strong> â present via ROCm-7, ready for a dispatch layer to sit on top.</li>
+<li><strong>AMD XDNA 2</strong> — 50 TOPS int8 matrix accelerator in the Strix Halo APU package.</li>
+<li><strong><code>amdxdna</code> kernel driver</strong> — shipped with kernel 7.x on CachyOS (one of the two reasons the landing page insists on CachyOS).</li>
+<li><strong>HSA/XRT userspace</strong> — present via ROCm-7, ready for a dispatch layer to sit on top.</li>
 </ul>
 <h2 id="why-we-haven-t-used-it-yet">Why we haven't used it yet</h2>
 <ol>
-<li><strong>No Rust-native BitNet NPU runtime exists publicly.</strong> The mature options are Python (AMD Ryzen AI SDK), and those target generic ONNX models â <strong>BitNet's ternary matmul is a custom op</strong> that standard ONNX runtimes don't know. Someone has to write it; so far nobody has, on this hardware, in public.</li>
+<li><strong>No Rust-native BitNet NPU runtime exists publicly.</strong> The mature options are Python (AMD Ryzen AI SDK), and those target generic ONNX models — <strong>BitNet's ternary matmul is a custom op</strong> that standard ONNX runtimes don't know. Someone has to write it; so far nobody has, on this hardware, in public.</li>
 </ol>
 <ol>
 <li><strong>iGPU is already bandwidth-bound, not compute-bound.</strong> Our ternary GEMV hits 92% of LPDDR5 peak on the weight-read path. Adding NPU compute doesn't create new bandwidth. The NPU would share the same LPDDR5; it wouldn't make decode faster, only change which silicon the math lands on.</li>
 </ol>
 <ol>
-<li><strong>NPU's real win is prefill + speculative</strong>, not decode. At prefill (M &gt; 1 matmul instead of M = 1 GEMV) the NPU's int8 matrix units would be fed more efficiently. Same for Medusa-style speculative decoder heads â multiple candidate tokens in parallel is exactly what the NPU is designed for.</li>
+<li><strong>NPU's real win is prefill + speculative</strong>, not decode. At prefill (M &gt; 1 matmul instead of M = 1 GEMV) the NPU's int8 matrix units would be fed more efficiently. Same for Medusa-style speculative decoder heads — multiple candidate tokens in parallel is exactly what the NPU is designed for.</li>
 </ol>
 <h2 id="the-two-stacks-we-re-evaluating">The two stacks we're evaluating</h2>
-<h3 id="stack-a-onnx-runtime-vitis-amd-npu-execution-provider">Stack A â ONNX Runtime + Vitis/AMD NPU execution provider</h3>
+<h3 id="stack-a-onnx-runtime-vitis-amd-npu-execution-provider">Stack A — ONNX Runtime + Vitis/AMD NPU execution provider</h3>
 <p><strong>Shape</strong>: Export BitNet to ONNX with a custom ternary-matmul op. Use ONNX Runtime's AMD EP to route that op to XDNA 2.</p>
 <p><strong>Pros</strong>:</p>
 <ul>
@@ -72,14 +79,14 @@
 <p><strong>Cons</strong>:</p>
 <ul>
 <li>Custom ops in ONNX Runtime are a pain. You write them in C++ and rebuild the runtime.</li>
-<li>AMD's NPU EP shipped with Ryzen AI SDK 1.x â Linux support is incomplete; Windows-first.</li>
-<li>Calibration step (model â NPU-ready blob) requires AMD's Python toolchain at build-time.</li>
+<li>AMD's NPU EP shipped with Ryzen AI SDK 1.x — Linux support is incomplete; Windows-first.</li>
+<li>Calibration step (model → NPU-ready blob) requires AMD's Python toolchain at build-time.</li>
 </ul>
-<h3 id="stack-b-fastflowfm-ryzen-ai-flow">Stack B â FastFlowFM / Ryzen AI Flow</h3>
+<h3 id="stack-b-fastflowfm-ryzen-ai-flow">Stack B — FastFlowFM / Ryzen AI Flow</h3>
 <p><strong>Shape</strong>: AMD's newer model-format + compiler, supposedly targets GPU+NPU dispatch with a unified IR.</p>
 <p><strong>Pros</strong>:</p>
 <ul>
-<li>Designed for the Ryzen AI hardware family â no EP plug-in step.</li>
+<li>Designed for the Ryzen AI hardware family — no EP plug-in step.</li>
 <li>Claims GPU+NPU co-dispatch, which matches our bandwidth story (iGPU pulls weights, NPU does matmul).</li>
 </ul>
 <p><strong>Cons</strong>:</p>
@@ -87,27 +94,27 @@
 <li>Unclear maturity. Documentation is sparse. Might be SDK-only, pre-release, or Windows-locked.</li>
 <li>Unclear if it handles ternary weights at all.</li>
 </ul>
-<h3 id="stack-c-iree-amd-aie">Stack C â IREE AMD AIE</h3>
+<h3 id="stack-c-iree-amd-aie">Stack C — IREE AMD AIE</h3>
 <p><strong>Shape</strong>: IREE compiler pipeline with the <code>amd-aie</code> backend.</p>
 <p><strong>Pros</strong>: open source end-to-end, MLIR-based, Rust bindings via <code>iree-compiler</code> crate.</p>
 <p><strong>Cons</strong>: bleeding edge; BitNet model support unknown; perf not characterized on Strix Halo.</p>
 <h2 id="final-verdict-2026-04-20">Final verdict (2026-04-20)</h2>
-<p>Research concluded â see <code>project_npu_path_analysis.md</code> memory. <strong>Defer until one of:</strong></p>
+<p>Research concluded — see <code>project_npu_path_analysis.md</code> memory. <strong>Defer until one of:</strong></p>
 <ol>
-<li>Ryzen AI SDK â¥ 1.8 adds <strong>STX-H (Strix Halo)</strong> to its Linux-supported SKU list. Today's 1.7.1 (April 2026) lists only STX + KRK.</li>
-<li><code>microsoft/BitNet</code> ships an XDNA backend. <a href="https://github.com/microsoft/BitNet/issues/408">Issue #408</a> â "Intel &amp; AMD NPU support?" â has been open since Feb 2026 with zero Microsoft replies.</li>
+<li>Ryzen AI SDK ≥ 1.8 adds <strong>STX-H (Strix Halo)</strong> to its Linux-supported SKU list. Today's 1.7.1 (April 2026) lists only STX + KRK.</li>
+<li><code>microsoft/BitNet</code> ships an XDNA backend. <a href="https://github.com/microsoft/BitNet/issues/408">Issue #408</a> — "Intel &amp; AMD NPU support?" — has been open since Feb 2026 with zero Microsoft replies.</li>
 <li><strong>FastFlowLM</strong> open-sources its NPU kernels (currently closed-source, non-redistributable under their EULA) or adds a 1.58-bit model family.</li>
-<li>Our iGPU path saturates the 212 GB/s LPDDR5 ceiling. Today we run at ~15% utilization â plenty of Sherry / activation-sparsity / KV-compression runway.</li>
-<li>A third party publishes a working BitNet â AIE kernel in public.</li>
+<li>Our iGPU path saturates the 212 GB/s LPDDR5 ceiling. Today we run at ~15% utilization — plenty of Sherry / activation-sparsity / KV-compression runway.</li>
+<li>A third party publishes a working BitNet → AIE kernel in public.</li>
 </ol>
 <h2 id="the-four-stacks-scored">The four stacks, scored</h2>
-<h3 id="stack-a-onnx-runtime-vitis-ai-ep">Stack A â ONNX Runtime + Vitis AI EP</h3>
+<h3 id="stack-a-onnx-runtime-vitis-ai-ep">Stack A — ONNX Runtime + Vitis AI EP</h3>
 <ul>
 <li><strong>Blocker</strong>: Vitis EP has no ternary op; would need a custom AIE kernel.</li>
 <li><strong>Harder blocker</strong>: Ryzen AI 1.7.1 Linux doesn't list Strix Halo at all. STX + KRK only.</li>
 <li><strong>Status</strong>: multi-quarter dependency chain before it could even start.</li>
 </ul>
-<h3 id="stack-b-fastflowlm-note-fastflowfm-was-a-transcription-artefact-real-name-is-fastflowlm">Stack B â FastFlowLM (note: "FastFlowFM" was a transcription artefact; real name is FastFlowLM)</h3>
+<h3 id="stack-b-fastflowlm-note-fastflowfm-was-a-transcription-artefact-real-name-is-fastflowlm">Stack B — FastFlowLM (note: "FastFlowFM" was a transcription artefact; real name is FastFlowLM)</h3>
 <ul>
 <li><strong>Only Linux path</strong> that actually touches XDNA 2 on Strix Halo today.</li>
 <li><strong>Format</strong>: <code>Q4NX</code> (GGUF Q4_0 / Q4_1 derivatives). <strong>Not ternary.</strong> BitNet not in their 22-model catalog.</li>
@@ -115,22 +122,22 @@
 <li><strong>Rule A</strong>: acceptable (Lemonade is the runtime, our systemd unit calls it).</li>
 <li><strong>Status</strong>: wrong model format, closed kernels. No path for halo-ai today.</li>
 </ul>
-<h3 id="stack-c-iree-amd-aie-nod-ai-iree-amd-aie">Stack C â IREE AMD-AIE (<code>nod-ai/iree-amd-aie</code>)</h3>
+<h3 id="stack-c-iree-amd-aie-nod-ai-iree-amd-aie">Stack C — IREE AMD-AIE (<code>nod-ai/iree-amd-aie</code>)</h3>
 <ul>
-<li><strong>Cleanest technical path</strong> for a custom ternary MLIR kernel â open source, MLIR-based.</li>
+<li><strong>Cleanest technical path</strong> for a custom ternary MLIR kernel — open source, MLIR-based.</li>
 <li><strong>Blocker</strong>: still "early-phase". Requires Peano/LLVM-AIE and a Chess/Vitis license for full perf.</li>
 <li><strong>Effort</strong>: multi-engineer-quarter build from scratch. We're one operator.</li>
 <li><strong>Status</strong>: valid long-term bet, not actionable this quarter.</li>
 </ul>
-<h3 id="stack-d-xrt-direct">Stack D â <code>xrt</code> direct</h3>
+<h3 id="stack-d-xrt-direct">Stack D — <code>xrt</code> direct</h3>
 <ul>
 <li>Driver + <code>libxrt</code> are fine; no public BitNet kernel exists for it.</li>
 <li>Same MLIR-kernel-author problem as Stack C without the compiler help.</li>
 </ul>
 <h2 id="the-decode-tok-s-math">The decode-tok/s math</h2>
 <p><strong>XDNA 2 bandwidth</strong>: ~120 GB/s (dual-channel LPDDR5). <strong>iGPU bandwidth</strong>: ~212 GB/s of the 256 GB/s pool (our measured ceiling).</p>
-<p>BitNet-2B decode is memory-bandwidth-bound on the weight-read path. Linear scaling on the T-MAN paper's 50 tok/s result on Qualcomm Hexagon (~77 GB/s) gives XDNA 2 a <strong>~77 tok/s ceiling</strong> â below our measured <strong>83 tok/s</strong> on the iGPU today.</p>
-<p>Decode-on-NPU is <strong>negative ROI</strong>. The compute is there (50 TOPS int8), the bandwidth isn't. This is the same memory-bound story the ternary choice already exploits â see <a href="/docs/why-ternary.html"><code>Why-Ternary.md</code></a>.</p>
+<p>BitNet-2B decode is memory-bandwidth-bound on the weight-read path. Linear scaling on the T-MAN paper's 50 tok/s result on Qualcomm Hexagon (~77 GB/s) gives XDNA 2 a <strong>~77 tok/s ceiling</strong> — below our measured <strong>83 tok/s</strong> on the iGPU today.</p>
+<p>Decode-on-NPU is <strong>negative ROI</strong>. The compute is there (50 TOPS int8), the bandwidth isn't. This is the same memory-bound story the ternary choice already exploits — see <a href="/docs/why-ternary.html"><code>Why-Ternary.md</code></a>.</p>
 <h2 id="what-could-still-pay">What could still pay</h2>
 <p><strong>Prefill-on-NPU (tier a) only.</strong> At prefill (many tokens at once), the matmul is dense enough that compute matters more than bandwidth. NPU's 50 TOPS int8 could roughly double prefill throughput on 128-token prompts.</p>
 <p>That's a nice-to-have, not a cutover gate. And it still requires the AMD Linux SKU gap to close first.</p>
@@ -138,7 +145,7 @@
 <ul>
 <li><strong>Today</strong>: iGPU-only, 83 tok/s decode, production-green.</li>
 <li><strong>NPU research</strong>: concluded. Deferred.</li>
-<li><strong>Monitoring</strong>: quarterly â check Ryzen AI SDK release notes + microsoft/BitNet#408 + FastFlowLM model catalog.</li>
+<li><strong>Monitoring</strong>: quarterly — check Ryzen AI SDK release notes + microsoft/BitNet#408 + FastFlowLM model catalog.</li>
 </ul>
 <p>Memory pointer: <code>project_npu_path_analysis.md</code> has the full comparison table, citations, and defer-until conditions.</p>
 

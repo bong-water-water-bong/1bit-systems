@@ -28,16 +28,23 @@
 <li data-slug="why-no-python"><a href="/docs/why-no-python.html">Why no Python at runtime? (Rule A)</a></li>
 <li data-slug="why-no-npu-yet"><a href="/docs/why-no-npu-yet.html">Why no NPU yet?</a></li>
 <li data-slug="why-this-way-how"><a href="/docs/why-this-way-how.html">Why this way + how — the design walkthrough</a></li>
-<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why `halo power`?</a></li>
+<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why <code>halo power</code>?</a></li>
 </ul></div>
 <div class="group"><h4>Research</h4><ul>
 <li data-slug="medusa-integration-plan"><a href="/docs/medusa-integration-plan.html">Medusa Integration Plan (halo-ai-rs / gen-2)</a></li>
 <li data-slug="halo-whisper-streaming-plan"><a href="/docs/halo-whisper-streaming-plan.html">Halo-Whisper Streaming Plan</a></li>
-<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via `--kv-quant rotor-3`</a></li>
+<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via <code>--kv-quant rotor-3</code></a></li>
 </ul></div>
 <div class="group"><h4>Integrations</h4><ul>
 <li data-slug="hermes-integration"><a href="/docs/hermes-integration.html">Hermes Agent integration</a></li>
 <li data-slug="cloudflare-tunnel-setup"><a href="/docs/cloudflare-tunnel-setup.html">Cloudflare Tunnel Setup — api.halo-ai.studio</a></li>
+</ul></div>
+<div class="group"><h4>Other</h4><ul>
+<li data-slug="benchmarks"><a href="/docs/benchmarks.html">Live tok/s + PPL</a></li>
+<li data-slug="why-caddy-systemd"><a href="/docs/why-caddy-systemd.html">Why Caddy + user-scope systemd?</a></li>
+<li data-slug="why-h1b-format"><a href="/docs/why-h1b-format.html">Why our own <code>.h1b</code> format?</a></li>
+<li data-slug="why-halo-agents"><a href="/docs/why-halo-agents.html">Why halo-agents?</a></li>
+<li data-slug="why-parity-gates"><a href="/docs/why-parity-gates.html">Why shadow-traffic parity gates?</a></li>
 </ul></div>
 </nav>
 
@@ -81,41 +88,41 @@
          │    issue triage, PR secret-scan, burnin harness          │
          └──────────────────────────────────────────────────────────┘
 </code></pre>
-<h2 id="why-this-way-the-six-core-decisions">Why this way â the six core decisions</h2>
+<h2 id="why-this-way-the-six-core-decisions">Why this way — the six core decisions</h2>
 <h3 id="1-ternary-weights-not-fp16-or-1-bit">1. Ternary weights, not FP16 or 1-bit</h3>
-<p>See <a href="/docs/why-ternary.html">Why-Ternary</a>. Short version: 1.58-bit = 10Ã memory reduction over FP16 + near-zero accuracy loss (Microsoft's 2B-4T training proves it). Binary would save another 0.58 bits but loses the load-bearing <em>zero</em> that matches activation sparsity and gives the hardware-efficient branch (sign-flip instead of multiply).</p>
+<p>See <a href="/docs/why-ternary.html">Why-Ternary</a>. Short version: 1.58-bit = 10× memory reduction over FP16 + near-zero accuracy loss (Microsoft's 2B-4T training proves it). Binary would save another 0.58 bits but loses the load-bearing <em>zero</em> that matches activation sparsity and gives the hardware-efficient branch (sign-flip instead of multiply).</p>
 <h3 id="2-amd-strix-halo-not-nvidia-or-apple">2. AMD Strix Halo, not NVIDIA or Apple</h3>
-<p>See <a href="/docs/why-strix-halo.html">Why-Strix-Halo</a>. Short version: 128 GB of unified LPDDR5 at $2-3k â the only consumer-class box with enough memory for long contexts + enough bandwidth for ternary decode + low enough power for silent closet operation. NVIDIA caps at 24 GB VRAM per card and costs 3-5Ã more for equivalent memory. Apple M-series is close on specs but ROCm is open; Metal's ternary path lagged BitNet's release by months.</p>
+<p>See <a href="/docs/why-strix-halo.html">Why-Strix-Halo</a>. Short version: 128 GB of unified LPDDR5 at $2-3k — the only consumer-class box with enough memory for long contexts + enough bandwidth for ternary decode + low enough power for silent closet operation. NVIDIA caps at 24 GB VRAM per card and costs 3-5× more for equivalent memory. Apple M-series is close on specs but ROCm is open; Metal's ternary path lagged BitNet's release by months.</p>
 <h3 id="3-rust-for-orchestration-c-for-kernels">3. Rust for orchestration, C++ for kernels</h3>
-<p>See <a href="/docs/why-rust.html">Why-Rust</a>. Short version: hipcc is the only mature toolchain for gfx1151 GPU kernels. Everything above that â HTTP, CLI, agents, formats, clients â wins in Rust: memory safety, <code>tokio</code> async, <code>serde</code> typed JSON, static binaries, no Python interpreter on the startup path. The FFI boundary between the two layers is 30 extern "C" functions and has been stable for months.</p>
+<p>See <a href="/docs/why-rust.html">Why-Rust</a>. Short version: hipcc is the only mature toolchain for gfx1151 GPU kernels. Everything above that — HTTP, CLI, agents, formats, clients — wins in Rust: memory safety, <code>tokio</code> async, <code>serde</code> typed JSON, static binaries, no Python interpreter on the startup path. The FFI boundary between the two layers is 30 extern "C" functions and has been stable for months.</p>
 <h3 id="4-no-python-at-runtime">4. No Python at runtime</h3>
 <p>See <a href="/docs/why-no-python.html">Why-No-Python</a>. Short version: gen-1 was Python, died on dependency churn and cold-start latency. Rust <code>halo-server</code> starts in 200ms cold, weighs 2.4 MB, and catches JSON shape errors at the deserializer boundary instead of six levels deep in a 500. Python is welcome on the <em>caller</em> side (DSPy, notebooks); anything serving an HTTP request is Rust or C++.</p>
 <h3 id="5-shadow-traffic-burnin-before-the-cutover">5. Shadow-traffic burnin before the cutover</h3>
 <p>See <a href="/docs/why-shadow-burnin.html">Why-Shadow-Burnin</a>. Short version: before we flip <code>/v1/*</code> from the proven C++ server to the new Rust server, we fire the same prompts at both and diff byte-for-byte. Currently at 96.66% exact match across 10 000+ rounds. The ~3% that diverge is sub-ULP FP16 noise, not bugs. PPL parity (9.18 vs 9.1607) proves the math is right; burnin proves the stability under load.</p>
 <h3 id="6-npu-deferred-amd-issue-filed">6. NPU deferred, AMD issue filed</h3>
 <p>See <a href="/docs/why-no-npu-yet.html">Why-No-NPU-Yet</a>. Short version: XDNA 2 is on the box, <code>amdxdna</code> kernel driver works, but AMD Ryzen AI SDK 1.7.1 Linux doesn't list Strix Halo on its supported-SKU set. We filed <a href="https://github.com/amd/RyzenAI-SW/issues/366"><code>amd/RyzenAI-SW#366</code></a> asking them to add it. Even unblocked, the decode-on-NPU math loses to iGPU on memory bandwidth; the real payoff is prefill acceleration (tier a in the design doc).</p>
-<h2 id="how-the-end-to-end-path-of-a-request">How â the end-to-end path of a request</h2>
+<h2 id="how-the-end-to-end-path-of-a-request">How — the end-to-end path of a request</h2>
 <p>Follow a single <code>halo chat "What is the capital of France?"</code> request through the stack:</p>
 <ol>
-<li><strong><code>halo chat</code></strong> (Rust binary, clap) reads stdin â one line â synthesizes an OpenAI chat-completions payload.</li>
+<li><strong><code>halo chat</code></strong> (Rust binary, clap) reads stdin → one line → synthesizes an OpenAI chat-completions payload.</li>
 <li><strong>HTTP POST</strong> to <code>http://127.0.0.1:8180/v1/chat/completions</code>, bearer-less on loopback.</li>
 <li><strong><code>halo-server</code></strong> (axum) receives the request. Route handler deserializes with <code>serde_json</code> into a strongly-typed <code>ChatRequest</code>. Clock starts for the <code>/metrics</code> latency histogram.</li>
-<li><strong><code>halo-router</code></strong> picks the HIP backend (it's the only one compiled on this box). Locks a tokio Mutex around the shared KV cache. Resets <code>pos = 0</code> (per-request â fix from commit <code>de53544</code>).</li>
-<li><strong>Tokenizer</strong> (<code>halo-core</code>) encodes the prompt. Llama-3 special tokens (<code>&lt;|eot_id|&gt;</code>, etc.) are recognized as single IDs, not byte-level BPE â the fix that took parity from 18% to 96%.</li>
-<li><strong>Prefill loop</strong> â one forward pass per prompt token, writing K/V into the FP16 KV cache. Uses <code>halo-bitnet-hip</code>'s safe wrappers around <code>rcpp_ternary_gemv_halo_f16</code> + RMSNorm + RoPE + split-KV Flash-Decoding.</li>
-<li><strong>Decode loop</strong> â sample from logits at temperature 0 (greedy argmax on host), append to <code>generated_ids</code>, write next K/V slot, stop on <code>&lt;|eot_id|&gt;</code> or <code>max_tokens</code>.</li>
+<li><strong><code>halo-router</code></strong> picks the HIP backend (it's the only one compiled on this box). Locks a tokio Mutex around the shared KV cache. Resets <code>pos = 0</code> (per-request — fix from commit <code>de53544</code>).</li>
+<li><strong>Tokenizer</strong> (<code>halo-core</code>) encodes the prompt. Llama-3 special tokens (<code>&lt;|eot_id|&gt;</code>, etc.) are recognized as single IDs, not byte-level BPE — the fix that took parity from 18% to 96%.</li>
+<li><strong>Prefill loop</strong> — one forward pass per prompt token, writing K/V into the FP16 KV cache. Uses <code>halo-bitnet-hip</code>'s safe wrappers around <code>rcpp_ternary_gemv_halo_f16</code> + RMSNorm + RoPE + split-KV Flash-Decoding.</li>
+<li><strong>Decode loop</strong> — sample from logits at temperature 0 (greedy argmax on host), append to <code>generated_ids</code>, write next K/V slot, stop on <code>&lt;|eot_id|&gt;</code> or <code>max_tokens</code>.</li>
 <li><strong>Detokenize</strong> the new IDs into text (halo-core). Stop check on stop-token list <em>before</em> detokenization so <code>&lt;|eot_id|&gt;</code> doesn't leak into output bytes.</li>
-<li><strong>Response assembly</strong> â <code>usage</code> block with <code>prompt_tokens</code> / <code>completion_tokens</code> / <code>total_tokens</code>. Latency logged to <code>/metrics</code>.</li>
+<li><strong>Response assembly</strong> — <code>usage</code> block with <code>prompt_tokens</code> / <code>completion_tokens</code> / <code>total_tokens</code>. Latency logged to <code>/metrics</code>.</li>
 <li><strong>HTTP 200</strong> with JSON body. Client parses <code>.choices[0].message.content</code>. Screen prints the reply.</li>
 </ol>
 <p>Total wall-clock: ~200ms for a 10-token prompt + 10-token reply. Scales linearly with both.</p>
 <h2 id="how-the-agents-keep-the-stack-alive">How the agents keep the stack alive</h2>
 <p>17 halo-agents run in the background on tokio. Each is a <code>Specialist</code> impl with typed I/O (serde + schemars). They're exposed over MCP so Claude Code and DSPy can invoke them as tools. Four relevant to ops:</p>
 <ul>
-<li><strong>anvil</strong> â polls <code>bong-water-water-bong/rocm-cpp</code>. On new commit: git fetch + cmake build + bench_kv_fd. Posts the build+bench summary to <code>#changelog</code> via Discord. If build fails, the tail of the log is posted so you see it when you check your phone.</li>
-<li><strong>librarian</strong> â scans commit history across halo-ai-core + rocm-cpp + agent-cpp. Appends Conventional-Commits-formatted lines to <code>CHANGELOG.md</code> + posts the delta.</li>
-<li><strong>quartermaster</strong> â polls GitHub for issues with zero labels across our repos. Adds <code>needs-triage</code>. State file tracks which issues have been handled so it doesn't re-label.</li>
-<li><strong>magistrate</strong> â scans open PRs for Conventional-Commits titles + secret patterns in the diff. Flags violations. Never silently drops a <code>gh pr diff</code> failure â we learned that lesson.</li>
+<li><strong>anvil</strong> — polls <code>bong-water-water-bong/rocm-cpp</code>. On new commit: git fetch + cmake build + bench_kv_fd. Posts the build+bench summary to <code>#changelog</code> via Discord. If build fails, the tail of the log is posted so you see it when you check your phone.</li>
+<li><strong>librarian</strong> — scans commit history across halo-ai-core + rocm-cpp + agent-cpp. Appends Conventional-Commits-formatted lines to <code>CHANGELOG.md</code> + posts the delta.</li>
+<li><strong>quartermaster</strong> — polls GitHub for issues with zero labels across our repos. Adds <code>needs-triage</code>. State file tracks which issues have been handled so it doesn't re-label.</li>
+<li><strong>magistrate</strong> — scans open PRs for Conventional-Commits titles + secret patterns in the diff. Flags violations. Never silently drops a <code>gh pr diff</code> failure — we learned that lesson.</li>
 </ul>
 <p>All four run under systemd timers, idempotent, silent when nothing's changed. You work on your app; they work on the stack.</p>
 <h2 id="how-the-npu-would-plug-in-when-unblocked">How the NPU would plug in (when unblocked)</h2>
@@ -126,7 +133,7 @@
     Phase::Decode                  =&gt; rcpp_decode_ternary_hip(..),   // iGPU always
 }
 </code></pre>
-<p>KV cache lives in LPDDR5; neither engine needs to hand off state. Expected prefill gain: 1.5-2Ã on short prompts. Decode stays iGPU because its bandwidth story wins.</p>
+<p>KV cache lives in LPDDR5; neither engine needs to hand off state. Expected prefill gain: 1.5-2× on short prompts. Decode stays iGPU because its bandwidth story wins.</p>
 <p>The kernel behind <code>rcpp_prefill_ternary_aie</code> is the missing piece. Candidate paths:</p>
 <ul>
 <li>Write it in MLIR for IREE-AMD-AIE (community, open source). Multi-engineer-quarter.</li>
@@ -134,7 +141,7 @@
 <li>Wait for Microsoft's first-party XDNA backend (issue #408 open since Feb 2026, zero replies).</li>
 <li>Wait for FastFlowLM to open-source their kernels + add 1.58-bit.</li>
 </ul>
-<p>We're watching, not building. The iGPU path has too much runway left â Sherry, rotorquant KV compression, MedusaBitNet speculative heads â all higher-ROI than NPU porting.</p>
+<p>We're watching, not building. The iGPU path has too much runway left — Sherry, rotorquant KV compression, MedusaBitNet speculative heads — all higher-ROI than NPU porting.</p>
 <h2 id="how-the-install-stays-simple">How the install stays simple</h2>
 <p>One script. What it does:</p>
 <ol>
@@ -143,18 +150,18 @@
 <li><code>cargo build --release --workspace</code> in halo-workspace. Another ~1 minute.</li>
 <li><code>cargo install --path crates/halo-cli</code> + <code>...halo-server</code> + <code>...halo-lemonade</code> + <code>...halo-gaia</code> + <code>...halo-landing</code>. All five binaries land in <code>~/.cargo/bin/</code>.</li>
 <li><code>systemctl --user enable --now strix-server strix-lemonade strix-landing</code>.</li>
-<li>Symlink <code>/home/bcloud/halo-1bit/models/halo-1bit-2b.{h1b,htok}</code> to the real model dir (compat shim for a hardcoded path in the release binary â will be removed after next rebuild).</li>
+<li>Symlink <code>/home/bcloud/halo-1bit/models/halo-1bit-2b.{h1b,htok}</code> to the real model dir (compat shim for a hardcoded path in the release binary — will be removed after next rebuild).</li>
 <li>Run <code>halo doctor</code>. Green means you're live.</li>
 </ol>
-<p>Visual feedback the whole way â banner, step counter (1/6, 2/6, â¦), progress-dot lines for long commands, â with elapsed seconds at the end of each step, â /â if anything fails.</p>
+<p>Visual feedback the whole way — banner, step counter (1/6, 2/6, …), progress-dot lines for long commands, ✓ with elapsed seconds at the end of each step, ⚠/✗ if anything fails.</p>
 <h2 id="how-to-contribute">How to contribute</h2>
 <p>See <a href="../../CONTRIBUTING.md">CONTRIBUTING.md</a>. File an issue with <code>halo doctor</code> output. Run the bench on your box and post numbers. +1 the AMD issue. Translate a README. All of it helps.</p>
 <p>The Rust monorepo is private until launch; request a read-only collaborator invite. The kernels (rocm-cpp) are public MIT.</p>
 <h2 id="what-third-time-s-the-charm-actually-means">What "third time's the charm" actually means</h2>
 <ul>
-<li><strong>v0.0</strong> â Python + AMD Lemonade. Died on MLX ROCm + ternary mismatch.</li>
-<li><strong>v0.1</strong> â C++ <code>bitnet_decode</code> + agent-cpp. Shipped on :8080. Discovered the hardcoded-path bug and the <code>--server</code> argv bug when an external tester tried to install on a fresh CachyOS box. Both fixed within 24 hours of report.</li>
-<li><strong>v0.2</strong> â Rust workspace + gen-1 still running for burn-in. 96.66% parity. 11 crates, 121 tests. This is the one.</li>
+<li><strong>v0.0</strong> — Python + AMD Lemonade. Died on MLX ROCm + ternary mismatch.</li>
+<li><strong>v0.1</strong> — C++ <code>bitnet_decode</code> + agent-cpp. Shipped on :8080. Discovered the hardcoded-path bug and the <code>--server</code> argv bug when an external tester tried to install on a fresh CachyOS box. Both fixed within 24 hours of report.</li>
+<li><strong>v0.2</strong> — Rust workspace + gen-1 still running for burn-in. 96.66% parity. 11 crates, 121 tests. This is the one.</li>
 </ul>
 <p>Versioned, measurable, reproducible. Each failure documented. Each fix shipped with a commit message explaining why, not just what.</p>
 

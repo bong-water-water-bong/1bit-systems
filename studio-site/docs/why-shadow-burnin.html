@@ -28,22 +28,29 @@
 <li data-slug="why-no-python"><a href="/docs/why-no-python.html">Why no Python at runtime? (Rule A)</a></li>
 <li data-slug="why-no-npu-yet"><a href="/docs/why-no-npu-yet.html">Why no NPU yet?</a></li>
 <li data-slug="why-this-way-how"><a href="/docs/why-this-way-how.html">Why this way + how — the design walkthrough</a></li>
-<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why `halo power`?</a></li>
+<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why <code>halo power</code>?</a></li>
 </ul></div>
 <div class="group"><h4>Research</h4><ul>
 <li data-slug="medusa-integration-plan"><a href="/docs/medusa-integration-plan.html">Medusa Integration Plan (halo-ai-rs / gen-2)</a></li>
 <li data-slug="halo-whisper-streaming-plan"><a href="/docs/halo-whisper-streaming-plan.html">Halo-Whisper Streaming Plan</a></li>
-<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via `--kv-quant rotor-3`</a></li>
+<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via <code>--kv-quant rotor-3</code></a></li>
 </ul></div>
 <div class="group"><h4>Integrations</h4><ul>
 <li data-slug="hermes-integration"><a href="/docs/hermes-integration.html">Hermes Agent integration</a></li>
 <li data-slug="cloudflare-tunnel-setup"><a href="/docs/cloudflare-tunnel-setup.html">Cloudflare Tunnel Setup — api.halo-ai.studio</a></li>
 </ul></div>
+<div class="group"><h4>Other</h4><ul>
+<li data-slug="benchmarks"><a href="/docs/benchmarks.html">Live tok/s + PPL</a></li>
+<li data-slug="why-caddy-systemd"><a href="/docs/why-caddy-systemd.html">Why Caddy + user-scope systemd?</a></li>
+<li data-slug="why-h1b-format"><a href="/docs/why-h1b-format.html">Why our own <code>.h1b</code> format?</a></li>
+<li data-slug="why-halo-agents"><a href="/docs/why-halo-agents.html">Why halo-agents?</a></li>
+<li data-slug="why-parity-gates"><a href="/docs/why-parity-gates.html">Why shadow-traffic parity gates?</a></li>
+</ul></div>
 </nav>
 
 <main class="doc-main">
   <h1>Why shadow-burnin?</h1>
-  <p><strong>One-line answer</strong>: before we flip <code>/v1/*</code> from the battle-tested C++ server (<code>bitnet_decode</code> on <code>:8080</code>) to the new Rust server (<code>halo-server</code> on <code>:8180</code>), we want <strong>real evidence</strong> that the Rust version gives the same answers under real traffic â not synthetic tests.</p>
+  <p><strong>One-line answer</strong>: before we flip <code>/v1/*</code> from the battle-tested C++ server (<code>bitnet_decode</code> on <code>:8080</code>) to the new Rust server (<code>halo-server</code> on <code>:8180</code>), we want <strong>real evidence</strong> that the Rust version gives the same answers under real traffic — not synthetic tests.</p>
 <h2 id="the-setup">The setup</h2>
 <p>Two servers, same model, same weights, same temperature (0, greedy argmax), same prompts. Both running on the same box at the same time. A script fires each prompt at both, diffs the replies byte-for-byte, logs the result.</p>
 <pre><code>prompt ─┬─▶ :8080 (gen-1 C++) ──▶ reply A
@@ -72,32 +79,32 @@
 <p>That's <strong>sub-ULP FP16 noise</strong>, not a bug. Here's why:</p>
 <ol>
 <li>Both servers use FP16 throughout. FP16 has 10 mantissa bits + implicit bit = 11 bits of precision, roughly 3 decimal digits.</li>
-<li>The two kernels (C++ <code>bitnet_decode</code> vs Rust-driven <code>rocm-cpp</code>) do the same math in slightly different orders â different accumulation trees, different block tiling, different register schedules. Result: every intermediate value differs by 0-3 ULPs.</li>
+<li>The two kernels (C++ <code>bitnet_decode</code> vs Rust-driven <code>rocm-cpp</code>) do the same math in slightly different orders — different accumulation trees, different block tiling, different register schedules. Result: every intermediate value differs by 0-3 ULPs.</li>
 <li>Those tiny differences propagate through 30 transformer layers and accumulate.</li>
 <li>At temperature 0 we pick <code>argmax(logits)</code>. If two logits are within ~0.001 of each other, a 1-ULP perturbation flips the argmax. That's the divergence.</li>
-<li><strong>Crucially</strong>, this does NOT affect PPL â which we measure independently and get <code>9.18</code> vs gen-1's <code>9.1607</code>, within tolerance.</li>
+<li><strong>Crucially</strong>, this does NOT affect PPL — which we measure independently and get <code>9.18</code> vs gen-1's <code>9.1607</code>, within tolerance.</li>
 </ol>
 <p>Put differently: the <em>distribution</em> both servers see is identical to within rounding. The <em>argmax pick</em> differs occasionally because argmax is brittle near logit ties. PPL measures the distribution; shadow-burnin measures the argmax pick.</p>
 <h2 id="why-do-it-if-ppl-already-passes">Why do it, if PPL already passes?</h2>
 <p>Because PPL is <strong>one number</strong> measured once. Shadow-burnin is <strong>thousands of prompts</strong> measured over days. Four things we learn that PPL can't tell us:</p>
 <ol>
-<li><strong>Stability under load</strong> â does the Rust server crash or slow down after 200 completions? (The KV-cache-reset bug was found this way â not by PPL.)</li>
-<li><strong>Latency parity</strong> â if gen-2 is 2Ã slower than gen-1 at the same quality, we don't want to cut over.</li>
-<li><strong>Coverage</strong> â 30 prompt types spanning code, reasoning, creative, long-context. PPL is one text span.</li>
-<li><strong>Trust</strong> â a reader asking "is the new server actually the same?" gets a number they can verify: 96.66%. Much harder to argue with than a one-shot PPL.</li>
+<li><strong>Stability under load</strong> — does the Rust server crash or slow down after 200 completions? (The KV-cache-reset bug was found this way — not by PPL.)</li>
+<li><strong>Latency parity</strong> — if gen-2 is 2× slower than gen-1 at the same quality, we don't want to cut over.</li>
+<li><strong>Coverage</strong> — 30 prompt types spanning code, reasoning, creative, long-context. PPL is one text span.</li>
+<li><strong>Trust</strong> — a reader asking "is the new server actually the same?" gets a number they can verify: 96.66%. Much harder to argue with than a one-shot PPL.</li>
 </ol>
 <h2 id="cutover-gate-table">Cutover gate table</h2>
 <p>From <a href="../../CUTOVER.md"><code>CUTOVER.md</code></a>:</p>
 <table>
 <thead><tr><th>gate</th><th>target</th><th>current</th><th>state</th></tr></thead>
 <tbody>
-<tr><td>PPL on wikitext 1024 tokens</td><td>9.1607 Â± 0.05</td><td>9.1805</td><td>â</td></tr>
-<tr><td>exact-match rate</td><td>â¥ 90%</td><td>96.66%</td><td>â</td></tr>
-<tr><td>total rounds</td><td>â¥ 50 000</td><td>~10 000+</td><td>â</td></tr>
-<tr><td>v2 unreachable</td><td>&lt; 0.1%</td><td>0%</td><td>â</td></tr>
-<tr><td>v1/v2 p95 latency gap</td><td>&lt; 100 ms</td><td>10 ms</td><td>â</td></tr>
+<tr><td>PPL on wikitext 1024 tokens</td><td>9.1607 ± 0.05</td><td>9.1805</td><td>✓</td></tr>
+<tr><td>exact-match rate</td><td>≥ 90%</td><td>96.66%</td><td>✓</td></tr>
+<tr><td>total rounds</td><td>≥ 50 000</td><td>~10 000+</td><td>⌛</td></tr>
+<tr><td>v2 unreachable</td><td>&lt; 0.1%</td><td>0%</td><td>✓</td></tr>
+<tr><td>v1/v2 p95 latency gap</td><td>&lt; 100 ms</td><td>10 ms</td><td>✓</td></tr>
 </tbody></table>
-<p>Three gates green, one still waiting on wall-clock time. When all five are green, <code>/v1/*</code> flips to <code>:8180</code>. The ~48 hours left is not a risk â it's just collecting receipts.</p>
+<p>Three gates green, one still waiting on wall-clock time. When all five are green, <code>/v1/*</code> flips to <code>:8180</code>. The ~48 hours left is not a risk — it's just collecting receipts.</p>
 <h2 id="lots-of-shadows">"Lots of shadows?"</h2>
 <p>Common misread: "353 no-match" looks scary. It's not. 353 out of ~10 000 = 3.5%. Of those, most are legitimate divergences near logit ties; a handful are chat-template edge cases we've already documented. No actual regressions have been found.</p>
 <p>If the number ever spikes (say, &gt;20% no-match in an hour), the harness will flag it and halt the cutover plan. That's what the shadow-burnin is <em>for</em>.</p>

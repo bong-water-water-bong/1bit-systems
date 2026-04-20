@@ -28,57 +28,64 @@
 <li data-slug="why-no-python"><a href="/docs/why-no-python.html">Why no Python at runtime? (Rule A)</a></li>
 <li data-slug="why-no-npu-yet"><a href="/docs/why-no-npu-yet.html">Why no NPU yet?</a></li>
 <li data-slug="why-this-way-how"><a href="/docs/why-this-way-how.html">Why this way + how — the design walkthrough</a></li>
-<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why `halo power`?</a></li>
+<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why <code>halo power</code>?</a></li>
 </ul></div>
 <div class="group"><h4>Research</h4><ul>
 <li data-slug="medusa-integration-plan"><a href="/docs/medusa-integration-plan.html">Medusa Integration Plan (halo-ai-rs / gen-2)</a></li>
 <li data-slug="halo-whisper-streaming-plan"><a href="/docs/halo-whisper-streaming-plan.html">Halo-Whisper Streaming Plan</a></li>
-<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via `--kv-quant rotor-3`</a></li>
+<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via <code>--kv-quant rotor-3</code></a></li>
 </ul></div>
 <div class="group"><h4>Integrations</h4><ul>
 <li data-slug="hermes-integration"><a href="/docs/hermes-integration.html">Hermes Agent integration</a></li>
 <li data-slug="cloudflare-tunnel-setup"><a href="/docs/cloudflare-tunnel-setup.html">Cloudflare Tunnel Setup — api.halo-ai.studio</a></li>
 </ul></div>
+<div class="group"><h4>Other</h4><ul>
+<li data-slug="benchmarks"><a href="/docs/benchmarks.html">Live tok/s + PPL</a></li>
+<li data-slug="why-caddy-systemd"><a href="/docs/why-caddy-systemd.html">Why Caddy + user-scope systemd?</a></li>
+<li data-slug="why-h1b-format"><a href="/docs/why-h1b-format.html">Why our own <code>.h1b</code> format?</a></li>
+<li data-slug="why-halo-agents"><a href="/docs/why-halo-agents.html">Why halo-agents?</a></li>
+<li data-slug="why-parity-gates"><a href="/docs/why-parity-gates.html">Why shadow-traffic parity gates?</a></li>
+</ul></div>
 </nav>
 
 <main class="doc-main">
   <h1>Why 1.58-bit ternary?</h1>
-  <p><strong>One-line answer</strong>: 1.58-bit weights (values in <code>{-1, 0, +1}</code>) give a ~10Ã memory reduction over FP16 with near-zero accuracy loss on the BitNet-b1.58-2B-4T architecture. This lifts the LPDDR5 bandwidth bottleneck that dominates LLM inference on unified-memory systems like Strix Halo.</p>
+  <p><strong>One-line answer</strong>: 1.58-bit weights (values in <code>{-1, 0, +1}</code>) give a ~10× memory reduction over FP16 with near-zero accuracy loss on the BitNet-b1.58-2B-4T architecture. This lifts the LPDDR5 bandwidth bottleneck that dominates LLM inference on unified-memory systems like Strix Halo.</p>
 <h2 id="the-bit-budget">The bit budget</h2>
 <table>
 <thead><tr><th>format</th><th style="text-align:right">bits/weight</th><th style="text-align:right">2B model size</th><th style="text-align:right">LPDDR5 bandwidth demand</th></tr></thead>
 <tbody>
 <tr><td>FP16</td><td style="text-align:right">16</td><td style="text-align:right">4.0 GB</td><td style="text-align:right">at peak</td></tr>
-<tr><td>INT8</td><td style="text-align:right">8</td><td style="text-align:right">2.0 GB</td><td style="text-align:right">0.5Ã</td></tr>
-<tr><td>1.58-bit (ternary)</td><td style="text-align:right">1.58</td><td style="text-align:right">400 MB</td><td style="text-align:right"><strong>~0.1Ã</strong></td></tr>
+<tr><td>INT8</td><td style="text-align:right">8</td><td style="text-align:right">2.0 GB</td><td style="text-align:right">0.5×</td></tr>
+<tr><td>1.58-bit (ternary)</td><td style="text-align:right">1.58</td><td style="text-align:right">400 MB</td><td style="text-align:right"><strong>~0.1×</strong></td></tr>
 </tbody></table>
-<p>On a Strix Halo box with 128 GB LPDDR5 shared between CPU and GPU, <strong>memory bandwidth, not compute, is the dominant bottleneck for LLM decode</strong>. A 10Ã smaller model = 10Ã less bandwidth demand per token.</p>
+<p>On a Strix Halo box with 128 GB LPDDR5 shared between CPU and GPU, <strong>memory bandwidth, not compute, is the dominant bottleneck for LLM decode</strong>. A 10× smaller model = 10× less bandwidth demand per token.</p>
 <h2 id="the-accuracy-story">The accuracy story</h2>
 <p>Microsoft's paper (<a href="https://arxiv.org/abs/2402.17764">arXiv:2402.17764</a>) showed that 1.58-bit weights can <em>match</em> FP16 quality on a 3B model <strong>if trained from scratch with quantization-aware training</strong>, not post-quantized. The 2B-4T model they released confirmed it.</p>
-<p>We use their pre-trained weights directly. Converting them to our <code>.h1b</code> format is a deterministic re-pack â we don't retrain.</p>
+<p>We use their pre-trained weights directly. Converting them to our <code>.h1b</code> format is a deterministic re-pack — we don't retrain.</p>
 <h2 id="where-1-58-comes-from">Where "1.58" comes from</h2>
-<p>logâ(3) â 1.585. Three values {-1, 0, +1} take 1.585 bits of information per weight in the information-theoretic sense. Storage is usually 2 bits per weight (one bit wasted per value), but Sherry's 3:4 sparsity encoding gets it down to 1.25 bits by forcing one of every four weights to be zero.</p>
+<p>log₂(3) ≈ 1.585. Three values {-1, 0, +1} take 1.585 bits of information per weight in the information-theoretic sense. Storage is usually 2 bits per weight (one bit wasted per value), but Sherry's 3:4 sparsity encoding gets it down to 1.25 bits by forcing one of every four weights to be zero.</p>
 <h2 id="why-ternary-and-not-binary">Why ternary and not binary?</h2>
 <p>Binary ({-1, +1}) = 1 bit per weight, 50% more memory savings on paper. In practice:</p>
 <ul>
-<li><strong>Binary loses too much information</strong> â BitNet-b1.0 prototypes showed 2-3Ã higher perplexity vs the 1.58-bit variant at the same model scale.</li>
-<li><strong>Zero is load-bearing</strong> â activation sparsity (ReLU+squared-ReLU) produces ~50-60% zero activations. Matching ternary weights with ternary-zero means those matmuls compile down to no-ops.</li>
-<li><strong>Hardware efficiency</strong> â ternary maps to <code>xnor</code> + <code>popcount</code> + sign-flip on GPU. Binary loses the sign-flip branch.</li>
+<li><strong>Binary loses too much information</strong> — BitNet-b1.0 prototypes showed 2-3× higher perplexity vs the 1.58-bit variant at the same model scale.</li>
+<li><strong>Zero is load-bearing</strong> — activation sparsity (ReLU+squared-ReLU) produces ~50-60% zero activations. Matching ternary weights with ternary-zero means those matmuls compile down to no-ops.</li>
+<li><strong>Hardware efficiency</strong> — ternary maps to <code>xnor</code> + <code>popcount</code> + sign-flip on GPU. Binary loses the sign-flip branch.</li>
 </ul>
-<p>Sub-1.58-bit formats (LittleBit 0.1 bpw, NanoQuant sub-binary) exist and are watched â see <a href="memory-only"><code>../../.claude/projects/-home-bcloud/memory/project_bitnet_frontier_2026_04.md</code></a>. Not production-ready for our scale today.</p>
+<p>Sub-1.58-bit formats (LittleBit 0.1 bpw, NanoQuant sub-binary) exist and are watched — see <a href="memory-only"><code>../../.claude/projects/-home-bcloud/memory/project_bitnet_frontier_2026_04.md</code></a>. Not production-ready for our scale today.</p>
 <h2 id="why-this-matters-for-halo-ai">Why this matters for halo-ai</h2>
 <p>On a $3 000 Strix Halo mini-PC with 128 GB unified LPDDR5 at 256 GB/s, ternary BitNet gets us:</p>
 <ul>
-<li><strong>Model fits in 4 GB, leaving 124 GB for KV cache + activations</strong> â no OOM on long contexts.</li>
-<li><strong>83 tok/s decode at N=64, 68 tok/s at N=1024</strong> â competitive with a datacenter GPU ~5Ã the cost.</li>
-<li><strong>Silent / low-power</strong> â 150 W sustained. Whisper-quiet in a closet.</li>
+<li><strong>Model fits in 4 GB, leaving 124 GB for KV cache + activations</strong> — no OOM on long contexts.</li>
+<li><strong>83 tok/s decode at N=64, 68 tok/s at N=1024</strong> — competitive with a datacenter GPU ~5× the cost.</li>
+<li><strong>Silent / low-power</strong> — 150 W sustained. Whisper-quiet in a closet.</li>
 </ul>
-<p>Same hardware running FP16 Llama-3-8B: ~18 tok/s. Ternary BitNet-2B at 83 tok/s is roughly 5Ã faster for comparable task quality on the benchmarks we care about.</p>
+<p>Same hardware running FP16 Llama-3-8B: ~18 tok/s. Ternary BitNet-2B at 83 tok/s is roughly 5× faster for comparable task quality on the benchmarks we care about.</p>
 <h2 id="citations">Citations</h2>
 <ul>
 <li>Wang, Ma et al. "The Era of 1-bit LLMs: All Large Language Models are in 1.58 Bits." arXiv <a href="https://arxiv.org/abs/2402.17764"><code>2402.17764</code></a>.</li>
 <li>Wang, Ma et al. "BitNet v2: Native 4-bit Activations with Hadamard Transform for 1-bit LLMs." arXiv <a href="https://arxiv.org/abs/2504.18415"><code>2504.18415</code></a>.</li>
-<li><code>microsoft/bitnet-b1.58-2B-4T</code> on HuggingFace â the weights we run.</li>
+<li><code>microsoft/bitnet-b1.58-2B-4T</code> on HuggingFace — the weights we run.</li>
 </ul>
 
 </main>

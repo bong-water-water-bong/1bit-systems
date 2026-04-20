@@ -28,44 +28,51 @@
 <li data-slug="why-no-python"><a href="/docs/why-no-python.html">Why no Python at runtime? (Rule A)</a></li>
 <li data-slug="why-no-npu-yet"><a href="/docs/why-no-npu-yet.html">Why no NPU yet?</a></li>
 <li data-slug="why-this-way-how"><a href="/docs/why-this-way-how.html">Why this way + how — the design walkthrough</a></li>
-<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why `halo power`?</a></li>
+<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why <code>halo power</code>?</a></li>
 </ul></div>
 <div class="group"><h4>Research</h4><ul>
 <li data-slug="medusa-integration-plan"><a href="/docs/medusa-integration-plan.html">Medusa Integration Plan (halo-ai-rs / gen-2)</a></li>
 <li data-slug="halo-whisper-streaming-plan"><a href="/docs/halo-whisper-streaming-plan.html">Halo-Whisper Streaming Plan</a></li>
-<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via `--kv-quant rotor-3`</a></li>
+<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via <code>--kv-quant rotor-3</code></a></li>
 </ul></div>
 <div class="group"><h4>Integrations</h4><ul>
 <li data-slug="hermes-integration"><a href="/docs/hermes-integration.html">Hermes Agent integration</a></li>
 <li data-slug="cloudflare-tunnel-setup"><a href="/docs/cloudflare-tunnel-setup.html">Cloudflare Tunnel Setup — api.halo-ai.studio</a></li>
 </ul></div>
+<div class="group"><h4>Other</h4><ul>
+<li data-slug="benchmarks"><a href="/docs/benchmarks.html">Live tok/s + PPL</a></li>
+<li data-slug="why-caddy-systemd"><a href="/docs/why-caddy-systemd.html">Why Caddy + user-scope systemd?</a></li>
+<li data-slug="why-h1b-format"><a href="/docs/why-h1b-format.html">Why our own <code>.h1b</code> format?</a></li>
+<li data-slug="why-halo-agents"><a href="/docs/why-halo-agents.html">Why halo-agents?</a></li>
+<li data-slug="why-parity-gates"><a href="/docs/why-parity-gates.html">Why shadow-traffic parity gates?</a></li>
+</ul></div>
 </nav>
 
 <main class="doc-main">
   <h1>halo-ai-rs wiki</h1>
-  <p>Plain-English explanations of the architectural calls we made â one page per decision, citations where they exist.</p>
+  <p>Plain-English explanations of the architectural calls we made — one page per decision, citations where they exist.</p>
 <h2 id="decisions">Decisions</h2>
 <ul>
-<li><a href="/docs/why-ternary.html">Why 1.58-bit ternary?</a> â the weight format</li>
-<li><a href="/docs/why-rust.html">Why Rust above + C++ below?</a> â the language split</li>
-<li><a href="/docs/why-strix-halo.html">Why Strix Halo (gfx1151)?</a> â the hardware target</li>
-<li><a href="/docs/why-shadow-burnin.html">Why shadow-burnin?</a> â the cutover discipline</li>
-<li><a href="/docs/why-h1b-format.html">Why our own <code>.h1b</code> format?</a> â vs GGUF</li>
-<li><a href="/docs/why-caddy-systemd.html">Why Caddy + systemd?</a> â the ops layer</li>
-<li><a href="/docs/why-halo-agents.html">Why halo-agents?</a> â the self-maintaining mesh</li>
-<li><a href="/docs/why-no-python.html">Why no Python at runtime?</a> â Rule A</li>
-<li><a href="/docs/why-parity-gates.html">Why shadow-traffic parity gates?</a> â cutover criteria</li>
-<li><a href="/docs/why-no-npu-yet.html">Why no NPU yet?</a> â XDNA 2 status + ONNX/FastFlowLM/IREE evaluation</li>
-<li><a href="/docs/why-this-way-how.html">Why this way + how?</a> â long-form walkthrough of all the decisions + end-to-end request path</li>
+<li><a href="/docs/why-ternary.html">Why 1.58-bit ternary?</a> — the weight format</li>
+<li><a href="/docs/why-rust.html">Why Rust above + C++ below?</a> — the language split</li>
+<li><a href="/docs/why-strix-halo.html">Why Strix Halo (gfx1151)?</a> — the hardware target</li>
+<li><a href="/docs/why-shadow-burnin.html">Why shadow-burnin?</a> — the cutover discipline</li>
+<li><a href="/docs/why-h1b-format.html">Why our own <code>.h1b</code> format?</a> — vs GGUF</li>
+<li><a href="/docs/why-caddy-systemd.html">Why Caddy + systemd?</a> — the ops layer</li>
+<li><a href="/docs/why-halo-agents.html">Why halo-agents?</a> — the self-maintaining mesh</li>
+<li><a href="/docs/why-no-python.html">Why no Python at runtime?</a> — Rule A</li>
+<li><a href="/docs/why-parity-gates.html">Why shadow-traffic parity gates?</a> — cutover criteria</li>
+<li><a href="/docs/why-no-npu-yet.html">Why no NPU yet?</a> — XDNA 2 status + ONNX/FastFlowLM/IREE evaluation</li>
+<li><a href="/docs/why-this-way-how.html">Why this way + how?</a> — long-form walkthrough of all the decisions + end-to-end request path</li>
 </ul>
 <h2 id="integrations">Integrations</h2>
 <ul>
-<li><a href="/docs/hermes-integration.html">Hermes Agent integration</a> â Nous Research's agent as external client on halo-server; feature-port list for halo-agents</li>
+<li><a href="/docs/hermes-integration.html">Hermes Agent integration</a> — Nous Research's agent as external client on halo-server; feature-port list for halo-agents</li>
 </ul>
 <h2 id="benchmarks-proof">Benchmarks + proof</h2>
 <ul>
-<li><a href="/docs/benchmarks.html">Live tok/s + PPL</a> â what we measure, what it means</li>
-<li><a href="/docs/faq.html">FAQ</a> â short answers to common questions</li>
+<li><a href="/docs/benchmarks.html">Live tok/s + PPL</a> — what we measure, what it means</li>
+<li><a href="/docs/faq.html">FAQ</a> — short answers to common questions</li>
 </ul>
 <h2 id="pointers">Pointers</h2>
 <ul>
