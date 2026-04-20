@@ -13,7 +13,7 @@ name = "onebit_echo"
 path = "src/lib.rs"
 
 [[bin]]
-name = "onebit-echo"
+name = "1bit-echo"
 path = "src/main.rs"
 
 [dependencies]

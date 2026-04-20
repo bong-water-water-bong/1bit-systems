@@ -13,7 +13,7 @@ name = "onebit_mcp"
 path = "src/lib.rs"
 
 [[bin]]
-name = "onebit-mcp"
+name = "1bit-mcp"
 path = "src/main.rs"
 
 [dependencies]

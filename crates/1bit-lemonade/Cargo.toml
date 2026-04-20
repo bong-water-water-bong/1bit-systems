@@ -13,7 +13,7 @@ name = "onebit_lemonade"
 path = "src/lib.rs"
 
 [[bin]]
-name = "onebit-lemonade"
+name = "1bit-lemonade"
 path = "src/main.rs"
 
 [dependencies]

@@ -17,7 +17,7 @@ path = "src/lib.rs"
 # binary is opt-in: the systemd unit (strixhalo/systemd/strix-watch-discord.service)
 # is shipped disabled. Operator enables + drops in DISCORD_BOT_TOKEN.
 [[bin]]
-name = "halo-watch-discord"
+name = "1bit-watch-discord"
 path = "bin/halo-watch-discord.rs"
 
 # halo-watch-github — read-only GitHub poller. Every poll interval, walks the
@@ -26,7 +26,7 @@ path = "bin/halo-watch-discord.rs"
 # no labels, no reactions). Runs as a systemd oneshot via
 # strixhalo/systemd/strix-watch-github.timer.
 [[bin]]
-name = "halo-watch-github"
+name = "1bit-watch-github"
 path = "bin/halo-watch-github.rs"
 
 [dependencies]

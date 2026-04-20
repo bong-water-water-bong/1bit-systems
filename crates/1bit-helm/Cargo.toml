@@ -13,7 +13,7 @@ name = "onebit_helm"
 path = "src/lib.rs"
 
 [[bin]]
-name = "onebit-helm"
+name = "1bit-helm"
 path = "src/main.rs"
 
 [dependencies]

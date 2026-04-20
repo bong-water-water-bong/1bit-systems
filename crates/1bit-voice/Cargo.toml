@@ -13,7 +13,7 @@ name = "onebit_voice"
 path = "src/lib.rs"
 
 [[bin]]
-name = "onebit-voice"
+name = "1bit-voice"
 path = "src/main.rs"
 
 [features]
