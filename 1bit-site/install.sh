@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 1bit.systems bootstrap — wake the 1-bit monster on your Strix Halo box.
+# 1bit.systems bootstrap — wake the 1bit monster on your Strix Halo box.
 #
 # Usage: curl -fsSL https://1bit.systems/install.sh | bash
 #
@@ -20,7 +20,7 @@ banner() {
   printf '\n'
   printf '%b╔══════════════════════════════════════════════════════════════╗%b\n' "$C" "$N"
   printf '%b║                                                              ║%b\n' "$C" "$N"
-  printf '%b║   %b1bit.systems · the 1-bit monster · strix halo bootstrap%b   %b║%b\n' "$C" "$B" "$N" "$C" "$N"
+  printf '%b║   %b1bit.systems · the 1bit monster · strix halo bootstrap%b   %b║%b\n' "$C" "$B" "$N" "$C" "$N"
   printf '%b║   %bgfx1151 · ternary BitNet-b1.58 · bare metal · zero cloud%b   %b║%b\n' "$C" "$D" "$N" "$C" "$N"
   printf '%b║                                                              ║%b\n' "$C" "$N"
   printf '%b╚══════════════════════════════════════════════════════════════╝%b\n\n' "$C" "$N"

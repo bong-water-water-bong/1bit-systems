@@ -418,7 +418,7 @@ fn wrap_page(body: &str, headings: &[Heading], title: &str, page_title: &str, sl
 </aside>
 </div>
 <footer class="footer">
-  <p><b>1bit.systems</b> · the 1-bit monster · <a href="/">home</a></p>
+  <p><b>1bit.systems</b> · the 1bit monster · <a href="/">home</a></p>
 </footer>
 </body>
 </html>

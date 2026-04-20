@@ -1,6 +1,6 @@
 # 1bit-site
 
-Static site for **1bit.systems** — landing page for the 1-bit monster
+Static site for **1bit.systems** — landing page for the 1bit monster
 (BitNet-b1.58 on AMD Strix Halo).
 
 ## Layout
