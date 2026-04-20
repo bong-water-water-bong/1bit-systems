@@ -25,4 +25,4 @@ tracing = { workspace = true }
 # (canonical upstream is Wavegoodvybe2929/bitnet-rust, the mirror is the
 # stable handle we control). mlx-rs requires macOS + Xcode toolchain —
 # cargo won't try to build this unless the `mlx-apple` feature is enabled.
-bitnet-inference = { git = "ssh://git@github-bong/bong-water-water-bong/bitnet-mlx-rs.git", optional = true }
+bitnet-inference = { git = "ssh://git@github.com/bong-water-water-bong/bitnet-mlx-rs.git", optional = true }
