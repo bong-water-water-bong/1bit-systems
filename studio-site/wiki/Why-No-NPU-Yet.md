@@ -1,6 +1,6 @@
 # Why no NPU yet?
 
-**One-line answer**: the XDNA 2 NPU (50 TOPS int8) is on the box and visible to the kernel, but no mature Rust/C++ path to dispatch BitNet-b1.58 to it exists yet. We're evaluating ONNX Runtime vs AMD's FastFlowFM vs IREE-AIE. The iGPU path already delivers 80+ tok/s and is production-green, so NPU is an optimization, not a blocker.
+**One-line answer**: evaluated four stacks (ONNX-RT + Vitis EP, FastFlowLM, IREE-AIE, direct xrt). **Deferred** — no path runs BitNet-b1.58 on Strix Halo's XDNA 2 in Linux today, and the realistic decode ceiling is below our current iGPU. Update posture: quarterly passive monitoring, not active work.
 
 ## What's on the box
 
@@ -52,23 +52,63 @@
 
 **Cons**: bleeding edge; BitNet model support unknown; perf not characterized on Strix Halo.
 
-## Current posture
+## Final verdict (2026-04-20)
 
-We have a deep-research agent scanning the three stacks for (a) BitNet readiness today, (b) Rust binding quality, (c) realistic decode-tok/s expectation on XDNA 2, (d) AMD's published Linux status, and (e) prior art from anyone else who has run BitNet on XDNA 2 in public. Result will land in `project_npu_path_analysis.md` and update this page with a concrete recommendation + "defer until" condition.
+Research concluded — see `project_npu_path_analysis.md` memory. **Defer until one of:**
 
-## "What would the payoff look like?"
+1. Ryzen AI SDK ≥ 1.8 adds **STX-H (Strix Halo)** to its Linux-supported SKU list. Today's 1.7.1 (April 2026) lists only STX + KRK.
+2. `microsoft/BitNet` ships an XDNA backend. [Issue #408](https://github.com/microsoft/BitNet/issues/408) — "Intel & AMD NPU support?" — has been open since Feb 2026 with zero Microsoft replies.
+3. **FastFlowLM** open-sources its NPU kernels (currently closed-source, non-redistributable under their EULA) or adds a 1.58-bit model family.
+4. Our iGPU path saturates the 212 GB/s LPDDR5 ceiling. Today we run at ~15% utilization — plenty of Sherry / activation-sparsity / KV-compression runway.
+5. A third party publishes a working BitNet → AIE kernel in public.
 
-If we route prefill + speculative through XDNA 2:
-- Prefill: today ~50 tok/s on 128-token prompts (iGPU). NPU could double to ~100 tok/s if the int8 pipe can be fed.
-- Speculative (MedusaBitNet heads): 4 candidate tokens per backbone step. 2–3× decode throughput is the expected win.
-- Decode on NPU alone: unlikely to beat iGPU — same memory, same bandwidth ceiling.
+## The four stacks, scored
 
-So the NPU story is **faster prefill + speculative decoding**, not "make decode faster". That framing matters for choosing which stack to port.
+### Stack A — ONNX Runtime + Vitis AI EP
+
+- **Blocker**: Vitis EP has no ternary op; would need a custom AIE kernel.
+- **Harder blocker**: Ryzen AI 1.7.1 Linux doesn't list Strix Halo at all. STX + KRK only.
+- **Status**: multi-quarter dependency chain before it could even start.
+
+### Stack B — FastFlowLM (note: "FastFlowFM" was a transcription artefact; real name is FastFlowLM)
+
+- **Only Linux path** that actually touches XDNA 2 on Strix Halo today.
+- **Format**: `Q4NX` (GGUF Q4_0 / Q4_1 derivatives). **Not ternary.** BitNet not in their 22-model catalog.
+- **Kernels**: proprietary, non-redistributable under their EULA ($10M ARR commercial cap).
+- **Rule A**: acceptable (Lemonade is the runtime, our systemd unit calls it).
+- **Status**: wrong model format, closed kernels. No path for halo-ai today.
+
+### Stack C — IREE AMD-AIE (`nod-ai/iree-amd-aie`)
+
+- **Cleanest technical path** for a custom ternary MLIR kernel — open source, MLIR-based.
+- **Blocker**: still "early-phase". Requires Peano/LLVM-AIE and a Chess/Vitis license for full perf.
+- **Effort**: multi-engineer-quarter build from scratch. We're one operator.
+- **Status**: valid long-term bet, not actionable this quarter.
+
+### Stack D — `xrt` direct
+
+- Driver + `libxrt` are fine; no public BitNet kernel exists for it.
+- Same MLIR-kernel-author problem as Stack C without the compiler help.
+
+## The decode-tok/s math
+
+**XDNA 2 bandwidth**: ~120 GB/s (dual-channel LPDDR5).
+**iGPU bandwidth**: ~212 GB/s of the 256 GB/s pool (our measured ceiling).
+
+BitNet-2B decode is memory-bandwidth-bound on the weight-read path. Linear scaling on the T-MAN paper's 50 tok/s result on Qualcomm Hexagon (~77 GB/s) gives XDNA 2 a **~77 tok/s ceiling** — below our measured **83 tok/s** on the iGPU today.
+
+Decode-on-NPU is **negative ROI**. The compute is there (50 TOPS int8), the bandwidth isn't. This is the same memory-bound story the ternary choice already exploits — see [`Why-Ternary.md`](./Why-Ternary.md).
+
+## What could still pay
+
+**Prefill-on-NPU (tier a) only.** At prefill (many tokens at once), the matmul is dense enough that compute matters more than bandwidth. NPU's 50 TOPS int8 could roughly double prefill throughput on 128-token prompts.
+
+That's a nice-to-have, not a cutover gate. And it still requires the AMD Linux SKU gap to close first.
 
 ## Status
 
-- **Today**: iGPU-only, 80+ tok/s decode, shipping.
-- **Research agent**: in flight, comparing ONNX / FastFlowFM / IREE.
-- **Decision window**: after the agent lands + after the user's mics arrive (the recording-ready cycle takes priority).
+- **Today**: iGPU-only, 83 tok/s decode, production-green.
+- **NPU research**: concluded. Deferred.
+- **Monitoring**: quarterly — check Ryzen AI SDK release notes + microsoft/BitNet#408 + FastFlowLM model catalog.
 
-Memory pointer: `project_npu_path_analysis.md` will have the comparison table + recommendation when the agent finishes.
+Memory pointer: `project_npu_path_analysis.md` has the full comparison table, citations, and defer-until conditions.
