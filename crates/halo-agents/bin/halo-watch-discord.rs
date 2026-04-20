@@ -28,7 +28,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use halo_agents::watch::{
-    Classification, HELP_TEXT, classify, is_direct_mention, parse_channel_whitelist, strip_mention,
+    HELP_TEXT, classify, is_direct_mention, parse_channel_whitelist, strip_mention,
 };
 use halo_agents::{Name, Registry};
 use serde_json::json;

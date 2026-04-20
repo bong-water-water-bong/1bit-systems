@@ -3,8 +3,8 @@
 Two opt-in binaries that keep the 17-specialist registry aware of activity
 outside the local machine:
 
-- `halo-watch-discord` — Discord gateway client (this doc).
-- `halo-watch-github`  — GitHub issue/PR poller (stubbed; see follow-up).
+- `halo-watch-discord` — Discord gateway client.
+- `halo-watch-github`  — GitHub issue/PR poller (read-only).
 
 Both live in the `halo-agents` crate so they share the registry type and
 don't need an IPC boundary to dispatch to a specialist.
@@ -128,3 +128,115 @@ under `cargo test -p halo-agents`. The startup-without-token contract is
 exercised by the integration test at `tests/watch_discord_startup.rs`,
 which spawns the compiled binary with the token env cleared and asserts
 exit 0 + help banner on stdout.
+
+---
+
+## What the GitHub watcher does
+
+`halo-watch-github` is a **read-only oneshot poller**. It:
+
+1. Reads `HALO_GH_REPOS` (comma-separated `owner/repo`, defaulted below).
+2. On each invocation, asks GitHub for issues + PRs updated in the last
+   `HALO_GH_POLL_SECONDS × 2` seconds (the 2× lookback buffers for late
+   timer fires).
+3. Classifies each event from labels + title keywords.
+4. Dispatches a compact typed payload to the target specialist via
+   `Registry::dispatch`.
+5. Exits. Cadence is handled by the systemd timer; the binary does not
+   hold its own `loop { sleep }`.
+
+It never writes to GitHub — no issue comments, no labels, no reactions,
+no starred, nothing. The PAT scope should be read-only (public_repo is
+sufficient for our repos).
+
+## GitHub label → specialist routing
+
+| Signal                                             | Specialist    |
+| -------------------------------------------------- | ------------- |
+| Pull request (any)                                 | `magistrate`  |
+| Label `bug` OR title contains `error`/`crash`/`fail` | `sentinel`  |
+| Label `enhancement` OR `feature`                   | `planner`     |
+| Label `documentation`                              | `scribe`      |
+| Fallback (unlabeled, non-PR, no fault keyword)     | `sentinel`    |
+
+Priority when signals overlap: PR > bug > feature > docs > fallback.
+
+Rationale:
+
+- **magistrate** is the code reviewer; every PR warrants a review ping
+  regardless of labels.
+- **sentinel** already watches for incidents — anything that smells like
+  a failure funnels there. Unrouted issues land on sentinel as well so
+  nothing falls through the cracks.
+- **planner** owns the roadmap; enhancement / feature issues belong in
+  its queue before touching a branch.
+- **scribe** handles docs-only edits without burning reviewer time.
+
+## GitHub environment
+
+| Var                     | Required | Default                                                                             | Purpose                                                             |
+| ----------------------- | -------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `GITHUB_TOKEN`          | no       | —                                                                                   | PAT (read-only `public_repo`) or installation token. Unset → skip.  |
+| `HALO_GH_REPOS`         | no       | `bong-water-water-bong/halo-ai-rs,bong-water-water-bong/bitnet-mlx.rs,strix-ai-rs/halo-workspace` | Comma-separated `owner/repo` list.                                  |
+| `HALO_GH_POLL_SECONDS`  | no       | `300`                                                                               | Poll interval in seconds. Lookback is `2×` this.                    |
+| `RUST_LOG`              | no       | `info`                                                                              | Standard tracing filter.                                            |
+
+If `GITHUB_TOKEN` is unset, the binary logs `no GITHUB_TOKEN set,
+skipping poll` and exits 0. The anonymous 60 req/hr limit would
+otherwise get burnt by a 5-minute timer inside the first hour.
+
+## Plumbing a GitHub token
+
+```sh
+mkdir -p ~/.config/systemd/user/strix-watch-github.service.d
+cat >~/.config/systemd/user/strix-watch-github.service.d/token.conf <<'EOF'
+[Service]
+Environment="GITHUB_TOKEN=ghp_..."
+EOF
+chmod 600 ~/.config/systemd/user/strix-watch-github.service.d/token.conf
+systemctl --user daemon-reload
+systemctl --user enable --now strix-watch-github.timer
+```
+
+## What the GitHub watcher MUST NOT do
+
+- **No writes to any GitHub repo.** No comments, labels, reactions,
+  reviews, or commits. The PAT is provisioned read-only; keep the code
+  aligned with the scope.
+- **No long-running loop.** The binary is a oneshot. Timing is the
+  timer's job; a resident process would complicate the rate-limit
+  story and deviate from the rest of the `strix-*.timer` set.
+- **No network outside `api.github.com`.** If you need to hit another
+  host, route through a specialist — don't bolt a second transport onto
+  this binary.
+- **No secrets in tracked files.** `strix-watch-github.service` has no
+  `Environment=GITHUB_TOKEN=…` line; the token lives in a drop-in at
+  `~/.config/systemd/user/strix-watch-github.service.d/token.conf`.
+
+## Wire format to specialists (GitHub)
+
+Every dispatch sends this JSON to `Registry::dispatch`:
+
+```json
+{
+  "title": "server crash on startup",
+  "body":  "full issue / PR body",
+  "labels": ["bug"],
+  "author": "githubuser",
+  "url":    "https://github.com/owner/repo/issues/123",
+  "repo":   "owner/repo",
+  "kind":   "issue"
+}
+```
+
+`kind` is `"issue"` or `"pr"`. Specialists must tolerate unknown fields;
+we'll fold in commit SHA, review comments, check-run status in later
+iterations.
+
+## GitHub testing
+
+Classifier + env-parser tests live in `halo_agents::watch::github::tests`
+and run under `cargo test -p halo-agents --release`. The token-absent
+short-circuit is not covered by a binary integration test because
+`Registry::default_stubs()` is exercised elsewhere and the branch is
+trivially `info!(); return Ok(())`.

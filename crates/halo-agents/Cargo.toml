@@ -54,6 +54,10 @@ serenity    = { version = "0.12", default-features = false, features = ["client"
 # API shape has shifted across 0.3x releases so version bumps are deliberate.
 # Default features are fine (rustls-webpki-roots); we only hit read endpoints.
 octocrab    = "0.39"
+# Date/time for the GitHub `since` cursor. octocrab exposes chrono types
+# on its public API, so we take a direct dep rather than relying on the
+# transitive version (the type is load-bearing in bin/halo-watch-github.rs).
+chrono      = { version = "0.4", default-features = false, features = ["clock"] }
 
 [dev-dependencies]
 tempfile = "3"
