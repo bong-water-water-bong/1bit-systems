@@ -32,6 +32,40 @@ jobs:
       - name: cargo test (default features)
         run: cargo test --workspace --release
 
+  clippy:
+    name: cargo clippy (-D warnings, no GPU crates)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.86
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.86"
+          components: clippy
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      # halo-bitnet-hip requires ROCm headers (no ROCm on ubuntu-latest).
+      # halo-bitnet-mlx is Apple Silicon only.
+      # uninlined-format-args stays a warning — bulk-fixing it is disruptive
+      # and not load-bearing for correctness.
+      - name: cargo clippy (-D warnings)
+        run: >
+          cargo clippy
+          --workspace
+          --exclude halo-bitnet-hip
+          --exclude halo-bitnet-mlx
+          --release
+          --all-targets
+          --no-deps
+          --
+          -D warnings
+          -A clippy::uninlined-format-args
+
   install-sh:
     name: install.sh syntax + CI-mode dry-run
     runs-on: ubuntu-latest

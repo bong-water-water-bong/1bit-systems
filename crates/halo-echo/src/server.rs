@@ -148,10 +148,12 @@ mod tests {
 
     #[test]
     fn voice_config_roundtrips_through_server() {
-        let mut cfg = VoiceConfig::default();
-        cfg.llm_url = "http://example.test:9/v1/chat/completions".into();
-        cfg.tts_url = "http://example.test:10/tts".into();
-        cfg.voice = "bf_emma".into();
+        let cfg = VoiceConfig {
+            llm_url: "http://example.test:9/v1/chat/completions".into(),
+            tts_url: "http://example.test:10/tts".into(),
+            voice: "bf_emma".into(),
+            ..Default::default()
+        };
 
         let s = EchoServer {
             bind: default_bind(),

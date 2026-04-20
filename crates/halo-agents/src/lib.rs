@@ -34,6 +34,12 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+pub mod sessions;
+pub use sessions::{Hit, SessionDb};
+
+pub mod skills;
+pub use skills::{Skill, SkillAction, SkillStore};
+
 /// The 17 specialists. Ordering matches agent-cpp/specialists/ for easy diff.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Name {
