@@ -60,3 +60,34 @@ halo-ai gen 2 is four repos working together. This workspace is pillar 1.
 4. **Lemonade reference** — [bong-water-water-bong/lemonade-sdk](https://github.com/bong-water-water-bong/lemonade-sdk) (mirror of `lemonade-sdk/lemonade`, Python). **Not run at runtime.** Kept as the reference for OpenAI-compat surface area and Gaia desktop-app features we're porting to Rust.
 
 Private until launch.
+
+## Clients
+
+`halo-server` speaks plain OpenAI chat-completions on `:8180`, so any
+off-the-shelf OpenAI client works — point it at `http://strixhalo.local:8180/v1`
+or, through Caddy, `https://strixhalo.local/v2/...` with the halo bearer.
+
+### DSPy (Stanford) — declarative LM programs compiled against halo-server
+
+DSPy's `dspy.LM` accepts an OpenAI-compatible `api_base`. That's enough
+to run DSPy pipelines against halo-server with zero halo-side changes.
+Rule A is untouched — Python runs on the caller, halo-server stays Rust.
+
+```python
+import dspy
+
+lm = dspy.LM(
+    "openai/halo-bitnet-1.58",
+    api_base="http://strixhalo.local:8180/v1",
+    api_key="halo-local",
+    model_type="chat",
+    cache=False,
+)
+dspy.configure(lm=lm)
+
+qa = dspy.ChainOfThought("question -> answer")
+print(qa(question="Why is ternary BitNet memory-bound on Strix Halo?").answer)
+```
+
+`halo-mcp` tools are directly consumable via `dspy.Tool.from_mcp_tool(...)`.
+No additional shim needed.
