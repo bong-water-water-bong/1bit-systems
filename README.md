@@ -1,8 +1,10 @@
 # halo-workspace — strix-ai-rs gen 2
 
-Rust rewrite of the halo-ai stack. One cargo workspace for everything above the kernels: CLI, HTTP server, router, MCP bridge, agent bus. No Python at runtime. The C++/HIP kernels that already win on gfx1151 stay where they are and are linked in via FFI.
+Rust rewrite of the halo-ai stack. One cargo workspace for everything above the kernels: CLI, HTTP server, router, MCP bridge, agent bus, landing page, desktop client, Lemonade-compat gateway. No Python at runtime. The C++/HIP kernels that already win on gfx1151 stay where they are and are linked in via FFI.
 
-Today the workspace compiles eight crates, all 54 tests green. `halo-server --features real-backend` drives real inference on gfx1151 through `halo-router → halo-bitnet-hip → rocm-cpp`. Gen-1 (`bitnet_decode`) on `:8080` and gen-2 on `:8180` run side-by-side behind Caddy, routed by `/v1/*` and `/v2/*`, so the rewrite burns in under shadow traffic without taking the existing service down.
+Today the workspace compiles eleven crates, 121+ tests green. `halo-server --features real-backend` drives real inference on gfx1151 through `halo-router → halo-bitnet-hip → rocm-cpp`. Gen-1 (`bitnet_decode`) on `:8080` and gen-2 on `:8180` run side-by-side behind Caddy, routed by `/v1/*` and `/v2/*`, so the rewrite burns in under shadow traffic without taking the existing service down. Shadow-burnin byte-exact parity: **96.66%** across 1500+ rounds. PPL on wikitext-103 (1024 tokens): **9.18**, within ±0.05 of gen-1's 9.1607 baseline.
+
+Model family: Microsoft BitNet b1.58-2B-4T today, with GGUF loader support for any BitNet variant shipping IQ2_S weights. Tracking **BitNet v2** (arXiv:2504.18415) for the next activation-path refresh (W1.58A4 via H-BitLinear).
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full data-flow, feature-gate matrix, systemd layout, and cutover criteria.
 
@@ -10,16 +12,19 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full data-flow, feature-gate ma
 
 | crate | role | status |
 |---|---|---|
-| `halo-cli` | unified ops CLI (`status / logs / restart / doctor / update / install / version`) | shipped |
-| `halo-core` | model loader, tokenizer, sampler, chat template | shipped |
-| `halo-router` | backend dispatcher (`HipBackend` / `MlxBackend`) | shipped |
-| `halo-server` | axum HTTP, OpenAI-compat `/v1/*` and `/v2/*` | shipped |
-| `halo-agents` | specialist bus on tokio | scaffolded |
-| `halo-mcp` | MCP bridge, stdio JSON-RPC | scaffolded |
-| `halo-bitnet-hip` | FFI → `rocm-cpp` ternary GEMV + attention kernels | shipped |
+| `halo-cli` | unified ops CLI (`status / logs / restart / doctor / update / install / chat / bench / ppl / say / version`) | shipped |
+| `halo-core` | `.h1b` + `.htok` parsers, GGUF loader (IQ2_S), sampler, chat template | shipped |
+| `halo-router` | backend dispatcher (`HipBackend` / `MlxBackend`), `.h1b`/`.gguf` sniffing | shipped |
+| `halo-server` | axum HTTP, OpenAI-compat + `/ppl` + `/metrics` | shipped |
+| `halo-agents` | 17-specialist registry, `TypedSpecialist` + JsonSchema | shipped |
+| `halo-mcp` | MCP bridge, stdio JSON-RPC, 26 tests | shipped |
+| `halo-landing` | marketing page + live status on `:8190` | shipped |
+| `halo-lemonade` | OpenAI + Lemonade-SDK compat gateway on `:8200` | shipped |
+| `halo-gaia` | ratatui terminal chat client, SSE streaming | shipped |
+| `halo-bitnet-hip` | FFI → `rocm-cpp` ternary GEMV + Flash-Decoding attention | shipped |
 | `halo-bitnet-mlx` | FFI → `bitnet-mlx-rs` (Apple Silicon, feature-gated) | shipped |
 
-All eight currently compile; "scaffolded" means the crate's public API is in place but the feature set is still small.
+All eleven compile under default features with zero ROCm deps; `link-rocm` / `real-backend` / `mlx-apple` are the opt-in feature gates.
 
 ## Quickstart
 
