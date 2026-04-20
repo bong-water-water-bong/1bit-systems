@@ -41,6 +41,8 @@
 </ul></div>
 <div class="group"><h4>Other</h4><ul>
 <li data-slug="benchmarks"><a href="/docs/benchmarks.html">Live tok/s + PPL</a></li>
+<li data-slug="npu-kernel-design"><a href="/docs/npu-kernel-design.html">NPU-Kernel-Design</a></li>
+<li data-slug="peak-performance-projection"><a href="/docs/peak-performance-projection.html">Peak Performance Projection</a></li>
 <li data-slug="why-caddy-systemd"><a href="/docs/why-caddy-systemd.html">Why Caddy + user-scope systemd?</a></li>
 <li data-slug="why-h1b-format"><a href="/docs/why-h1b-format.html">Why our own <code>.h1b</code> format?</a></li>
 <li data-slug="why-halo-agents"><a href="/docs/why-halo-agents.html">Why halo-agents?</a></li>
@@ -79,6 +81,8 @@
 </div></section>
 <section class="doc-group"><h2>Other</h2><div class="doc-cards">
 <a class="doc-card" href="/docs/benchmarks.html"><h3>Live tok/s + PPL</h3><p>What we measure and what each number means. All numbers taken on the production box (strixhalo, 100.64.0.1) unless noted.</p></a>
+<a class="doc-card" href="/docs/npu-kernel-design.html"><h3>NPU-Kernel-Design</h3><p>Design notes for the straight-C++/Peano reimplementation of IRON's INT8 GEMM, targeting the Strix Halo XDNA2 NPU for BitNet prefill. Source reference: amd/IRON @ devel (cloned 2026-04-20 to /tmp/IRON-read).</p></a>
+<a class="doc-card" href="/docs/peak-performance-projection.html"><h3>Peak Performance Projection</h3><p>Quantitative projection of halo-ai end-state throughput on Strix Halo (Ryzen AI MAX+ 395) once all seven planned lanes ship. Every number has a derivation or a citation. All projections carry a ±20% band unless stated otherwise.</p></a>
 <a class="doc-card" href="/docs/why-caddy-systemd.html"><h3>Why Caddy + user-scope systemd?</h3><p>Caddy handles TLS, HTTP/3, reverse-proxy, and reload semantics with a 20-line config. systemd --user lets every halo-ai process restart without root. Snapper catches any mistake. No Docker, no k8s, no YAML jungle.</p></a>
 <a class="doc-card" href="/docs/why-h1b-format.html"><h3>Why our own <code>.h1b</code> format?</h3><p>GGUF was built for LLaMA-family FP/Q4/Q8 shapes and force-fits ternary weights into metadata that the kernel has to un-fit at load time. .h1b ("halo 1-bit") is pre-tiled for one kernel layout, memory-mapped, zero-copy. The …</p></a>
 <a class="doc-card" href="/docs/why-halo-agents.html"><h3>Why halo-agents?</h3><p>17 typed specialists in one Rust file. Not a framework, not a DAG engine, not a "multi-agent orchestrator" — just a registry of concrete ops the box needs to do, with typed inputs and typed outputs. Each one is tiny; the …</p></a>

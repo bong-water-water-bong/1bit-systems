@@ -18,6 +18,16 @@ Keep terse; when in doubt, follow `ARCHITECTURE.md`.
   kernel to `rocm-cpp` instead.
 - **Rule D — Rust 1.86, edition 2024.** `rust-version` is pinned in the
   workspace `Cargo.toml`. Don't bump without a reason.
+- **Rule E — NPU stack = Peano C++ + libxrt + aie-rt. Never IRON Python.**
+  AIE kernel authoring: C++ via `Xilinx/llvm-aie` (Peano). Runtime dispatch:
+  `libxrt` C++ (`xrt::kernel`, `xrt::bo`). Tile driver: `Xilinx/aie-rt`
+  where we need bare-metal control. IRON is reference-only; we read its
+  MLIR-generated tile layouts + DMA descriptors then reimplement in
+  Peano-compiled C++. FFI through `halo-bitnet-xdna` (new crate
+  2026-04-20). Same discipline as `halo-bitnet-hip` → `rocm-cpp`.
+- **Target: aspirational 7/7 lanes, ~280 tok/s decode, NPU-prefill
+  crossover at L ≥ 33.** Projected in `docs/wiki/Peak-Performance-Projection.md`.
+  We do not settle for the conservative tier.
 
 ## Layout
 
