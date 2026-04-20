@@ -13,7 +13,7 @@
  └──────────────────────────┬─────────────────────────────┘
                             │ extern "C" FFI via halo-bitnet-hip
  ┌──────────────────────────▼─────────────────────────────┐
- │  C++ / HIP (rocm-cpp, stampby public repo)             │
+ │  C++ / HIP (rocm-cpp, bong-water-water-bong canonical)             │
  │  ternary_gemv_halo · ternary_gemv_sherry · ternary_tq1 │
  │  kv_cache_attn_fd · kv_cache_attn_i8 · rotorquant_*    │
  │  h1b_loader · tokenizer                                │
