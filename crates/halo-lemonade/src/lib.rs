@@ -9,6 +9,7 @@
 pub mod config;
 pub mod dispatch;
 pub mod registry;
+pub mod routes;
 
 pub use config::LemonadeConfig;
 pub use dispatch::Dispatch;
