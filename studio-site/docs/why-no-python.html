@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Why no Python at runtime? (Rule A) · halo-ai docs</title>
+  <meta name="description" content="halo-ai docs: Why no Python at runtime? (Rule A)">
+  <link rel="stylesheet" href="/docs/docs.css">
+</head>
+<body data-slug="why-no-python">
+<nav class="doc-topbar">
+  <a href="/" class="logo">halo-<span>ai</span></a>
+  <a href="/docs/">docs</a>
+  <input type="search" placeholder="filter…" id="q" autocomplete="off">
+</nav>
+<div class="doc-shell">
+<nav class="doc-sidebar" id="sidebar">
+<a class="home-link" href="/docs/">&larr; all docs</a>
+<div class="group"><h4>Getting started</h4><ul>
+<li data-slug="home"><a href="/docs/home.html">halo-ai-rs wiki</a></li>
+<li data-slug="faq"><a href="/docs/faq.html">FAQ</a></li>
+</ul></div>
+<div class="group"><h4>Why we built it this way</h4><ul>
+<li data-slug="why-ternary"><a href="/docs/why-ternary.html">Why 1.58-bit ternary?</a></li>
+<li data-slug="why-rust"><a href="/docs/why-rust.html">Why Rust above, C++ below?</a></li>
+<li data-slug="why-strix-halo"><a href="/docs/why-strix-halo.html">Why Strix Halo (gfx1151)?</a></li>
+<li data-slug="why-shadow-burnin"><a href="/docs/why-shadow-burnin.html">Why shadow-burnin?</a></li>
+<li data-slug="why-no-python"><a href="/docs/why-no-python.html">Why no Python at runtime? (Rule A)</a></li>
+<li data-slug="why-no-npu-yet"><a href="/docs/why-no-npu-yet.html">Why no NPU yet?</a></li>
+<li data-slug="why-this-way-how"><a href="/docs/why-this-way-how.html">Why this way + how — the design walkthrough</a></li>
+<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why `halo power`?</a></li>
+</ul></div>
+<div class="group"><h4>Research</h4><ul>
+<li data-slug="medusa-integration-plan"><a href="/docs/medusa-integration-plan.html">Medusa Integration Plan (halo-ai-rs / gen-2)</a></li>
+<li data-slug="halo-whisper-streaming-plan"><a href="/docs/halo-whisper-streaming-plan.html">Halo-Whisper Streaming Plan</a></li>
+<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via `--kv-quant rotor-3`</a></li>
+</ul></div>
+<div class="group"><h4>Integrations</h4><ul>
+<li data-slug="hermes-integration"><a href="/docs/hermes-integration.html">Hermes Agent integration</a></li>
+<li data-slug="cloudflare-tunnel-setup"><a href="/docs/cloudflare-tunnel-setup.html">Cloudflare Tunnel Setup — api.halo-ai.studio</a></li>
+</ul></div>
+</nav>
+
+<main class="doc-main">
+  <h1>Why no Python at runtime? (Rule A)</h1>
+  <p><strong>One-line answer</strong>: Python is fine as a caller or a build-time tool. It's banned inside any systemd service, any HTTP endpoint, any hot-path process. We've been burned too many times by dependency hell, silent import failures, and 300 MB interpreter images shipped to run a 4 GB model.</p>
+<h2 id="scope">Scope</h2>
+<p><strong>Banned at runtime</strong>: anything that's the target of a systemd unit, anything serving an HTTP request, anything on the startup path of the stack.</p>
+<p><strong>Allowed elsewhere</strong>:</p>
+<ul>
+<li>Caller-side scripts â DSPy, lemonade-python-sdk, user's jupyter notebook.</li>
+<li>Build-time tooling â our <code>.h1b</code> requantizer runs once to convert Microsoft's weights. It's a Python + PyTorch one-shot that writes a file. Not shipped.</li>
+<li>Research notebooks â benchmark analysis, paper reproduction. Output is numbers or plots, not services.</li>
+</ul>
+<h2 id="what-we-tried-first">What we tried first</h2>
+<p>Gen-1 of halo-ai was Python (AMD Lemonade + transformers + a custom FastAPI layer). It was the natural starting point â Microsoft's reference is Python, MLX is Python, lemonade is Python, every BitNet community project is Python.</p>
+<p>What we hit:</p>
+<ol>
+<li><strong>Cold-start latency</strong> â 4-12 seconds to import torch + transformers + numpy before the first inference. On a service meant to serve LAN requests, that's a restart outage. Rust <code>halo-server</code> cold-start is ~200 ms.</li>
+<li><strong>Dependency churn</strong> â <code>pip install</code> resolvers pick different versions day to day. One morning the Lemonade server wouldn't start because a transitive dep bumped past a compatible minor. Rust cargo's lockfile prevents this class of bug.</li>
+<li><strong>Silent failure modes</strong> â Python typing is advisory. JSON parsing fails at the first bad field, which may be six levels deep in an error the user sees as a 500. Rust serde fails at deserialization with a precise path.</li>
+<li><strong>Multiple Pythons</strong> â the dev box had <code>python3.12</code>, the install script pulled <code>python3.11</code>, the AUR package expected <code>python3.13</code>. Three stacks. Three venv roots. Three reasons the service won't start on a fresh box.</li>
+<li><strong>Binary size</strong> â the gen-1 install weighed 1.2 GB of Python + wheels. Gen-2 Rust is 15 MB of static-ish binaries.</li>
+<li><strong>Global interpreter lock</strong> â Python's concurrency story is either subprocess (slow) or asyncio (complicated, doesn't parallelize CPU-bound code). Rust <code>tokio</code> handles 1000+ concurrent HTTP connections on one thread.</li>
+</ol>
+<h2 id="the-immediate-wins-of-the-rust-rewrite">The immediate wins of the Rust rewrite</h2>
+<ul>
+<li>Install time: <code>./install-strixhalo.sh</code> is 5 minutes end-to-end, most of it spent compiling kernels.</li>
+<li>First-request latency: under 250 ms cold, effectively 0 warm.</li>
+<li>Memory footprint at idle: ~80 MB for halo-server vs ~350 MB for the gen-1 Python process.</li>
+<li>Error messages: deserializer-level "expected u32 at <code>.usage.prompt_tokens</code>, got string" vs Python's "<code>KeyError: 'usage'</code>" with no line number.</li>
+</ul>
+<h2 id="but-what-about-speed-of-development">But what about speed of development?</h2>
+<p>Genuinely, Python's write-time is faster. We accept ~1.5Ã the implementation time in exchange for ~10Ã the deploy reliability. For a stack that's going to run unattended in a closet for months, the trade favors Rust.</p>
+<h2 id="what-about-the-kernels">"What about the kernels?"</h2>
+<p>Kernels are C++. Rule B, not Rule A. C++ at the kernel layer is specifically blessed because:</p>
+<ul>
+<li>The GPU compiler toolchain is C++.</li>
+<li>The surface is small (30 extern "C" functions).</li>
+<li>The FFI boundary with Rust is tight and reviewed.</li>
+</ul>
+<h2 id="what-about-the-python-requantizer">"What about the Python requantizer?"</h2>
+<p>Build-time, not runtime. <code>requantize-h1b.py</code> reads Microsoft's <code>.safetensors</code>, writes our <code>.h1b</code> format, exits. Runs once per model release. Never shipped with the binary, never called by a service.</p>
+<p>If we ever needed a <em>runtime</em> requantize (which we don't â the output is cached to disk), we'd port to Rust before running it under a systemd unit.</p>
+<h2 id="enforcement">Enforcement</h2>
+<ul>
+<li><code>halo-install-strixhalo.sh</code> checks for any stray <code>python</code> in systemd unit <code>ExecStart</code> lines and warns.</li>
+<li><code>halo doctor</code> flags any Python process consuming &gt;100 MB on the box at runtime.</li>
+<li>The halo-mcp MCP server is Rust; the DSPy / Claude Code plugin examples are Python â that's a caller, not a service.</li>
+</ul>
+<h2 id="citations">Citations</h2>
+<ul>
+<li><a href="../../CLAUDE.md"><code>CLAUDE.md</code></a> â the formal rule in the repo conventions.</li>
+<li><a href="memory-only"><code>feedback_no_python_runtime.md</code></a> â origin of the rule, with the first Python-service-crashes-in-prod anecdote.</li>
+</ul>
+
+</main>
+</div>
+<script src="/docs/docs.js"></script>
+</body>
+</html>

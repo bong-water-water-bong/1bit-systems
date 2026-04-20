@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Why `halo power`? · halo-ai docs</title>
+  <meta name="description" content="halo-ai docs: Why `halo power`?">
+  <link rel="stylesheet" href="/docs/docs.css">
+</head>
+<body data-slug="why-halo-power">
+<nav class="doc-topbar">
+  <a href="/" class="logo">halo-<span>ai</span></a>
+  <a href="/docs/">docs</a>
+  <input type="search" placeholder="filter…" id="q" autocomplete="off">
+</nav>
+<div class="doc-shell">
+<nav class="doc-sidebar" id="sidebar">
+<a class="home-link" href="/docs/">&larr; all docs</a>
+<div class="group"><h4>Getting started</h4><ul>
+<li data-slug="home"><a href="/docs/home.html">halo-ai-rs wiki</a></li>
+<li data-slug="faq"><a href="/docs/faq.html">FAQ</a></li>
+</ul></div>
+<div class="group"><h4>Why we built it this way</h4><ul>
+<li data-slug="why-ternary"><a href="/docs/why-ternary.html">Why 1.58-bit ternary?</a></li>
+<li data-slug="why-rust"><a href="/docs/why-rust.html">Why Rust above, C++ below?</a></li>
+<li data-slug="why-strix-halo"><a href="/docs/why-strix-halo.html">Why Strix Halo (gfx1151)?</a></li>
+<li data-slug="why-shadow-burnin"><a href="/docs/why-shadow-burnin.html">Why shadow-burnin?</a></li>
+<li data-slug="why-no-python"><a href="/docs/why-no-python.html">Why no Python at runtime? (Rule A)</a></li>
+<li data-slug="why-no-npu-yet"><a href="/docs/why-no-npu-yet.html">Why no NPU yet?</a></li>
+<li data-slug="why-this-way-how"><a href="/docs/why-this-way-how.html">Why this way + how — the design walkthrough</a></li>
+<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why `halo power`?</a></li>
+</ul></div>
+<div class="group"><h4>Research</h4><ul>
+<li data-slug="medusa-integration-plan"><a href="/docs/medusa-integration-plan.html">Medusa Integration Plan (halo-ai-rs / gen-2)</a></li>
+<li data-slug="halo-whisper-streaming-plan"><a href="/docs/halo-whisper-streaming-plan.html">Halo-Whisper Streaming Plan</a></li>
+<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via `--kv-quant rotor-3`</a></li>
+</ul></div>
+<div class="group"><h4>Integrations</h4><ul>
+<li data-slug="hermes-integration"><a href="/docs/hermes-integration.html">Hermes Agent integration</a></li>
+<li data-slug="cloudflare-tunnel-setup"><a href="/docs/cloudflare-tunnel-setup.html">Cloudflare Tunnel Setup — api.halo-ai.studio</a></li>
+</ul></div>
+</nav>
+
+<main class="doc-main">
+  <h1>Why `halo power`?</h1>
+  <p><strong>One-line answer</strong>: Strix Halo shares one LPDDR5 memory controller between CPU and GPU, so package-power spent on idle x86 cores directly costs decode tok/s. <code>halo power</code> exposes three named envelopes that you can flip between without memorizing <code>ryzenadj</code> flags.</p>
+<h2 id="the-three-profiles">The three profiles</h2>
+<table>
+<thead><tr><th>Profile</th><th>stapm</th><th>fast</th><th>slow</th><th>tctl</th><th>When to switch to it</th></tr></thead>
+<tbody>
+<tr><td><code>inference</code></td><td>65 W</td><td>80 W</td><td>75 W</td><td>95 Â°C</td><td>Long bitnet decode, batch PPL runs, burn-in sweeps.</td></tr>
+<tr><td><code>chat</code></td><td>45 W</td><td>65 W</td><td>55 W</td><td>90 Â°C</td><td>Default â interactive <code>halo chat</code>, halo-gaia traffic.</td></tr>
+<tr><td><code>idle</code></td><td>20 W</td><td>35 W</td><td>25 W</td><td>80 Â°C</td><td>Closet-quiet after &gt;60 s of zero traffic.</td></tr>
+</tbody></table>
+<p>Values come from <code>docs/halo-power-design.md</code>; they're a starting point pending a decode-bench sweep.</p>
+<h2 id="why-these-three-and-not-more">Why these three and not more?</h2>
+<p>We drive profile by <em>traffic pattern</em>, not by per-process rules (the RyzenZPilot model). Our process set is small and our HTTP surface is one server â three envelopes cover every realistic halo-ai workload and every extra knob is just another thing to forget about.</p>
+<h2 id="how-it-works-under-the-hood">How it works under the hood</h2>
+<ul>
+<li><code>halo power &lt;profile&gt;</code> â <code>sudo ryzenadj --tctl-temp=N --slow-limit=N --fast-limit=N --stapm-limit=N</code>.</li>
+<li>Flag order is deliberate: thermal ceiling up first, power limits up second. Ctrl-C mid-apply leaves you in a safe state.</li>
+<li><code>halo power</code> (no args) reads back current state via <code>ryzenadj --info</code>.</li>
+<li><code>halo power --dry-run inference</code> prints the argv without executing.</li>
+</ul>
+<h2 id="why-not-link-a-rust-ryzenadj-crate">Why not link a Rust ryzenadj crate?</h2>
+<p>Because <code>FlyGoat/ryzenadj</code> tracks AMD Family 19h stepping quirks upstream. When a new Strix Halo BIOS lands, we <code>pacman -Syu</code> and inherit the fix. A vendored Rust port would make us the second ryzenadj maintainer â an 800â1200-LOC commitment for ~zero upside. See <code>docs/halo-power-design.md</code> option (c).</p>
+<h2 id="install">Install</h2>
+<p>Not bundled. <code>ryzenadj</code> is an AUR/pacman package on CachyOS:</p>
+<pre><code>sudo pacman -S ryzenadj
+</code></pre>
+<p>If it's missing, <code>halo power</code> warns cleanly and no-ops â the CLI stays usable on boxes where thermal tuning isn't relevant (e.g. dev laptops).</p>
+<h2 id="not-in-scope">Not in scope</h2>
+<p>CPU governor (<code>cpupower</code>), amdgpu sysfs (<code>power_dpm_force_performance_level</code>), and fan curves (BIOS/EC) are all owned elsewhere. See <code>docs/halo-power-design.md</code> safety notes.</p>
+
+</main>
+</div>
+<script src="/docs/docs.js"></script>
+</body>
+</html>

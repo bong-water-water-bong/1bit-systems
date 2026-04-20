@@ -14,6 +14,7 @@ mod status;
 mod doctor;
 mod install;
 mod logs;
+mod memory;
 mod power;
 mod ppl;
 mod restart;
@@ -123,6 +124,11 @@ enum Cmd {
         #[command(subcommand)]
         cmd: skill::SkillCmd,
     },
+    /// Manage MEMORY.md + USER.md under ~/.halo/memories/ (operator-facing).
+    Memory {
+        #[command(subcommand)]
+        cmd: memory::MemoryCmd,
+    },
     /// Shadow-burnin log analyzer (byte-exact rate + drift patterns).
     ///
     /// With no subcommand prints a one-line summary and exits 0 if the
@@ -165,6 +171,7 @@ async fn main() -> Result<()> {
         Cmd::Ppl   { url, stride, max_tokens, bytes }    => ppl::run(url, stride, max_tokens, bytes).await,
         Cmd::Power { profile, dry_run, list }            => power::run(profile, dry_run, list),
         Cmd::Skill { cmd }                               => skill::run(cmd),
+        Cmd::Memory { cmd }                              => memory::run(cmd),
         Cmd::Burnin { cmd }                              => burnin::run(cmd).await,
     }
 }

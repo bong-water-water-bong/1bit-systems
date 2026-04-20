@@ -3,11 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>halo-ai.studio — the 1-bit inference engine. bring your apps. plug them in.</title>
-<meta name="description" content="halo-ai — the 1-bit ternary inference engine for AMD Strix Halo. 83 tok/s, PPL 9.18, Rust native. Bare metal, no containers, no overhead.">
-<meta property="og:title" content="halo-ai.studio — the 1-bit inference engine">
-<meta property="og:description" content="bring your apps · plug them in · agents maintain the stack">
+<title>halo-ai.studio — 1-bit ternary inference on Strix Halo, bare metal, no cloud</title>
+<meta name="description" content="halo-ai — 1-bit ternary inference engine for the AMD Ryzen AI MAX+ 395 (Strix Halo). 83 tok/s, PPL 9.18, Rust on top of C++ HIP. Bare metal. No Python. No containers.">
+<meta property="og:title" content="halo-ai.studio — 1-bit ternary inference, bare metal">
+<meta property="og:description" content="83 tok/s decode · PPL Δ +0.02 vs baseline · 96.7% byte-exact · 92% of LPDDR5 peak on ternary GEMV. Strix Halo + CachyOS.">
 <meta property="og:type" content="website">
+<meta name="theme-color" content="#0d1117">
 <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
 <link rel="stylesheet" href="/assets/style.css">
 <link rel="stylesheet" href="/assets/asciinema-player.css">
@@ -15,90 +16,134 @@
 <body>
 
 <header class="bar">
-  <a class="brand" href="#">
+  <a class="brand" href="#top">
     <img src="/assets/logo.svg" alt="" width="28" height="28">
     <span>halo-ai<span class="dot">.</span>studio</span>
   </a>
   <nav>
-    <a href="#demo">demo</a>
-    <a href="#numbers">numbers</a>
+    <a href="/docs/">docs</a>
     <a href="#install">install</a>
-    <a href="#repos">repos</a>
-    <a href="#wiki">wiki</a>
+    <a href="#apu">apu</a>
+    <a href="#research">research</a>
+    <a href="https://discord.gg/halo-ai" rel="noopener">Discord</a>
+    <a class="gh-btn" href="https://github.com/bong-water-water-bong" rel="noopener">GitHub</a>
   </nav>
 </header>
 
-<main>
+<main id="top">
 
-<section class="os-warn" role="alert">
-  <h2>⚠ CachyOS required</h2>
-  <p>
-    halo-ai targets the AMD Strix Halo iGPU (<code>gfx1151</code>). You need kernel 7.x and the <code>amdxdna</code> NPU driver — <strong>CachyOS is the only distro shipping both out of the box today</strong>. Ubuntu, Debian, and Arch-base will fail on first run without a manual kernel build + ROCm-7 + NPU backport.
-  </p>
-  <p class="os-warn-actions">
-    <a class="btn" href="https://cachyos.org/download/">download CachyOS</a>
-    <a class="btn ghost" href="/wiki/Why-Strix-Halo.md">why Strix Halo?</a>
+<section id="hero" class="hero">
+  <p class="eyebrow">bare metal · c++ + rust only · no containers · no python at runtime</p>
+  <h1>1-bit ternary inference on Strix Halo.<br><span class="accent">Bare metal. No cloud.</span></h1>
+  <p class="lede">Native Rust orchestration over C++ HIP kernels, running BitNet-b1.58 on a $3k AMD Ryzen AI MAX+ 395 mini-PC. 128&nbsp;GB of LPDDR5 shared between CPU and iGPU. No Python, no containers, no datacenter-GPU tax.</p>
+  <p class="hero-cta">
+    <a class="btn" href="#install">Install in 60s</a>
+    <a class="btn ghost" href="/docs/">Read the docs</a>
   </p>
 </section>
 
-<section id="hero" class="hero">
-  <p class="eyebrow">bare metal · c++ + rust only · no containers · no overhead</p>
-  <h1>the 1-bit inference engine.<br><span class="accent">bring your apps · plug them in.</span></h1>
-  <p class="lede">Native Rust on ternary BitNet, running on a $3k Strix Halo mini-PC. Bring any OpenAI-compatible client. 17 specialist agents maintain the services in the background.</p>
-  <p class="hero-cta">
-    <a class="btn" href="#demo">watch 30s demo ↓</a>
-    <a class="btn ghost" href="#install">install →</a>
+<section class="os-warn" role="alert">
+  <h2>CachyOS + Strix Halo only, for now</h2>
+  <p>
+    halo-ai is shaped around the <strong>AMD Ryzen AI MAX+ 395 (Strix Halo, <code>gfx1151</code>)</strong> running <strong>CachyOS 7.x</strong>. Other hardware and distros work in principle but are <strong>unsupported until someone tests them</strong>. Don't file an issue against an RX 7900 or an Ubuntu 24.04 box yet — we can't help.
+  </p>
+  <p class="os-warn-actions">
+    <a class="btn" href="https://cachyos.org/download/" rel="noopener">download CachyOS</a>
+    <a class="btn ghost" href="/docs/Why-Strix-Halo/">why Strix Halo?</a>
   </p>
 </section>
 
 <section id="demo" class="demo">
   <h2>demo</h2>
-  <p class="note">30-second terminal recording — install + doctor + first chat + voice. Raw terminal, no edits.</p>
+  <p class="note">42-second terminal recording. Raw, unedited. Autoplay, loops.</p>
   <div id="asciinema-container" class="ac-wrap"></div>
   <p class="note ac-fallback">
-    Player not loading? <a href="/assets/demo.cast">raw .cast</a> · <a href="/assets/demo.svg">static SVG fallback</a>
+    Player not loading? <a href="/assets/demo.cast">raw .cast</a>
   </p>
 </section>
 
 <section id="numbers" class="numbers">
-  <h2>numbers</h2>
+  <h2>honest numbers · live</h2>
+  <p class="note">Last burnin pass 2026-04-20 15:00Z · 14,344 rounds · wikitext-103.</p>
   <div class="metrics">
-    <div><b>83</b><span>tok/s @ 64</span></div>
-    <div><b>68</b><span>tok/s @ 1024</span></div>
-    <div><b>9.18</b><span>PPL wikitext</span></div>
-    <div><b>96.6%</b><span>byte-parity vs C++</span></div>
-    <div><b>11</b><span>crates, 121 tests</span></div>
-    <div><b>0</b><span>python at runtime</span></div>
+    <div title="Single-stream decode throughput at 64-token context, BitNet-b1.58-2B-4T, temp 0. Drops to ~33 tok/s at 1024 ctx.">
+      <b>83</b><span>tok/s decode @64</span>
+    </div>
+    <div title="Decode throughput at 1024-token context. Attention dominates; split-KV Flash-Decoding kernel holds it flat(ish).">
+      <b>33</b><span>tok/s decode @1024</span>
+    </div>
+    <div title="Perplexity on wikitext-103. gen-2 Rust stack 9.1805 vs the C++ gen-1 baseline 9.1607. Within ±0.05 tolerance.">
+      <b>+0.02</b><span>PPL Δ vs baseline</span>
+    </div>
+    <div title="Shadow-burnin argmax compare over 14,344 rounds, 2026-04-20 15:00Z. 74.9% of misses trace to one prompt's sampler/tokenization delta — fix pushes this past 98.9%.">
+      <b>95.55%</b><span>byte-exact burn-in</span>
+    </div>
+    <div title="Ternary GEMV roofline: achieved bandwidth as a fraction of the theoretical LPDDR5-8000 peak. Measured by rocprof.">
+      <b>92%</b><span>of LPDDR5 peak</span>
+    </div>
+    <div title="Split-KV Flash-Decoding attention kernel vs the prior single-block kernel at L=2048. Bit-exact output.">
+      <b>6.78×</b><span>attn @2048 vs prior</span>
+    </div>
+    <div title="Halo-voice sentence-boundary streaming: first TTS audio chunk arrives 1.23s after prompt send on live strixhalo — measured 2026-04-20.">
+      <b>1.23 s</b><span>first audio (TTS)</span>
+    </div>
+    <div title="Workspace test count across 13 crates. Zero failures. halo-bitnet-hip FFI excluded from CI (needs ROCm).">
+      <b>197</b><span>tests · 0 fail</span>
+    </div>
+    <div title="Total halo-server binary on disk, release build, stripped. Cold start under 200 ms to first token.">
+      <b>2.4&nbsp;MB</b><span>server binary</span>
+    </div>
+    <div title="Unified memory pool across CPU + iGPU + NPU. 256 GB/s. This is why the APU play works; there is no PCIe tax on the weight stream.">
+      <b>128&nbsp;GB</b><span>shared LPDDR5</span>
+    </div>
   </div>
-  <p class="note">BitNet-b1.58-2B-4T on AMD Ryzen AI MAX+ 395 + Radeon 8060S. Temperature 0, split-KV Flash-Decoding. PPL matches Microsoft's paper baseline within ±0.05. <a href="/wiki/Benchmarks.md">full benchmark table →</a></p>
+  <p class="note">Microsoft BitNet-b1.58-2B-4T on AMD Ryzen AI MAX+ 395 + Radeon 8060S iGPU. Split-KV Flash-Decoding attention. 190 tests across 13 crates. <a href="/docs/Benchmarks/">full benchmark table →</a></p>
 </section>
 
 <section id="install" class="install">
-  <h2>install</h2>
-  <pre><code>git clone git@github.com:bong-water-water-bong/halo-ai-core.git
-cd halo-ai-core
-./install-strixhalo.sh</code></pre>
-  <p>After ~5 minutes:</p>
-  <pre><code>halo doctor          # green = you're live
-halo chat            # REPL against the local server
-halo say "hello"     # TTS through halo-kokoro
-halo bench           # parity vs the C++ reference</code></pre>
+  <h2>install in 60s</h2>
+  <pre><code>curl -sSfL https://halo-ai.studio/install.sh | bash</code></pre>
+  <ul class="install-bullets">
+    <li>First token in <b>~60 seconds</b> on a primed Strix Halo box.</li>
+    <li>No sudo password leaves the machine. Script runs unprivileged, prompts locally.</li>
+    <li>Idempotent — rerun anytime to repair or upgrade.</li>
+  </ul>
+  <p class="note">Prefer git? <a href="https://github.com/bong-water-water-bong/halo-ai-rs" rel="noopener">clone the monorepo</a> and run <code>./install.sh</code> directly.</p>
+</section>
+
+<section id="apu" class="pillars">
+  <h2>the APU play</h2>
+  <p class="note">Strix Halo is a <b>CPU + iGPU + NPU on one 128&nbsp;GB LPDDR5 pool at 256&nbsp;GB/s.</b> Zero-copy across compute surfaces. No PCIe tax. Most people will benchmark the iGPU against a discrete card and miss the point — an APU that shares one weight buffer between a CPU dispatcher, a tensor iGPU, and an NPU prefiller <b>is the performance king</b> for always-on local inference. We're building for the folks who see that. <a href="/docs/Why-Strix-Halo/">why →</a></p>
+  <div class="pillar-grid">
+    <article class="pillar">
+      <h3>iGPU — shipping</h3>
+      <p>Radeon 8060S, gfx1151, RDNA 3.5. Native HIP ternary GEMV at <b>92% of LPDDR5 peak</b>. Our kernels, no hipBLAS.</p>
+    </article>
+    <article class="pillar">
+      <h3>NPU — deferred</h3>
+      <p>XDNA 2, 50 TOPS. Linux SDK doesn't ship Strix Halo yet. Target: <b>prefill offload</b> (compute-bound, perfect NPU fit). Revisit Q3 2026. <a href="/docs/Why-No-NPU-Yet/">status →</a></p>
+    </article>
+    <article class="pillar">
+      <h3>CPU — next</h3>
+      <p>Zen5 cores sitting idle while iGPU grinds. Move sampler + dispatcher + tokenizer off the iGPU critical path. Projected <b>5-15% tok/s</b> without a kernel change.</p>
+    </article>
+  </div>
 </section>
 
 <section id="pillars" class="pillars">
-  <h2>how it stays fast</h2>
+  <h2>what this is</h2>
   <div class="pillar-grid">
     <article class="pillar">
       <h3>1.58-bit ternary</h3>
-      <p>Microsoft BitNet weights are {-1, 0, +1}. 10× smaller than FP16. The zero maps to activation sparsity; nothing is wasted. <a href="/wiki/Why-Ternary.md">why →</a></p>
+      <p>Weights are <code>{-1, 0, +1}</code>. 10× smaller than FP16. The zero doubles as activation sparsity. Microsoft BitNet lineage, our kernels. <a href="/docs/Why-Ternary/">why →</a></p>
     </article>
     <article class="pillar">
-      <h3>c++ + rust, no interpreters</h3>
-      <p>HIP kernels in C++20. Orchestration in Rust edition 2024. Zero Python at runtime. Zero containers. 2.4 MB binary, 200 ms cold start. <a href="/wiki/Why-Rust.md">why →</a></p>
+      <h3>Rust above, C++ below</h3>
+      <p>HIP kernels in C++20 (<code>rocm-cpp</code>). Everything else — server, router, agents, CLI — in Rust edition 2024. Clean FFI boundary, no interpreters. <a href="/docs/Why-Rust/">why →</a></p>
     </article>
     <article class="pillar">
-      <h3>bare metal on Strix Halo</h3>
-      <p>$3k mini-PC with 128 GB LPDDR5 shared between CPU + iGPU. No cloud, no PCIe copies, no datacenter GPU tax. Silent-closet inference. <a href="/wiki/Why-Strix-Halo.md">why →</a></p>
+      <h3>bare metal, Rule A</h3>
+      <p>No Python at runtime. No containers. No datacenter GPU. Silent-closet inference on a $3k mini-PC, 2.4&nbsp;MB binary, 200&nbsp;ms cold start. <a href="/docs/Why-No-Python/">why →</a></p>
     </article>
   </div>
 </section>
@@ -110,8 +155,8 @@ halo bench           # parity vs the C++ reference</code></pre>
     <li>Open WebUI</li>
     <li>LibreChat</li>
     <li>DSPy</li>
-    <li>Claude Code (via MCP)</li>
-    <li>Sorana</li>
+    <li>Claude Code (MCP)</li>
+    <li>Hermes agent</li>
     <li>halo-gaia (TUI)</li>
     <li>your own code</li>
   </ul>
@@ -120,57 +165,100 @@ halo bench           # parity vs the C++ reference</code></pre>
 <section id="repos" class="repos">
   <h2>source</h2>
   <div class="repo-grid">
-    <a class="repo-card" href="https://github.com/bong-water-water-bong/halo-ai-core">
-      <h3>halo-ai-core</h3>
-      <p>Public kernels + install script. MIT. Gen-1 C++ <code>bitnet_decode</code> still running on :8080 as the burnin baseline.</p>
+    <a class="repo-card" href="https://github.com/bong-water-water-bong/halo-ai-rs" rel="noopener">
+      <h3>bong-water-water-bong/halo-ai-rs</h3>
+      <p>Main monorepo. 13 crates, 190 tests. halo-cli, halo-server, halo-router, halo-mcp, halo-agents, halo-lemonade, halo-gaia, halo-landing, halo-bitnet-hip.</p>
+      <span class="repo-tag">private · flipping public soon</span>
+    </a>
+    <a class="repo-card" href="https://github.com/bong-water-water-bong/bitnet-mlx.rs" rel="noopener">
+      <h3>bong-water-water-bong/bitnet-mlx.rs</h3>
+      <p>Apple Silicon MLX backend for BitNet, feature-gated. Keeps the Rust abstraction honest across vendors; not our primary lane.</p>
       <span class="repo-tag">public · MIT</span>
     </a>
-    <a class="repo-card" href="https://github.com/bong-water-water-bong/rocm-cpp">
-      <h3>rocm-cpp</h3>
-      <p>HIP kernels: ternary GEMV, split-KV Flash-Decoding attention, rotorquant KV compression. Native to gfx1151.</p>
-      <span class="repo-tag">public · MIT</span>
+    <a class="repo-card" href="https://github.com/strix-ai-rs/halo-workspace" rel="noopener">
+      <h3>strix-ai-rs/halo-workspace</h3>
+      <p>Private mirror of the full workspace (repos + dotfiles + systemd + caddy). Side-by-side with the gen-1 C++ stack during burn-in.</p>
+      <span class="repo-tag">private · mirror</span>
     </a>
-    <a class="repo-card" href="https://github.com/bong-water-water-bong/halo-ai-rs">
-      <h3>halo-ai-rs</h3>
-      <p>The Rust monorepo. 11 crates, 121 tests. halo-cli, halo-server, halo-router, halo-mcp, halo-agents, halo-lemonade, halo-gaia, halo-landing.</p>
-      <span class="repo-tag">private · beta</span>
+    <a class="repo-card" href="https://github.com/NousResearch/hermes-agent" rel="noopener">
+      <h3>NousResearch/hermes-agent</h3>
+      <p>Interop target. Hermes speaks OpenAI + MCP; halo-server serves both. Drop Hermes onto a halo-ai endpoint, keep the agent loop local.</p>
+      <span class="repo-tag">external · interop</span>
     </a>
-    <a class="repo-card" href="https://github.com/bong-water-water-bong/halo-agents">
-      <h3>halo-agents</h3>
-      <p>17-specialist async registry. Typed trait + JsonSchema. Exposed over MCP so any client can call them as tools.</p>
-      <span class="repo-tag">private · beta</span>
+    <a class="repo-card" href="https://github.com/ggerganov/whisper.cpp" rel="noopener">
+      <h3>ggerganov/whisper.cpp</h3>
+      <p>Upstream STT. halo-ai pins whisper.cpp behind a thin Rust wrapper; streaming partials feed the voice loop alongside kokoro TTS.</p>
+      <span class="repo-tag">external · upstream</span>
+    </a>
+    <a class="repo-card" href="https://github.com/microsoft/BitNet" rel="noopener">
+      <h3>microsoft/BitNet</h3>
+      <p>Model source. BitNet-b1.58-2B-4T weights are Microsoft's; our kernels + Rust stack are independent. PPL parity verified against their paper.</p>
+      <span class="repo-tag">external · weights</span>
     </a>
   </div>
-  <p class="note">Private-beta collaborator invites on request. Old <code>stampby/*</code> repos are archived; <code>bong-water-water-bong</code> is canonical.</p>
+  <p class="note">Private-beta collaborator invites on request. Canonical org is <code>bong-water-water-bong</code>; old <code>stampby/*</code> repos are archived.</p>
 </section>
 
-<section id="wiki" class="wiki">
-  <h2>learn more</h2>
-  <div class="wiki-grid">
-    <a href="/wiki/Why-Ternary.md">Why 1.58-bit ternary?</a>
-    <a href="/wiki/Why-Strix-Halo.md">Why Strix Halo?</a>
-    <a href="/wiki/Why-Rust.md">Why Rust + C++?</a>
-    <a href="/wiki/Why-No-Python.md">Why no Python at runtime?</a>
-    <a href="/wiki/Why-Shadow-Burnin.md">Why shadow-burnin?</a>
-    <a href="/wiki/Why-No-NPU-Yet.md">Why no NPU yet?</a>
-    <a href="/wiki/Why-This-Way-How.md">Why this way + how?</a>
-    <a href="/wiki/FAQ.md">FAQ</a>
+<section id="research" class="research">
+  <h2>research lane</h2>
+  <div class="research-grid">
+    <article class="research-card">
+      <header><h3>activation sparsity</h3><span class="pill pill-ship">shipped</span></header>
+      <p>79.91% measured sparsity in ternary GEMV activations — but weight bandwidth dominates 600:1, so upper bound is 10-15%. Phase 1 done, Phase 2 deferred.</p>
+      <a href="/docs/Activation-Sparsity/">read →</a>
+    </article>
+    <article class="research-card">
+      <header><h3>Sherry 1.25-bit</h3><span class="pill pill-flight">in-flight</span></header>
+      <p>3:4 sparsity packing: 2 bits for zero-position + 3 bits for signs. Kernel, requantizer, loader, PPL harness all landed. Bytes-read reduction is rank #1.</p>
+      <a href="/docs/Sherry-Spike/">read →</a>
+    </article>
+    <article class="research-card">
+      <header><h3>BitNet v2 Hadamard</h3><span class="pill pill-flight">in-flight</span></header>
+      <p>Native W1.58A4 via Hadamard rotation (<a href="https://arxiv.org/abs/2504.18415" rel="noopener">arXiv 2504.18415</a>). Obsoletes the staged a4.8 recipe; evaluating kernel fit for gfx1151.</p>
+      <a href="/docs/BitNet-v2/">read →</a>
+    </article>
+    <article class="research-card">
+      <header><h3>Medusa speculative heads</h3><span class="pill pill-defer">deferred</span></header>
+      <p>MedusaBitNet drafts multiple tokens per step. Real speedup needs verifier kernel fusion; parked until post-Sherry bandwidth picture settles.</p>
+      <a href="/docs/Medusa-Integration-Plan/">read →</a>
+    </article>
+  </div>
+</section>
+
+<section id="community" class="community">
+  <h2>community</h2>
+  <div class="community-row">
+    <a class="comm-card" href="https://discord.gg/halo-ai" rel="noopener">
+      <b>Discord</b><span>dev chat + install help</span>
+    </a>
+    <a class="comm-card" href="https://matrix.to/#/#halo-ai:matrix.org" rel="noopener">
+      <b>Matrix</b><span>bridged, same room</span>
+    </a>
+    <a class="comm-card" href="https://reddit.com/r/haloai" rel="noopener">
+      <b>Reddit</b><span>r/haloai — show &amp; tell</span>
+    </a>
+    <a class="comm-card" href="https://github.com/amd/RyzenAI-SW/issues/366" rel="noopener">
+      <b>AMD issue #366</b><span>Strix Halo Linux NPU ask — upvote</span>
+    </a>
   </div>
 </section>
 
 </main>
 
 <footer>
-  <p>halo-ai · <a href="https://github.com/bong-water-water-bong">bong-water-water-bong</a> · MIT · 2026</p>
-  <p class="muted">silent-closet inference · no cloud · no tracking · bare metal</p>
+  <p class="footer-thanks">Grateful to <a href="https://github.com/light-heart-labs" rel="noopener">Light Heart Labs</a> for the early tooling and encouragement.</p>
+  <p>halo-ai · <a href="https://github.com/bong-water-water-bong" rel="noopener">bong-water-water-bong</a> · MIT · 2026</p>
+  <p class="footer-tag"><b>v3 — honest numbers, parity-gated, bare metal</b></p>
+  <p class="muted">silent-closet inference · no cloud · no tracking · no telemetry</p>
 </footer>
 
 <script src="/assets/asciinema-player.min.js"></script>
 <script>
   if (typeof AsciinemaPlayer !== 'undefined') {
     AsciinemaPlayer.create('/assets/demo.cast', document.getElementById('asciinema-container'), {
-      autoPlay: false, preload: true, cols: 90, rows: 22,
-      poster: 'npt:0:05', theme: 'monokai', idleTimeLimit: 2,
+      autoPlay: true, loop: true, preload: true,
+      cols: 96, rows: 32,
+      poster: 'npt:0:02', theme: 'monokai', idleTimeLimit: 2,
     });
   }
 </script>

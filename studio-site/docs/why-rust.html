@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Why Rust above, C++ below? · halo-ai docs</title>
+  <meta name="description" content="halo-ai docs: Why Rust above, C++ below?">
+  <link rel="stylesheet" href="/docs/docs.css">
+</head>
+<body data-slug="why-rust">
+<nav class="doc-topbar">
+  <a href="/" class="logo">halo-<span>ai</span></a>
+  <a href="/docs/">docs</a>
+  <input type="search" placeholder="filter…" id="q" autocomplete="off">
+</nav>
+<div class="doc-shell">
+<nav class="doc-sidebar" id="sidebar">
+<a class="home-link" href="/docs/">&larr; all docs</a>
+<div class="group"><h4>Getting started</h4><ul>
+<li data-slug="home"><a href="/docs/home.html">halo-ai-rs wiki</a></li>
+<li data-slug="faq"><a href="/docs/faq.html">FAQ</a></li>
+</ul></div>
+<div class="group"><h4>Why we built it this way</h4><ul>
+<li data-slug="why-ternary"><a href="/docs/why-ternary.html">Why 1.58-bit ternary?</a></li>
+<li data-slug="why-rust"><a href="/docs/why-rust.html">Why Rust above, C++ below?</a></li>
+<li data-slug="why-strix-halo"><a href="/docs/why-strix-halo.html">Why Strix Halo (gfx1151)?</a></li>
+<li data-slug="why-shadow-burnin"><a href="/docs/why-shadow-burnin.html">Why shadow-burnin?</a></li>
+<li data-slug="why-no-python"><a href="/docs/why-no-python.html">Why no Python at runtime? (Rule A)</a></li>
+<li data-slug="why-no-npu-yet"><a href="/docs/why-no-npu-yet.html">Why no NPU yet?</a></li>
+<li data-slug="why-this-way-how"><a href="/docs/why-this-way-how.html">Why this way + how — the design walkthrough</a></li>
+<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why `halo power`?</a></li>
+</ul></div>
+<div class="group"><h4>Research</h4><ul>
+<li data-slug="medusa-integration-plan"><a href="/docs/medusa-integration-plan.html">Medusa Integration Plan (halo-ai-rs / gen-2)</a></li>
+<li data-slug="halo-whisper-streaming-plan"><a href="/docs/halo-whisper-streaming-plan.html">Halo-Whisper Streaming Plan</a></li>
+<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via `--kv-quant rotor-3`</a></li>
+</ul></div>
+<div class="group"><h4>Integrations</h4><ul>
+<li data-slug="hermes-integration"><a href="/docs/hermes-integration.html">Hermes Agent integration</a></li>
+<li data-slug="cloudflare-tunnel-setup"><a href="/docs/cloudflare-tunnel-setup.html">Cloudflare Tunnel Setup — api.halo-ai.studio</a></li>
+</ul></div>
+</nav>
+
+<main class="doc-main">
+  <h1>Why Rust above, C++ below?</h1>
+  <p><strong>One-line answer</strong>: kernels that win on specific hardware live in C++/HIP because the GPU toolchains + intrinsics are there. Everything above the kernel â orchestration, HTTP, CLI, agents, file formats, clients â lives in Rust because we want memory safety, async runtimes, serde, and first-class binaries without a runtime dep.</p>
+<h2 id="the-split">The split</h2>
+<pre><code> ┌────────────────────────────────────────────────────────┐
+ │  Rust (halo-workspace, 11 crates, 121+ tests)          │
+ │  halo-cli · halo-server · halo-router · halo-mcp       │
+ │  halo-agents · halo-lemonade · halo-gaia · halo-landing│
+ │  halo-core (mmap + tokenizer + sampler) · halo-bitnet-*│
+ └──────────────────────────┬─────────────────────────────┘
+                            │ extern "C" FFI via halo-bitnet-hip
+ ┌──────────────────────────▼─────────────────────────────┐
+ │  C++ / HIP (rocm-cpp, stampby public repo)             │
+ │  ternary_gemv_halo · ternary_gemv_sherry · ternary_tq1 │
+ │  kv_cache_attn_fd · kv_cache_attn_i8 · rotorquant_*    │
+ │  h1b_loader · tokenizer                                │
+ └────────────────────────────────────────────────────────┘
+</code></pre>
+<h2 id="why-kernels-in-c-hip">Why kernels in C++ / HIP</h2>
+<ul>
+<li><strong>hipcc + clang-HIP toolchain</strong> â AMD's official path. Native <code>__global__</code> / <code>__device__</code> / <code>__shared__</code> / intrinsics like <code>__builtin_amdgcn_perm</code>, <code>__builtin_amdgcn_ballot_w32</code>, <code>v_dot4_i32_i8</code>. Rust-CUDA and Rust-HIP exist but lag the intrinsic surface.</li>
+<li><strong>WMMA / Tensile</strong> â the matrix-accumulate units we target on gfx1151 have C-level APIs. Rust bindings exist but with layout caveats.</li>
+<li><strong>Iteration speed</strong> â hipcc build cycle for one kernel is ~15 seconds. Rust-GPU is minutes.</li>
+<li><strong>Matching upstream</strong> â Microsoft's reference BitNet kernels are C++. Porting them literally is cheaper than re-discovering their tricks in a different language.</li>
+</ul>
+<h2 id="why-everything-else-in-rust">Why everything else in Rust</h2>
+<ul>
+<li><strong>Memory safety</strong> â the orchestration layer manages HTTP request lifecycles, SSE streams, model weight mmaps, tokenizer tables, KV cache ownership, systemd journal pipes. A Python <code>KeyError</code> or C++ use-after-free at that layer takes down the serving process. <code>Result&lt;T, E&gt;</code> + ownership prevents that class of bug entirely.</li>
+<li><strong><code>tokio</code> + <code>axum</code></strong> â proven async HTTP/SSE stack. The halo-server implements OpenAI chat completions, SSE streaming, and per-request sharded metrics in ~1 500 LOC.</li>
+<li><strong><code>serde</code> + <code>schemars</code></strong> â typed JSON-RPC, MCP tool schemas, config loading. Each specialist declares <code>#[derive(JsonSchema)]</code> on its input/output struct and the MCP <code>tools/list</code> output falls out for free.</li>
+<li><strong><code>cargo</code> as build + package manager</strong> â one command (<code>cargo build --workspace</code>) builds all 11 crates. CI runs <code>cargo test --workspace</code>. No <code>make</code>, no <code>cmake</code> at this layer.</li>
+<li><strong>Binary distribution</strong> â Rust produces static-link-friendly binaries with no runtime dep. <code>halo-server</code> is 2.4 MB and needs only <code>libamdhip64.so</code> + <code>librocm_cpp.so</code> from the system.</li>
+</ul>
+<h2 id="why-not-pure-rust-end-to-end">Why not pure Rust end-to-end?</h2>
+<p>Tried considering it. Vetoed because:</p>
+<ul>
+<li><strong>Rust-HIP bindings aren't production</strong> â <code>hip-sys</code>, <code>rocm-rs</code> exist but each is one person + a partial surface. Writing a HIP kernel in pure Rust today means giving up on intrinsics.</li>
+<li><strong>Rust-GPU (wgpu / Vulkan) doesn't map to ROCm's kernel model</strong> â Metal/Vulkan compute shaders are a different abstraction than HIP's CUDA-style kernels. Porting rocm-cpp's ternary GEMV to wgpu would mean a complete rewrite that loses 30-50% perf.</li>
+<li><strong>The FFI boundary is stable</strong> â <code>halo-bitnet-hip</code> exposes 30+ extern "C" functions. Over a year of development, this boundary has changed &lt;5 times. FFI cost is low.</li>
+</ul>
+<h2 id="why-not-pure-c-end-to-end">Why not pure C++ end-to-end?</h2>
+<p>Rejected for the orchestration layer. Reasons:</p>
+<ul>
+<li><strong>Concurrency</strong> â <code>tokio</code> gives us structured async for free. In C++ we'd pull <code>asio</code> + write equivalent plumbing for 3Ã the code.</li>
+<li><strong>Serde + typed JSON</strong> â <code>nlohmann::json</code> works but loses type safety at every touchpoint. <code>serde_json::from_value</code> + <code>#[derive(Deserialize)]</code> catches shape errors at compile.</li>
+<li><strong>Ecosystem</strong> â <code>clap</code> for CLIs, <code>tracing</code> for logs, <code>reqwest</code> for HTTP clients, <code>axum</code> for HTTP servers. Each equivalent in C++ is a one-person github project.</li>
+<li><strong>Distribution</strong> â <code>halo-server</code> binary is 2.4 MB static-ish. A C++ equivalent with openssl + asio + nlohmann + stdlib is 15-30 MB or dynamic-link hell.</li>
+</ul>
+<h2 id="not-python-ever-at-runtime">Not Python (ever, at runtime)</h2>
+<p>Rule A. See <a href="/docs/why-no-python.html"><code>Why-No-Python.md</code></a>.</p>
+<p>Callers are free to use Python â DSPy, lemonade-python-sdk, jupyter. That's the user's box, not ours. The <em>service</em> side (anything under a systemd unit, anything serving an HTTP request) is Rust or C++.</p>
+<h2 id="the-inherited-trade-off">The inherited trade-off</h2>
+<p>We pay:</p>
+<ul>
+<li>One FFI boundary (halo-bitnet-hip) that needs manual memory + lifetime care across <code>extern "C"</code>.</li>
+<li>Two build systems (cargo + cmake).</li>
+<li>Two languages for contributors to read.</li>
+</ul>
+<p>We get:</p>
+<ul>
+<li>Zero Python at runtime.</li>
+<li>Safe, fast orchestration on top of fast, hand-tuned kernels.</li>
+<li>Independent evolution: the kernel team can optimize HIP without touching Rust, and the platform team can iterate on the HTTP server without rebuilding kernels.</li>
+</ul>
+<p>That trade has paid for itself four times in four months.</p>
+
+</main>
+</div>
+<script src="/docs/docs.js"></script>
+</body>
+</html>

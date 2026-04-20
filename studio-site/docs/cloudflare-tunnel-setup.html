@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Cloudflare Tunnel Setup — api.halo-ai.studio · halo-ai docs</title>
+  <meta name="description" content="halo-ai docs: Cloudflare Tunnel Setup — api.halo-ai.studio">
+  <link rel="stylesheet" href="/docs/docs.css">
+</head>
+<body data-slug="cloudflare-tunnel-setup">
+<nav class="doc-topbar">
+  <a href="/" class="logo">halo-<span>ai</span></a>
+  <a href="/docs/">docs</a>
+  <input type="search" placeholder="filter…" id="q" autocomplete="off">
+</nav>
+<div class="doc-shell">
+<nav class="doc-sidebar" id="sidebar">
+<a class="home-link" href="/docs/">&larr; all docs</a>
+<div class="group"><h4>Getting started</h4><ul>
+<li data-slug="home"><a href="/docs/home.html">halo-ai-rs wiki</a></li>
+<li data-slug="faq"><a href="/docs/faq.html">FAQ</a></li>
+</ul></div>
+<div class="group"><h4>Why we built it this way</h4><ul>
+<li data-slug="why-ternary"><a href="/docs/why-ternary.html">Why 1.58-bit ternary?</a></li>
+<li data-slug="why-rust"><a href="/docs/why-rust.html">Why Rust above, C++ below?</a></li>
+<li data-slug="why-strix-halo"><a href="/docs/why-strix-halo.html">Why Strix Halo (gfx1151)?</a></li>
+<li data-slug="why-shadow-burnin"><a href="/docs/why-shadow-burnin.html">Why shadow-burnin?</a></li>
+<li data-slug="why-no-python"><a href="/docs/why-no-python.html">Why no Python at runtime? (Rule A)</a></li>
+<li data-slug="why-no-npu-yet"><a href="/docs/why-no-npu-yet.html">Why no NPU yet?</a></li>
+<li data-slug="why-this-way-how"><a href="/docs/why-this-way-how.html">Why this way + how — the design walkthrough</a></li>
+<li data-slug="why-halo-power"><a href="/docs/why-halo-power.html">Why `halo power`?</a></li>
+</ul></div>
+<div class="group"><h4>Research</h4><ul>
+<li data-slug="medusa-integration-plan"><a href="/docs/medusa-integration-plan.html">Medusa Integration Plan (halo-ai-rs / gen-2)</a></li>
+<li data-slug="halo-whisper-streaming-plan"><a href="/docs/halo-whisper-streaming-plan.html">Halo-Whisper Streaming Plan</a></li>
+<li data-slug="rotorquant-default-decision"><a href="/docs/rotorquant-default-decision.html">Rotorquant default: OFF on 2B, opt-in via `--kv-quant rotor-3`</a></li>
+</ul></div>
+<div class="group"><h4>Integrations</h4><ul>
+<li data-slug="hermes-integration"><a href="/docs/hermes-integration.html">Hermes Agent integration</a></li>
+<li data-slug="cloudflare-tunnel-setup"><a href="/docs/cloudflare-tunnel-setup.html">Cloudflare Tunnel Setup — api.halo-ai.studio</a></li>
+</ul></div>
+</nav>
+
+<main class="doc-main">
+  <h1>Cloudflare Tunnel Setup — api.halo-ai.studio</h1>
+  <p><strong>Status 2026-04-20:</strong> <code>halo-ai.studio</code> apex is <strong>already live</strong> as a Hugo site on Cloudflare Pages (HTTP/2, CF-Ray header, 172.67.134.39). That is the marketing site, served from an external repo, unrelated to this tunnel.</p>
+<p><strong>This tunnel exposes a _different_ subdomain: <code>api.halo-ai.studio</code> â halo-server <code>:8180</code></strong>. Purpose: public OpenAI-compat endpoint so Hermes / OpenWebUI / third-party clients can point at us over the open internet without needing Tailscale.</p>
+<h2 id="state-on-strixhalo">State on strixhalo</h2>
+<ul>
+<li><code>cloudflared 2026.3.0</code> installed (<code>pacman -S cloudflared</code>, already in <code>cachyos-extra-znver4</code> repo â no AUR needed).</li>
+<li><code>~/.cloudflared/</code> exists, empty except <code>config.yml.template</code> (staged, ready to rename after tunnel create).</li>
+<li><code>~/.config/systemd/user/strix-cloudflared.service</code> staged.</li>
+<li><code>strixhalo/cloudflared/config.yml.template</code> + <code>strixhalo/systemd/strix-cloudflared.service</code> tracked in the repo for fresh-box installs.</li>
+</ul>
+<p>Nothing is running or reachable yet â auth + UUID fill-in still needed.</p>
+<h2 id="why-cloudflare-tunnel-not-port-forward">Why Cloudflare Tunnel (not port-forward)</h2>
+<ul>
+<li><strong>No public IP exposure.</strong> Outbound-only WebSocket from strixhalo to CF edge. Home router stays closed.</li>
+<li><strong>No router config.</strong> No UPnP, no static WAN IP, no DDNS. Residential NAT is fine.</li>
+<li><strong>TLS at the edge.</strong> CF terminates HTTPS with a real publicly-trusted cert. We forward plaintext HTTP to <code>127.0.0.1:8180</code> on loopback. No cert management on our side, no Let's Encrypt rate-limit risk.</li>
+<li><strong>DNS is automatic.</strong> <code>cloudflared tunnel route dns</code> writes the CNAME; CF is already authoritative for the zone.</li>
+<li><strong>Rule A clean.</strong> cloudflared is a single Go binary. No Python, no interpreter.</li>
+</ul>
+<h2 id="three-interactive-steps-operator-runs">Three interactive steps (operator runs)</h2>
+<pre><code class="language-bash"># 1. Browser-authenticate with your Cloudflare account
+cloudflared tunnel login
+#    → opens browser, pick the halo-ai.studio zone, writes
+#      ~/.cloudflared/cert.pem
+
+# 2. Create the tunnel (returns a UUID, writes ~/.cloudflared/&lt;UUID&gt;.json)
+cloudflared tunnel create api-halo-ai-studio
+#    → note the UUID; call it TUUID
+
+# 3. Bind the subdomain to the tunnel (creates a proxied CNAME in CF DNS)
+cloudflared tunnel route dns api-halo-ai-studio api.halo-ai.studio
+</code></pre>
+<h2 id="four-mechanical-steps-fill-in-uuid-enable">Four mechanical steps (fill in UUID + enable)</h2>
+<pre><code class="language-bash"># 4. Copy the staged template to the live config, swap in your UUID
+TUUID=&lt;paste from step 2&gt;
+cp ~/.cloudflared/config.yml.template ~/.cloudflared/config.yml
+sed -i "s/PLACEHOLDER_UUID/$TUUID/g" ~/.cloudflared/config.yml
+
+# 5. Quick smoke test (foreground, kill with Ctrl-C)
+cloudflared tunnel --config ~/.cloudflared/config.yml run
+#    → from another machine:
+#      curl -sS https://api.halo-ai.studio/v1/models
+#      should return halo-server's OpenAI-compat /v1/models JSON
+
+# 6. Enable persistent user service
+systemctl --user daemon-reload
+systemctl --user enable --now strix-cloudflared.service
+
+# 7. Let it survive logout (once per machine)
+sudo loginctl enable-linger bcloud
+
+# 8. Verify after reboot:
+systemctl --user status strix-cloudflared.service
+journalctl --user -u strix-cloudflared.service -n 20
+</code></pre>
+<h2 id="config-reference-cloudflared-config-yml">Config reference â <code>~/.cloudflared/config.yml</code></h2>
+<pre><code class="language-yaml">tunnel: &lt;UUID&gt;
+credentials-file: /home/bcloud/.cloudflared/&lt;UUID&gt;.json
+
+ingress:
+  - hostname: api.halo-ai.studio
+    service: http://127.0.0.1:8180
+    originRequest:
+      connectTimeout: 30s
+      noTLSVerify: true
+  - service: http_status:404
+</code></pre>
+<p><code>http://127.0.0.1:8180</code> is the halo-server bind (from <code>strix-server.service</code>). halo-server will see requests as coming from 127.0.0.1; the real client IP lands in the <code>CF-Connecting-IP</code> header. If rate-limiting or logging per-user is needed later, read that header in halo-server routes.</p>
+<h2 id="coexistence-with-caddy">Coexistence with Caddy</h2>
+<table>
+<thead><tr><th>Listener</th><th>Source</th><th>Untouched by tunnel</th></tr></thead>
+<tbody>
+<tr><td><code>strixhalo.local:443</code> (Caddy, tls internal)</td><td>LAN mesh</td><td>â</td></tr>
+<tr><td><code>strixhalo.local:8443</code></td><td>LAN mesh</td><td>â</td></tr>
+<tr><td><code>10.0.0.10:8099</code> (Caddy bootstrap HTTP)</td><td>LAN</td><td>â</td></tr>
+<tr><td><code>127.0.0.1:8180</code> (halo-server)</td><td>loopback</td><td><strong>now also routed via CF tunnel â api.halo-ai.studio</strong></td></tr>
+<tr><td><code>127.0.0.1:8190</code> (halo-landing)</td><td>loopback</td><td>keep LAN-only for now</td></tr>
+</tbody></table>
+<p>No Caddyfile change required.</p>
+<h2 id="what-not-to-expose-via-tunnel">What NOT to expose via tunnel</h2>
+<ul>
+<li><strong>Admin / metrics endpoints.</strong> <code>/metrics</code> on halo-landing leaks per-specialist stats. Keep LAN-only.</li>
+<li><strong>halo-mcp stdio JSON-RPC.</strong> Not HTTP; wouldn't work anyway.</li>
+<li><strong>halo-gaia desktop client.</strong> No reason to publicly expose.</li>
+<li><strong>strix-burnin</strong> / <strong>shadow-burnin</strong> logs. Private.</li>
+</ul>
+<p>If we need per-path gating later, CF Access can front the tunnel with email-link auth. That's a follow-up, not required for launch.</p>
+<h2 id="rollback">Rollback</h2>
+<pre><code class="language-bash">systemctl --user disable --now strix-cloudflared.service
+cloudflared tunnel route dns --overwrite-dns api-halo-ai-studio  # removes CNAME
+cloudflared tunnel delete api-halo-ai-studio
+</code></pre>
+<h2 id="references">References</h2>
+<ul>
+<li><a href="../../strixhalo/systemd/strix-cloudflared.service"><code>strixhalo/systemd/strix-cloudflared.service</code></a> â tracked copy of the user unit</li>
+<li><a href="../../strixhalo/cloudflared/config.yml.template"><code>strixhalo/cloudflared/config.yml.template</code></a> â tracked template with PLACEHOLDER_UUID</li>
+<li>Cloudflare Tunnel docs: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/</li>
+<li>halo-server port: <code>crates/halo-server/src/lib.rs</code> (bind <code>127.0.0.1:8180</code>)</li>
+</ul>
+
+</main>
+</div>
+<script src="/docs/docs.js"></script>
+</body>
+</html>
