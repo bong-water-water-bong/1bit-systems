@@ -82,6 +82,42 @@ strixhalo.local, 10.0.0.10 {
         }
     }
 
+    # /whisper/* → halo-whisper STT (127.0.0.1:8082). Bearer-gated.
+    # Consumed by studio-site/voice/ mobile web app.
+    handle_path /whisper/* {
+        @whisper_authorized header_regexp Authorization ^Bearer\s+sk-halo-REPLACE_ME$
+        handle @whisper_authorized {
+            reverse_proxy 127.0.0.1:8082 {
+                flush_interval -1
+                transport http {
+                    read_timeout 5m
+                    write_timeout 5m
+                }
+            }
+        }
+        handle {
+            respond "Unauthorized — bearer token required" 401
+        }
+    }
+
+    # /kokoro/* → halo-kokoro TTS (127.0.0.1:8083). Bearer-gated.
+    # One sentence per POST; /voice/ splits SSE on sentence boundary.
+    handle_path /kokoro/* {
+        @kokoro_authorized header_regexp Authorization ^Bearer\s+sk-halo-REPLACE_ME$
+        handle @kokoro_authorized {
+            reverse_proxy 127.0.0.1:8083 {
+                flush_interval -1
+                transport http {
+                    read_timeout 2m
+                    write_timeout 2m
+                }
+            }
+        }
+        handle {
+            respond "Unauthorized — bearer token required" 401
+        }
+    }
+
     handle @authorized {
         # Pass-through with SSE streaming support — bitnet_decode sends
         # text/event-stream on /v1/chat/completions when stream=true.

@@ -12,7 +12,7 @@
 
 const CFG = {
   chat_url:    '/v2/v1/chat/completions',
-  whisper_url: '/whisper/stt',
+  whisper_url: '/whisper/inference',
   tts_url:     '/kokoro/tts',
   model:       'halo-1bit-2b',
   voice:       'af_sky',  // overridden by picker
@@ -199,7 +199,9 @@ els.mic.addEventListener('pointercancel', () => {
 
 async function handleClip(blob) {
   const form = new FormData();
-  form.append('audio', blob, 'clip.webm');
+  form.append('file', blob, 'clip.webm');
+  form.append('response_format', 'json');
+  form.append('temperature', '0.0');
   let text = '';
   try {
     const r = await fetch(CFG.whisper_url, {
