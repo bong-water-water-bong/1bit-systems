@@ -42,28 +42,83 @@ Then inside a Hermes conversation:
 
 Hermes' 40+ built-in tools + our 17 halo-agents specialists → 57-tool agent on commodity Python, talking to native-HIP inference. Rule A untouched: Python lives on the laptop, kernels stay on strixhalo.
 
+## How Hermes' "self-improving skills" actually work
+
+Reading the docs closely: **the self-improvement is LLM-driven, not RL.** There is no training loop, no reward signal, no weights update. The agent calls a `skill_manage` tool with four actions — `create`, `patch` (preferred for targeted fixes), `edit` (full rewrite), `delete` — against markdown files at `~/.hermes/skills/<category>/<name>/SKILL.md`. Autonomous-creation triggers are heuristic: ≥5 successful tool calls, error-recovery path found, user correction, non-trivial workflow. The LLM reads its own skill file, edits it via `patch`, saves. That's the whole loop.
+
+Good news for us: **Rule A-safe to replicate.** No Python dependency, no training infra. Just a Rust trait + file-edit tool + prompt.
+
+## Skill format (adopt verbatim for agentskills.io compat)
+
+```
+~/.halo/skills/<category>/<name>/
+├── SKILL.md               # required — markdown body + YAML frontmatter
+├── references/            # optional supporting docs
+├── templates/             # optional output formats
+├── scripts/               # optional helper scripts
+└── assets/                # optional binary assets
+```
+
+Frontmatter (YAML):
+
+```yaml
+---
+name: my-skill
+description: Brief description
+version: 1.0.0
+platforms: [linux]
+metadata:
+  halo:
+    tags: [bitnet, hip]
+    category: kernels
+    fallback_for_toolsets: [web]
+    requires_toolsets: [terminal]
+---
+```
+
+Same keys as Hermes' `metadata.hermes.*` → `metadata.halo.*`. Preserves interop: a skill authored on either platform is readable by both. `agentskills.io` becomes a shared ecosystem.
+
+## Memory format (match Hermes, replace `hermes` → `halo`)
+
+Hermes stores memory in plain markdown files with a hard char cap:
+
+- `~/.hermes/memories/MEMORY.md` — 2,200 char cap, `§` delimiter between entries
+- `~/.hermes/memories/USER.md` — 1,375 char cap
+- `~/.hermes/state.db` — SQLite + FTS5 for session history, immutable mid-session snapshot injected at start
+
+We already do MEMORY.md at `~/.claude/projects/-home-bcloud/memory/`. Match the format in halo-agents' new memory layer:
+
+- `~/.halo/memories/MEMORY.md` + `USER.md` (same caps, same `§` delimiter)
+- `~/.halo/state.db` via `rusqlite` with FTS5 module
+
 ## Features worth porting into halo-agents
 
-Hermes has genuine research content, not just a wrapper. Port candidates, ranked:
+Revised rank after reading the architecture (`AIAgent` 10,700 LOC, `HermesCLI` 10,000 LOC, `GatewayRunner` 9,000 LOC — three god-classes):
 
-| Feature | Why port | Effort | Notes |
+| Feature | Mechanism | Effort | Notes |
 |---|---|---|---|
-| Skill self-improvement loop | The actual novelty. Skills rewrite themselves during use. | 3-4 weeks | Would live in `halo-agents` as a new `SelfImproving` trait. Needs training-set of skill-revision traces — capture from Hermes first, then train. |
-| FTS5 session search | Cheap, useful. Rust `rusqlite` has FTS5. | 3 days | Add to halo-agents memory layer. Replaces agent's current linear-scan recall. |
-| Honcho dialectic user modeling | [plastic-labs/honcho](https://github.com/plastic-labs/honcho). Builds a growing model of who you are. | 1-2 weeks | Would bolt onto halo-agents profile layer. Honcho is Python — we'd reimplement the dialectic surface in Rust, not FFI. |
-| Cron scheduling with platform delivery | We already have systemd timers. Hermes' model is nicer because natural-language scheduling. | 1 week | Thin wrapper around `halo-cli schedule` + a parser. |
-| Subagent spawn with zero-context-cost turns | We do this today via `halo-agents`. | Already done | Keep. |
-| Messaging gateway | Telegram/Discord/Slack/WhatsApp/Signal. | 2 weeks/platform | Do NOT port. Wrap Hermes instead — Python gateway on a user VPS is fine, strixhalo stays clean. |
-| Agentic skill creation after complex tasks | Autonomous skill authoring. | 4-6 weeks | Depends on skill-improvement loop landing first. |
+| SKILL.md format + `~/.halo/skills/` layout | File + YAML frontmatter, same keys as Hermes | **1 day** | Interop win. Free. Do this first. |
+| `skill_manage` tool (create/patch/edit/delete) | Text-edit tool exposed to halo-agents specialists | **3 days** | The entire "self-improvement loop" reduces to this one tool. |
+| FTS5 session search | `rusqlite` `fts5` feature on `~/.halo/state.db` | **3 days** | Replaces halo-agents linear-scan recall. |
+| MEMORY.md / USER.md file layer | Same 2200/1375 char cap + `§` delimiter | **1 day** | Matches format we use; formalize it. |
+| Autonomous skill-creation trigger | Heuristic: successful run length ≥5 tools, recovery path, user correction | **1 week** | After skill_manage lands. |
+| Honcho dialectic user model | Reimplement in Rust; Honcho itself is just one of 8 memory plugins in Hermes — don't treat it as special | **2 weeks** | Lower priority after rereading docs; Hermes pluggable design means it's not core. |
+| Messaging gateway (Telegram/Discord/Slack/WhatsApp/Signal) | Hermes has 18 platform adapters in `gateway/` | **Do not port** | Wrap Hermes instead. Python on a user VPS, strixhalo stays clean. |
+| Three API modes (chat_completions / codex_responses / anthropic_messages) | Hermes' `runtime_provider.py` | **Already done** | halo-server is OpenAI-compat; we're the endpoint, not the caller. |
+| 47-tool registry with `check_fn` gating | Import-time `registry.register()` | **Already better** | Our 17 typed specialists beat a 47-tool `**kwargs` bag. Keep our shape. |
 
-Skip: OpenClaw migration, Termux path, serverless (Modal/Daytona/Singularity) — none of this applies to strixhalo.
+Skip: OpenClaw migration, Termux, serverless (Modal/Daytona/Singularity), 3 API-mode adapter layer.
 
-## Integration order
+## Integration order (concrete)
 
-1. Wire Hermes → halo-server this week (above, 5 min on operator side).
-2. Expose halo-mcp to Hermes (above, 2 min).
-3. FTS5 session search into halo-agents memory (3 days, concrete win).
-4. Everything else behind Medusa + Sherry + BitNet v2. Hermes' skill-loop is interesting, not urgent.
+1. **Today**: wire Hermes → halo-server + expose halo-mcp (5-min operator setup, above).
+2. **Week 1**: adopt SKILL.md + `~/.halo/skills/` layout. Write halo-skills format doc. 1 day.
+3. **Week 1**: MEMORY.md / USER.md + `~/.halo/state.db` FTS5. 4 days.
+4. **Week 2**: `skill_manage` Rust tool exposed to halo-agents. 3 days. This is the entire "self-improvement loop" — it's that simple.
+5. **Week 3**: autonomous skill-creation trigger, heuristic. 1 week.
+6. **Month 2+**: Honcho reimpl if still warranted, after we see real usage of the skill loop.
+
+All of it behind Sherry + BitNet v2 on inference critical path, but the agent-UX lane can progress in parallel (different crates, different files — halo-agents vs rocm-cpp).
 
 ## Honest comparison
 
