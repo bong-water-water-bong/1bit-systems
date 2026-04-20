@@ -8,6 +8,13 @@
 </head>
 <body>
   <main>
+    <div class="host-warning" role="alert">
+      <strong>Host OS</strong>: CachyOS is the recommended distro for halo-ai
+      — kernel 7.x ships the <code>amdxdna</code> NPU driver and the CachyOS
+      ROCm-7 package set needed for gfx1151. Ubuntu/Debian/Arch-base may
+      require a manual kernel build + NPU backport before
+      <code>halo install core</code> succeeds.
+    </div>
     <section class="hero">
       <img class="logo" src="/logo.svg" alt="halo-ai" width="480" height="120">
       <p class="subtitle">strix-ai-rs — ternary inference for AMD Strix Halo</p>

@@ -74,7 +74,7 @@ impl H1bWeightFormat {
     /// Bytes per packed weight row, given `cols` for the tensor.
     pub fn row_bytes(self, cols: usize) -> Result<usize, HaloError> {
         match self {
-            H1bWeightFormat::HaloV2 => Ok((cols + 3) / 4),
+            H1bWeightFormat::HaloV2 => Ok(cols.div_ceil(4)),
             H1bWeightFormat::SherryV3 => {
                 if cols % 32 != 0 {
                     return Err(HaloError::InvalidConfig(
@@ -246,7 +246,7 @@ impl H1bFile {
         magic.copy_from_slice(&buf[0..4]);
         // Match C++ behaviour: `strncmp(magic, "H1B", 3)` — only the first
         // three bytes are checked, the fourth is allowed to be anything.
-        if &magic[..3] != &H1B_MAGIC[..3] {
+        if magic[..3] != H1B_MAGIC[..3] {
             return Err(HaloError::BadMagic {
                 expected: H1B_MAGIC,
                 got: magic,

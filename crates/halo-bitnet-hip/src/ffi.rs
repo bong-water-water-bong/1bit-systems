@@ -1,3 +1,8 @@
+// HIP / rocm-cpp FFI names intentionally mirror the C API (camelCase for the
+// HIP runtime, snake_case for rocm-cpp's rcpp_*). Clippy's snake_case lint
+// is not useful here.
+#![allow(non_snake_case)]
+
 //! Raw `extern "C"` bindings for the rocm-cpp C API.
 //!
 //! Signatures are taken verbatim from

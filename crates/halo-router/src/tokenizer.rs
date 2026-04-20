@@ -340,7 +340,7 @@ fn pre_tokenize(text: &str) -> Vec<String> {
     let mut i = 0;
     while i < n {
         let c = bytes[i];
-        let is_digit = |b: u8| (b'0'..=b'9').contains(&b);
+        let is_digit = |b: u8| b.is_ascii_digit();
         if is_digit(c) {
             let mut j = i;
             while j < n && is_digit(bytes[j]) {
