@@ -20,7 +20,13 @@ pub async fn run(text: &str, voice: &str, speed: f32) -> Result<()> {
         .timeout(Duration::from_secs(60))
         .build()?;
 
-    let body = serde_json::json!({ "text": text, "voice": voice, "speed": speed });
+    // kokoro_tts's cxxopts-based speed parser throws std::bad_cast on
+    // floats ("1.0"). Omit the field when the user didn't change the
+    // default — the server then skips passing --speed to the CLI.
+    let mut body = serde_json::json!({ "text": text, "voice": voice });
+    if (speed - 1.0).abs() > f32::EPSILON {
+        body["speed"] = serde_json::json!(speed);
+    }
     let res = client.post(&url).json(&body).send().await
         .with_context(|| format!("POST {url}"))?;
     let status = res.status();
