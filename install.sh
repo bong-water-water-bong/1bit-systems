@@ -48,17 +48,16 @@ else
     git clone "$ROCM_CPP_URL" "$ROCM_CPP_DIR"
 fi
 
-step "building rocm-cpp (bitnet_decode + librocm_cpp.so)"
-mkdir -p "$ROCM_CPP_DIR/build"
-pushd "$ROCM_CPP_DIR/build" >/dev/null
 if [[ "$CI_MODE" != "0" ]]; then
-    log "CI mode — cmake configure only (no compile)"
-    cmake .. -DCMAKE_BUILD_TYPE=Release >/dev/null
+    log "CI mode — skipping rocm-cpp build (no ROCm on runners)"
 else
+    step "building rocm-cpp (bitnet_decode + librocm_cpp.so)"
+    mkdir -p "$ROCM_CPP_DIR/build"
+    pushd "$ROCM_CPP_DIR/build" >/dev/null
     cmake .. -DCMAKE_BUILD_TYPE=Release >/dev/null
     cmake --build . -j "$(nproc)" --target bitnet_decode rocm_cpp
+    popd >/dev/null
 fi
-popd >/dev/null
 
 # ── halo-workspace (Rust) ────────────────────────────────────
 step "building halo-workspace (Rust, release)"
