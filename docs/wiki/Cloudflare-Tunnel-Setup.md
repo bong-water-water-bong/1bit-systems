@@ -1,195 +1,117 @@
-# Cloudflare Tunnel Setup — halo-ai.studio
+# Cloudflare Tunnel Setup — api.halo-ai.studio
 
-Status: plan, 2026-04-20. No live changes made. strixhalo has **no**
-`cloudflared` binary and **no** `~/.cloudflared/` or `/etc/cloudflared/`
-directory today. This doc is the runbook for the operator (human with
-the CF account credentials) to stand the tunnel up.
+**Status 2026-04-20:** `halo-ai.studio` apex is **already live** as a Hugo site on Cloudflare Pages (HTTP/2, CF-Ray header, 172.67.134.39). That is the marketing site, served from an external repo, unrelated to this tunnel.
 
-Companion notes:
-- `/etc/caddy/Caddyfile` — existing LAN-only reverse proxy (keeps working)
-- `crates/halo-landing` — the marketing page the tunnel will expose
-- memory: `project_halo_vision.md` — why halo-ai.studio matters
+**This tunnel exposes a _different_ subdomain: `api.halo-ai.studio` → halo-server `:8180`**. Purpose: public OpenAI-compat endpoint so Hermes / OpenWebUI / third-party clients can point at us over the open internet without needing Tailscale.
 
-## 1. Why Cloudflare Tunnel (not port-forward)
+## State on strixhalo
 
-- **No public IP exposure.** The tunnel is an outbound-only WebSocket
-  from strixhalo to Cloudflare's edge. Home router stays closed.
-- **No router config.** No UPnP, no static WAN IP required, no DDNS.
-  strixhalo is behind a residential NAT with an unknown (and possibly
-  CGNAT'd) public IP — port-forward is not an option anyway.
-- **TLS at the edge.** Cloudflare terminates HTTPS with a real
-  publicly-trusted cert for `halo-ai.studio`. We forward plaintext
-  HTTP to `127.0.0.1:8190` on the loopback — no cert management on
-  our side, no Let's Encrypt rate-limit risk.
-- **DNS is automatic.** `cloudflared tunnel route dns` writes the
-  CNAME for us (chip.ns.cloudflare.com / daisy.ns.cloudflare.com are
-  already authoritative; confirmed via `dig NS halo-ai.studio @1.1.1.1`).
-- **Rule-A clean.** `cloudflared` is a single Go binary — no Python,
-  no interpreter, runs as a user systemd service.
+- `cloudflared 2026.3.0` installed (`pacman -S cloudflared`, already in `cachyos-extra-znver4` repo — no AUR needed).
+- `~/.cloudflared/` exists, empty except `config.yml.template` (staged, ready to rename after tunnel create).
+- `~/.config/systemd/user/strix-cloudflared.service` staged.
+- `strixhalo/cloudflared/config.yml.template` + `strixhalo/systemd/strix-cloudflared.service` tracked in the repo for fresh-box installs.
 
-## 2. Install path on CachyOS
+Nothing is running or reachable yet — auth + UUID fill-in still needed.
 
-`cloudflared` is in the **AUR**, not the core/extra repos. CachyOS
-ships `paru` by default; Arch package name is `cloudflared`. Install:
+## Why Cloudflare Tunnel (not port-forward)
 
-```fish
-paru -S cloudflared
-```
+- **No public IP exposure.** Outbound-only WebSocket from strixhalo to CF edge. Home router stays closed.
+- **No router config.** No UPnP, no static WAN IP, no DDNS. Residential NAT is fine.
+- **TLS at the edge.** CF terminates HTTPS with a real publicly-trusted cert. We forward plaintext HTTP to `127.0.0.1:8180` on loopback. No cert management on our side, no Let's Encrypt rate-limit risk.
+- **DNS is automatic.** `cloudflared tunnel route dns` writes the CNAME; CF is already authoritative for the zone.
+- **Rule A clean.** cloudflared is a single Go binary. No Python, no interpreter.
 
-Verify:
+## Three interactive steps (operator runs)
 
-```fish
-cloudflared --version
-```
-
-Do NOT use the Cloudflare-hosted `.deb`/`.rpm` or the `install.sh` off
-cloudflare.com — paru pulls upstream releases and keeps them tracked
-by pacman so `halo update` sees them.
-
-## 3. Operator step sequence
-
-All commands run as user `bcloud` on strixhalo. The tunnel lives in
-the user's home, not `/etc/`, so it can be managed by `systemctl
---user` and doesn't need root after install.
-
-```fish
-# 1. Install (one-time).
-paru -S cloudflared
-
-# 2. Browser login — opens a CF dashboard page, operator picks the
-#    zone halo-ai.studio, cert.pem lands in ~/.cloudflared/.
+```bash
+# 1. Browser-authenticate with your Cloudflare account
 cloudflared tunnel login
+#    → opens browser, pick the halo-ai.studio zone, writes
+#      ~/.cloudflared/cert.pem
 
-# 3. Create the tunnel. Writes ~/.cloudflared/<UUID>.json (credentials).
-cloudflared tunnel create halo-ai-studio
+# 2. Create the tunnel (returns a UUID, writes ~/.cloudflared/<UUID>.json)
+cloudflared tunnel create api-halo-ai-studio
+#    → note the UUID; call it TUUID
 
-# 4. Bind DNS. Creates a CNAME halo-ai.studio → <UUID>.cfargotunnel.com
-#    in the Cloudflare zone, proxied (orange cloud on).
-cloudflared tunnel route dns halo-ai-studio halo-ai.studio
+# 3. Bind the subdomain to the tunnel (creates a proxied CNAME in CF DNS)
+cloudflared tunnel route dns api-halo-ai-studio api.halo-ai.studio
+```
 
-# 5. Drop config.yml (see §4).
-#    Note the UUID from step 3 — it's the filename of the JSON in
-#    ~/.cloudflared/ and the value of `tunnel:` in config.yml.
+## Four mechanical steps (fill in UUID + enable)
 
-# 6. Manual smoke test before wiring systemd.
-cloudflared tunnel run halo-ai-studio
-#    curl -I https://halo-ai.studio/ should return 200 from halo-landing.
-#    Ctrl-C once happy.
+```bash
+# 4. Copy the staged template to the live config, swap in your UUID
+TUUID=<paste from step 2>
+cp ~/.cloudflared/config.yml.template ~/.cloudflared/config.yml
+sed -i "s/PLACEHOLDER_UUID/$TUUID/g" ~/.cloudflared/config.yml
 
-# 7. Install + enable user unit (see §5).
+# 5. Quick smoke test (foreground, kill with Ctrl-C)
+cloudflared tunnel --config ~/.cloudflared/config.yml run
+#    → from another machine:
+#      curl -sS https://api.halo-ai.studio/v1/models
+#      should return halo-server's OpenAI-compat /v1/models JSON
+
+# 6. Enable persistent user service
 systemctl --user daemon-reload
 systemctl --user enable --now strix-cloudflared.service
-systemctl --user status strix-cloudflared.service
 
-# 8. Enable user-lingering so the unit runs without an active login.
+# 7. Let it survive logout (once per machine)
 sudo loginctl enable-linger bcloud
+
+# 8. Verify after reboot:
+systemctl --user status strix-cloudflared.service
+journalctl --user -u strix-cloudflared.service -n 20
 ```
 
-After step 4 the public DNS is live; after step 7 the tunnel is
-persistent. Total: 8 operator steps (install + 7 configure/run).
-
-## 4. ~/.cloudflared/config.yml
+## Config reference — `~/.cloudflared/config.yml`
 
 ```yaml
-# ~/.cloudflared/config.yml
-# One tunnel, one ingress rule, plus the mandatory catch-all 404.
-# Replace <UUID> with the value of `cloudflared tunnel create` output.
-
 tunnel: <UUID>
 credentials-file: /home/bcloud/.cloudflared/<UUID>.json
 
-# Keep metrics on loopback for curl-scraping.
-metrics: 127.0.0.1:3333
-
-# Allow protocol fallback — default "quic" can get NAT-dropped on
-# some ISPs; http2 is the safe-harbour.
-protocol: auto
-
 ingress:
-  - hostname: halo-ai.studio
-    service: http://127.0.0.1:8190
+  - hostname: api.halo-ai.studio
+    service: http://127.0.0.1:8180
     originRequest:
-      # halo-landing is a Rust/axum app on loopback — no cert verify
-      # needed, no SNI needed.
-      httpHostHeader: halo-ai.studio
-      connectTimeout: 10s
-      keepAliveConnections: 32
-
-  # Mandatory: last rule must be a catch-all with no hostname.
+      connectTimeout: 30s
+      noTLSVerify: true
   - service: http_status:404
 ```
 
-If we later want `api.halo-ai.studio` to hit `127.0.0.1:8080` with the
-bearer gate intact, add another `hostname:` block above the 404 and
-run `cloudflared tunnel route dns halo-ai-studio api.halo-ai.studio`.
+`http://127.0.0.1:8180` is the halo-server bind (from `strix-server.service`). halo-server will see requests as coming from 127.0.0.1; the real client IP lands in the `CF-Connecting-IP` header. If rate-limiting or logging per-user is needed later, read that header in halo-server routes.
 
-## 5. ~/.config/systemd/user/strix-cloudflared.service
+## Coexistence with Caddy
 
-```ini
-[Unit]
-Description=Cloudflare Tunnel for halo-ai.studio
-Documentation=https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/
-After=network-online.target
-Wants=network-online.target
+| Listener | Source | Untouched by tunnel |
+|---|---|---|
+| `strixhalo.local:443` (Caddy, tls internal) | LAN mesh | ✓ |
+| `strixhalo.local:8443` | LAN mesh | ✓ |
+| `10.0.0.10:8099` (Caddy bootstrap HTTP) | LAN | ✓ |
+| `127.0.0.1:8180` (halo-server) | loopback | **now also routed via CF tunnel → api.halo-ai.studio** |
+| `127.0.0.1:8190` (halo-landing) | loopback | keep LAN-only for now |
 
-[Service]
-Type=simple
-# --no-autoupdate: pacman owns the binary, don't let cloudflared
-# reach out and rewrite itself.
-ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel run halo-ai-studio
-Restart=on-failure
-RestartSec=5s
-# Hardening — cloudflared only needs loopback + outbound WAN.
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=read-only
-PrivateTmp=true
+No Caddyfile change required.
 
-[Install]
-WantedBy=default.target
+## What NOT to expose via tunnel
+
+- **Admin / metrics endpoints.** `/metrics` on halo-landing leaks per-specialist stats. Keep LAN-only.
+- **halo-mcp stdio JSON-RPC.** Not HTTP; wouldn't work anyway.
+- **halo-gaia desktop client.** No reason to publicly expose.
+- **strix-burnin** / **shadow-burnin** logs. Private.
+
+If we need per-path gating later, CF Access can front the tunnel with email-link auth. That's a follow-up, not required for launch.
+
+## Rollback
+
+```bash
+systemctl --user disable --now strix-cloudflared.service
+cloudflared tunnel route dns --overwrite-dns api-halo-ai-studio  # removes CNAME
+cloudflared tunnel delete api-halo-ai-studio
 ```
 
-Filename matches the `strix-*` convention used by other user units
-(`strix-server.service`, etc.). User unit, not system unit, because
-credentials live under `/home/bcloud/.cloudflared/` and the service
-doesn't need CAP_NET_BIND_SERVICE (it only reaches out, never binds <1024).
+## References
 
-## 6. Interaction with existing Caddy
-
-**Zero conflict.** Two independent paths:
-
-| Path | Listener | Who sees it |
-|------|----------|-------------|
-| LAN: `https://strixhalo.local/` (and `https://10.0.0.10/`) | Caddy on :443 with `tls internal` | Home network + Tailnet peers |
-| WAN: `https://halo-ai.studio/` | cloudflared → `127.0.0.1:8190` | Public Internet via Cloudflare |
-
-Caddy keeps serving `strixhalo.local` / `10.0.0.10` / `10.0.0.10:8443`
-exactly as today — it doesn't know the tunnel exists, and the tunnel
-doesn't touch port 443. halo-landing on `127.0.0.1:8190` is the
-shared origin, reached two different ways.
-
-The `/v1/*`, `/v2/*`, `/studio/*`, `/mancave/*`, `/lemon/*`, `/sd/*`
-endpoints stay **LAN-only** — they're still gated by Caddy and never
-exposed to the public tunnel. Only `halo-ai.studio` → landing.
-
-## 7. halo-landing client-IP gotcha
-
-When the request arrives via Cloudflare Tunnel, halo-landing (axum on
-`127.0.0.1:8190`) will see `peer_addr = 127.0.0.1`. The real client
-IP is in the `CF-Connecting-IP` header. If we ever want access logs
-with real IPs or per-IP rate-limiting, read that header, not
-`ConnectInfo<SocketAddr>`. For today's landing page (static status
-probe), no code change needed.
-
-## 8. Rollback
-
-If something breaks and we need to shut the public surface fast:
-
-```fish
-systemctl --user stop strix-cloudflared.service
-systemctl --user disable strix-cloudflared.service
-```
-
-Or nuclear: go to dash.cloudflare.com → Zero Trust → Networks →
-Tunnels → delete `halo-ai-studio`. DNS record auto-cleans. Re-running
-steps 3–7 rebuilds it.
+- [`strixhalo/systemd/strix-cloudflared.service`](../../strixhalo/systemd/strix-cloudflared.service) — tracked copy of the user unit
+- [`strixhalo/cloudflared/config.yml.template`](../../strixhalo/cloudflared/config.yml.template) — tracked template with PLACEHOLDER_UUID
+- Cloudflare Tunnel docs: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/
+- halo-server port: `crates/halo-server/src/lib.rs` (bind `127.0.0.1:8180`)

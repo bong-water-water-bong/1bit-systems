@@ -1,0 +1,25 @@
+# cloudflared tunnel config for api.halo-ai.studio
+#
+# BEFORE USING:
+#   1. cloudflared tunnel login                         # browser: authenticate CF account
+#   2. cloudflared tunnel create api-halo-ai-studio     # returns a UUID, writes ~/.cloudflared/<UUID>.json
+#   3. cloudflared tunnel route dns api-halo-ai-studio api.halo-ai.studio
+#   4. cp ~/.cloudflared/config.yml.template ~/.cloudflared/config.yml
+#   5. sed -i "s/PLACEHOLDER_UUID/<UUID from step 2>/" ~/.cloudflared/config.yml
+#
+# Then: systemctl --user enable --now strix-cloudflared.service
+
+tunnel: PLACEHOLDER_UUID
+credentials-file: /home/bcloud/.cloudflared/PLACEHOLDER_UUID.json
+
+# halo-server OpenAI-compat endpoint. Hermes users on the open internet
+# can `hermes model` at https://api.halo-ai.studio/v1 and reach our
+# native-HIP inference. No public IP exposed — CF terminates TLS and
+# forwards plaintext HTTP to 127.0.0.1:8180 over the authenticated tunnel.
+ingress:
+  - hostname: api.halo-ai.studio
+    service: http://127.0.0.1:8180
+    originRequest:
+      connectTimeout: 30s
+      noTLSVerify: true
+  - service: http_status:404
