@@ -53,9 +53,26 @@ impl Name {
 
 /// Every specialist implements this. Input + output are JSON to keep the
 /// wire format identical to agent-cpp and the MCP bridge.
+///
+/// DSPy-inspired extensions (`description`, `input_schema`, `output_schema`)
+/// have lean defaults so existing stub impls keep compiling. Real specialists
+/// override them; halo-mcp's `tools/list` surfaces the description + input
+/// schema so MCP clients (Claude Code, Claude Desktop, DSPy) can render
+/// typed call UIs without round-tripping through the specialist first.
 #[async_trait]
 pub trait Specialist: Send + Sync {
     fn name(&self) -> Name;
+
+    /// One-line hint shown to MCP clients and agent planners. Default empty.
+    fn description(&self) -> &'static str { "" }
+
+    /// JSON Schema for the input argument to `handle`. Default `{}` (any JSON).
+    /// Override with a real schema so clients can validate before calling.
+    fn input_schema(&self) -> Value { json!({ "type": "object" }) }
+
+    /// JSON Schema for the `Ok(Value)` returned from `handle`. Default `{}`.
+    fn output_schema(&self) -> Value { json!({ "type": "object" }) }
+
     async fn handle(&self, req: Value) -> Result<Value>;
 }
 
