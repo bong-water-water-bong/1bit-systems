@@ -82,6 +82,41 @@ fn check_pi() -> (Outcome, String) {
     }
 }
 
+fn check_halo_storage() -> Vec<(&'static str, Outcome, String)> {
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None    => return vec![("~",     Outcome::Fail, "no home dir".into())],
+    };
+    let mut out = Vec::new();
+    for (name, rel) in [
+        ("skills",   ".halo/skills"),
+        ("memories", ".halo/memories"),
+        ("state.db", ".halo/state.db"),
+    ] {
+        let p = home.join(rel);
+        let (o, d) = if p.exists() {
+            (Outcome::Ok, p.display().to_string())
+        } else {
+            (Outcome::Warn, format!("{} missing (first-run ok)", p.display()))
+        };
+        out.push((name, o, d));
+    }
+    out
+}
+
+fn check_tunnel_config() -> (Outcome, String) {
+    let home = match dirs::home_dir() { Some(h) => h, None => return (Outcome::Fail, "no home".into()) };
+    let bin  = cmd_ok("cloudflared", &["--version"]);
+    let cfg  = home.join(".cloudflared/config.yml").exists();
+    let cert = home.join(".cloudflared/cert.pem").exists();
+    match (bin, cfg, cert) {
+        (true,  true,  true)  => (Outcome::Ok,   "cloudflared + config + cert present".into()),
+        (true,  false, _)     => (Outcome::Warn, "cloudflared installed, config.yml not in place".into()),
+        (true,  true,  false) => (Outcome::Warn, "config present but no cert.pem (run `cloudflared tunnel login`)".into()),
+        (false, _,     _)     => (Outcome::Warn, "cloudflared not installed (pacman -S cloudflared)".into()),
+    }
+}
+
 pub async fn run() -> Result<()> {
     let mut warn = 0u32;
     let mut fail = 0u32;
@@ -104,13 +139,29 @@ pub async fn run() -> Result<()> {
 
     println!("\n─── endpoints ───────────────────────────────");
     for (name, url) in &[
-        ("v1 models", "http://127.0.0.1:8080/v1/models"),
-        ("v2 models", "http://127.0.0.1:8180/v1/models"),
+        ("v1 models",      "http://127.0.0.1:8080/v1/models"),
+        ("v2 models",      "http://127.0.0.1:8180/v1/models"),
+        ("lemonade gw",    "http://127.0.0.1:8200/v1/models"),
+        ("landing",        "http://127.0.0.1:8190/"),
+        ("kokoro tts",     "http://127.0.0.1:8083/voices"),
+        ("whisper stt",    "http://127.0.0.1:8082/health"),
     ] {
         let (o, d) = check_http(url).await;
         tally(o);
         row(name, o, &d);
     }
+
+    println!("\n─── storage ─────────────────────────────────");
+    for (name, o, d) in check_halo_storage() {
+        tally(o);
+        row(name, o, &d);
+    }
+
+    println!("\n─── tunnel ──────────────────────────────────");
+    let (o, d) = check_tunnel_config(); tally(o); row("cloudflared", o, &d);
+    let (o, d) = check_http("https://api.halo-ai.studio/v1/models").await;
+    tally(o);
+    row("api public", o, &d);
 
     println!("\n─── network ─────────────────────────────────");
     let (o, d) = check_pi(); tally(o); row("pi-archive", o, &d);

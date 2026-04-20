@@ -17,13 +17,14 @@
 //!   [`halo_agents::Registry::dispatch`]. The registry is shared across
 //!   every request via `Arc<Registry>` — no per-request allocation.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use halo_agents::Registry;
+use halo_agents::{Registry, SkillStore};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 
 use crate::registry::ToolRegistry;
+use crate::skills as skill_tool;
 
 /// MCP protocol revision we speak.
 pub const PROTOCOL_VERSION: &str = "2024-11-05";
@@ -63,30 +64,61 @@ fn make_err(id: Value, code: i32, msg: impl Into<String>) -> Value {
     })
 }
 
-/// The JSON-RPC server. Owns the `ToolRegistry` (for `tools/list` shape)
-/// and a shared `halo_agents::Registry` (for `tools/call` dispatch).
+/// The JSON-RPC server. Owns the `ToolRegistry` (for `tools/list` shape),
+/// a shared `halo_agents::Registry` (for specialist `tools/call` dispatch),
+/// and a shared `SkillStore` (for the `skill_manage` tool).
 pub struct StdioServer {
     tools: ToolRegistry,
     agents: Arc<Registry>,
+    skills: Arc<Mutex<SkillStore>>,
 }
 
 impl StdioServer {
-    /// Construct a server from a tool registry and a shared agents registry.
-    pub fn new(tools: ToolRegistry, agents: Arc<Registry>) -> Self {
-        Self { tools, agents }
+    /// Construct a server from a tool registry, a shared agents registry,
+    /// and a shared skill store. The tool registry must already include
+    /// the `skill_manage` descriptor if callers want it surfaced in
+    /// `tools/list`.
+    pub fn new(
+        tools: ToolRegistry,
+        agents: Arc<Registry>,
+        skills: Arc<Mutex<SkillStore>>,
+    ) -> Self {
+        Self { tools, agents, skills }
     }
 
     /// Convenience: default tools derived from `halo_agents::Name::ALL`,
-    /// agents registry seeded with `Registry::default_stubs()`. This is the
-    /// wiring the binary uses on startup.
+    /// agents registry seeded with `Registry::default_stubs()`, skill
+    /// store rooted at `~/.halo/skills`. This is the wiring the binary
+    /// uses on startup.
     ///
     /// Tool schemas are sourced from the live `halo_agents::Registry`, so
     /// typed specialists (e.g. `Typed<AnvilSpecialist>`) publish their
-    /// real `JsonSchema` in `tools/list` automatically.
+    /// real `JsonSchema` in `tools/list` automatically. `skill_manage` is
+    /// appended after the 17 specialists.
+    ///
+    /// Falls back to a tempdir-rooted store if `~/.halo/skills` cannot be
+    /// resolved (no `$HOME`) — the server still boots, skill writes go
+    /// somewhere harmless, and the tool call error propagates as an MCP
+    /// `isError` payload rather than a startup crash.
     pub fn with_default_agents() -> Self {
         let agents = Arc::new(Registry::default_stubs());
-        let tools = ToolRegistry::from_agents_registry(&agents);
-        Self::new(tools, agents)
+        let mut tools = ToolRegistry::from_agents_registry(&agents);
+        tools.push(skill_tool::tool());
+        let skills = SkillStore::new().unwrap_or_else(|_| {
+            SkillStore::with_root(std::env::temp_dir().join("halo-mcp-skills-fallback"))
+        });
+        Self::new(tools, agents, Arc::new(Mutex::new(skills)))
+    }
+
+    /// Test-friendly constructor: wires the default agents registry but
+    /// roots the skill store at an arbitrary path (tempdir in tests).
+    /// Adds `skill_manage` to the tool registry.
+    pub fn with_skill_root(root: std::path::PathBuf) -> Self {
+        let agents = Arc::new(Registry::default_stubs());
+        let mut tools = ToolRegistry::from_agents_registry(&agents);
+        tools.push(skill_tool::tool());
+        let skills = Arc::new(Mutex::new(SkillStore::with_root(root)));
+        Self::new(tools, agents, skills)
     }
 
     /// Borrow the underlying tool registry (useful for metrics / tests).
@@ -97,6 +129,11 @@ impl StdioServer {
     /// Borrow the shared agents registry.
     pub fn agents(&self) -> &Arc<Registry> {
         &self.agents
+    }
+
+    /// Borrow the shared skill store.
+    pub fn skills(&self) -> &Arc<Mutex<SkillStore>> {
+        &self.skills
     }
 
     /// Handle a single parsed JSON-RPC request, returning the response.
@@ -171,13 +208,21 @@ impl StdioServer {
             return make_err(id, err::UNKNOWN_TOOL, format!("unknown tool: {name}"));
         }
 
-        // Forward to the agents registry. A dispatch error here means the
-        // specialist itself rejected the payload; surface it as an MCP
-        // `isError` content block rather than a JSON-RPC error so Claude
-        // Code can show it to the user without aborting the session.
-        let payload = match self.agents.dispatch(&name, args).await {
-            Ok(v) => v,
-            Err(e) => json!({ "error": e.to_string(), "tool": name }),
+        // `skill_manage` is not a specialist — it mutates the on-disk
+        // SKILL.md store directly. Route it before the agents dispatch.
+        // Errors surface as an MCP `isError` content block, same as the
+        // specialist path.
+        let payload = if name == skill_tool::TOOL_NAME {
+            skill_tool::handle(&self.skills, args)
+        } else {
+            // Forward to the agents registry. A dispatch error here means
+            // the specialist itself rejected the payload; surface it as an
+            // MCP `isError` content block rather than a JSON-RPC error so
+            // Claude Code can show it to the user without aborting.
+            match self.agents.dispatch(&name, args).await {
+                Ok(v) => v,
+                Err(e) => json!({ "error": e.to_string(), "tool": name }),
+            }
         };
         let is_error = payload.get("error").is_some();
 
@@ -258,7 +303,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tools_list_returns_seventeen_matching_name_all() {
+    async fn tools_list_returns_specialists_plus_skill_manage() {
         use halo_agents::Name;
         let s = server();
         let resp = s
@@ -270,14 +315,16 @@ mod tests {
             .await;
         assert_eq!(resp["id"], "x");
         let tools = resp["result"]["tools"].as_array().expect("tools array");
-        assert_eq!(tools.len(), 17);
+        // 17 specialists + skill_manage.
+        assert_eq!(tools.len(), 18);
 
         let got: Vec<&str> = tools
             .iter()
             .map(|t| t["name"].as_str().unwrap())
             .collect();
-        let want: Vec<&str> = Name::ALL.iter().map(|n| n.as_str()).collect();
-        assert_eq!(got, want, "tools/list order must match Name::ALL");
+        let mut want: Vec<&str> = Name::ALL.iter().map(|n| n.as_str()).collect();
+        want.push(crate::skills::TOOL_NAME);
+        assert_eq!(got, want, "tools/list order must match Name::ALL + skill_manage");
 
         for t in tools {
             assert!(t["name"].is_string());
@@ -457,7 +504,8 @@ mod tests {
         let r1: Value = serde_json::from_str(lines[0]).unwrap();
         let r2: Value = serde_json::from_str(lines[1]).unwrap();
         assert_eq!(r1["id"], 1);
-        assert_eq!(r1["result"]["tools"].as_array().unwrap().len(), 17);
+        // 17 specialists + skill_manage.
+        assert_eq!(r1["result"]["tools"].as_array().unwrap().len(), 18);
         assert_eq!(r2["id"], 2);
         assert_eq!(r2["result"]["serverInfo"]["name"], SERVER_NAME);
     }
@@ -558,5 +606,62 @@ mod tests {
             .await;
         let after = Arc::strong_count(s.agents());
         assert_eq!(before, after, "Arc strong_count should be stable across requests");
+    }
+
+    // -------- skill_manage wiring tests --------
+    //
+    // These confirm the full JSON-RPC round-trip lands in the shared
+    // `SkillStore` without touching `~/.halo/skills`. Per-action unit
+    // tests live in `crate::skills::tests`; this is the integration
+    // surface.
+
+    #[tokio::test]
+    async fn skill_manage_create_roundtrips_through_tools_call() {
+        let td = tempfile::TempDir::new().unwrap();
+        let s = StdioServer::with_skill_root(td.path().to_path_buf());
+        let resp = s
+            .handle_request(&json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "skill_manage",
+                    "arguments": {
+                        "action": "create",
+                        "name": "server-test-skill",
+                        "category": "tests",
+                        "description": "wiring",
+                        "body": "# body\n"
+                    }
+                }
+            }))
+            .await;
+        assert_eq!(resp["result"]["isError"], false, "resp: {resp}");
+        let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("created"), "got: {text}");
+        assert!(td.path().join("tests/server-test-skill/SKILL.md").exists());
+    }
+
+    #[tokio::test]
+    async fn skill_manage_unknown_action_surfaces_as_is_error() {
+        let td = tempfile::TempDir::new().unwrap();
+        let s = StdioServer::with_skill_root(td.path().to_path_buf());
+        let resp = s
+            .handle_request(&json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "skill_manage",
+                    "arguments": { "action": "explode", "name": "x" }
+                }
+            }))
+            .await;
+        // The call still succeeds at the JSON-RPC layer — the error lives
+        // in the MCP `isError` content block. This matches the specialist
+        // error-reporting convention.
+        assert_eq!(resp["result"]["isError"], true);
+        let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("explode"), "got: {text}");
     }
 }

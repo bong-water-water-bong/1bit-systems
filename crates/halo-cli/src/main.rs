@@ -17,6 +17,7 @@ mod power;
 mod ppl;
 mod restart;
 mod say;
+mod skill;
 mod update;
 mod version;
 
@@ -116,6 +117,11 @@ enum Cmd {
         #[arg(long)]
         list: bool,
     },
+    /// Manage SKILL.md files under ~/.halo/skills/ (operator-facing CRUD).
+    Skill {
+        #[command(subcommand)]
+        cmd: skill::SkillCmd,
+    },
 }
 
 #[tokio::main]
@@ -149,5 +155,6 @@ async fn main() -> Result<()> {
         Cmd::Bench { rounds, since }                     => bench::run(rounds, since).await,
         Cmd::Ppl   { url, stride, max_tokens, bytes }    => ppl::run(url, stride, max_tokens, bytes).await,
         Cmd::Power { profile, dry_run, list }            => power::run(profile, dry_run, list),
+        Cmd::Skill { cmd }                               => skill::run(cmd),
     }
 }

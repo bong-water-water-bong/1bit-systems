@@ -1,27 +1,28 @@
 //! halo-echo wraps [`halo_voice`] + an Opus encoder + axum WebSocket to
 //! ship voice chunks to browsers.
 //!
-//! Today: scaffold only. Real Opus encoding is deferred — we yield raw
-//! WAV frames over the WebSocket until `opus-rs` or `symphonia` lands in
-//! the tree. The wire format is going to change the moment that dep
-//! appears; consumers should treat the binary payloads as opaque audio
-//! blobs and not assume WAV forever.
-//!
 //! Topology:
 //!
 //! ```text
 //!   browser ── ws /ws ──▶ halo-echo ── spawn ──▶ halo-voice::VoicePipeline
 //!                ▲                                         │
-//!                └────── binary frames (WAV today) ◀───────┘
+//!                └───── preamble + opus/wav frames ◀───────┘
 //! ```
 //!
-//! The browser sends one text frame (the prompt). halo-echo drives the
-//! existing halo-voice sentence-boundary pipeline, forwarding each
-//! `VoiceChunk.wav` straight down the socket as a binary frame.
+//! Protocol:
 //!
-//! Intentionally minimal: no auth, no multi-turn, no reconnect. Those
-//! land once the Opus encoder does.
+//! 1. client upgrades, sends one text frame with the prompt;
+//! 2. server replies with ONE text frame carrying a JSON preamble:
+//!    `{"sample_rate": 48000, "channels": 1, "frame_ms": 20, "codec": "opus"}`
+//!    (or `"codec": "wav"` in legacy mode);
+//! 3. for each `VoiceChunk` from halo-voice, the server either forwards
+//!    the RIFF file verbatim (`--codec wav`) or re-encodes it into a
+//!    series of 20 ms Opus packets, one binary frame per packet
+//!    (`--codec opus`, default in the browser path).
+//!
+//! Intentionally minimal: no auth, no multi-turn, no reconnect.
 
+pub mod opus;
 pub mod server;
 
-pub use server::EchoServer;
+pub use server::{Codec, EchoServer};

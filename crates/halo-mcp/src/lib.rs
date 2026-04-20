@@ -18,6 +18,7 @@
 
 pub mod registry;
 pub mod server;
+pub mod skills;
 pub mod specialists;
 
 pub use registry::{Tool, ToolRegistry};

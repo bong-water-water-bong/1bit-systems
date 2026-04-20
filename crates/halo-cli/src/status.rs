@@ -4,13 +4,17 @@ use anyhow::Result;
 use std::process::Command;
 
 pub const SERVICES: &[(&str, &str, u16)] = &[
-    ("bitnet",   "halo-bitnet.service",   8080),  // gen-1 C++ bitnet_decode
-    ("strix",    "strix-server.service",  8180),  // gen-2 Rust halo-server
-    ("sd",       "halo-sd.service",       8081),
-    ("whisper",  "halo-whisper.service",  8082),
-    ("kokoro",   "halo-kokoro.service",   8083),
-    ("lemonade", "halo-lemonade.service", 8000),
-    ("agent",    "halo-agent.service",    0),
+    ("bitnet",   "halo-bitnet.service",         8080),  // gen-1 C++ bitnet_decode
+    ("strix",    "strix-server.service",        8180),  // gen-2 Rust halo-server
+    ("sd",       "halo-sd.service",             8081),
+    ("whisper",  "halo-whisper.service",        8082),
+    ("kokoro",   "halo-kokoro.service",         8083),
+    ("lemonade", "halo-lemonade.service",       8000),  // gen-1 lemonade daemon
+    ("strix-lm", "strix-lemonade.service",      8200),  // gen-2 halo-lemonade OpenAI gateway
+    ("landing",  "strix-landing.service",       8190),  // halo-landing marketing + /metrics
+    ("burnin",   "strix-burnin.service",           0),  // shadow-burnin v1 vs v2
+    ("tunnel",   "strix-cloudflared.service",      0),  // CF tunnel → api.halo-ai.studio
+    ("agent",    "halo-agent.service",             0),
 ];
 
 pub const TIMERS: &[(&str, &str)] = &[

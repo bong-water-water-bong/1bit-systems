@@ -1,23 +1,20 @@
 //! Axum WebSocket server for halo-echo.
 //!
-//! One route: `GET /ws`. Protocol is trivial today:
-//!
-//! 1. client upgrades, sends a single text frame containing the prompt
-//! 2. server drives [`halo_voice::VoicePipeline::speak`] and forwards
-//!    each `VoiceChunk.wav` as a binary frame
-//! 3. server closes the socket when the stream drains
-//!
-//! No heartbeat, no reconnect, no auth. Scaffold only.
+//! Wire protocol (see crate docs): client upgrades and sends one text
+//! frame (prompt). Server responds with one text frame — a JSON preamble
+//! advertising the codec — then a stream of binary audio frames. In
+//! `Codec::Wav` each frame is one RIFF file from kokoro verbatim. In
+//! `Codec::Opus` each frame is one Opus packet (20 ms, 48 kHz, mono).
 
 use anyhow::Result;
 use axum::{
+    Router,
     extract::{
-        ws::{Message, WebSocket, WebSocketUpgrade},
         State,
+        ws::{Message, WebSocket, WebSocketUpgrade},
     },
     response::IntoResponse,
     routing::get,
-    Router,
 };
 use futures::StreamExt;
 use std::net::SocketAddr;
@@ -25,35 +22,69 @@ use std::sync::Arc;
 
 use halo_voice::{VoiceConfig, VoicePipeline};
 
-/// Entry point for the browser voice service.
-///
-/// Holds a bind address and the [`VoiceConfig`] that every inbound
-/// connection will clone to build its own pipeline. `VoicePipeline` is
-/// single-shot (its `speak` consumes `self`), so we build one per socket.
+use crate::opus::{FRAME_MS, TARGET_SR, encode_wav_to_opus};
+
+/// Wire-format selector. Default is `Wav` for backwards compat; browsers
+/// should flip to `Opus`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
+pub enum Codec {
+    #[default]
+    Wav,
+    Opus,
+}
+
+impl std::str::FromStr for Codec {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "wav" | "WAV" => Ok(Codec::Wav),
+            "opus" | "OPUS" => Ok(Codec::Opus),
+            other => Err(format!("unknown codec `{other}` (want: wav|opus)")),
+        }
+    }
+}
+
+impl Codec {
+    fn as_str(self) -> &'static str {
+        match self {
+            Codec::Wav => "wav",
+            Codec::Opus => "opus",
+        }
+    }
+}
+
+/// Entry point for the browser voice service. `VoicePipeline::speak`
+/// consumes `self`, so we build one pipeline per inbound socket.
 pub struct EchoServer {
     pub bind: SocketAddr,
     pub voice_cfg: VoiceConfig,
+    pub codec: Codec,
+}
+
+#[derive(Clone)]
+struct AppState {
+    voice_cfg: Arc<VoiceConfig>,
+    codec: Codec,
 }
 
 impl EchoServer {
-    /// Default bind (`127.0.0.1:8085`) with a default [`VoiceConfig`].
-    ///
-    /// Handy for tests and for `EchoServer::default().run()` in one-liners.
     pub fn new() -> Self {
         Self {
             bind: default_bind(),
             voice_cfg: VoiceConfig::default(),
+            codec: Codec::default(),
         }
     }
 
     /// Start axum on `self.bind` and serve `/ws` forever.
     pub async fn run(self) -> Result<()> {
-        let state = Arc::new(self.voice_cfg);
-        let app = Router::new()
-            .route("/ws", get(ws_handler))
-            .with_state(state);
+        let state = AppState {
+            voice_cfg: Arc::new(self.voice_cfg),
+            codec: self.codec,
+        };
+        let app = Router::new().route("/ws", get(ws_handler)).with_state(state);
 
-        tracing::info!(bind = %self.bind, "halo-echo listening");
+        tracing::info!(bind = %self.bind, codec = self.codec.as_str(), "halo-echo listening");
         let listener = tokio::net::TcpListener::bind(self.bind).await?;
         axum::serve(listener, app).await?;
         Ok(())
@@ -66,22 +97,34 @@ impl Default for EchoServer {
     }
 }
 
-/// The canonical default bind for halo-echo. Kept as a fn so tests can
-/// parse it without duplicating the string.
 pub fn default_bind() -> SocketAddr {
     "127.0.0.1:8085"
         .parse()
         .expect("default bind literal is a valid SocketAddr")
 }
 
-async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(cfg): State<Arc<VoiceConfig>>,
-) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_socket(socket, cfg))
+async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
-async fn handle_socket(mut socket: WebSocket, cfg: Arc<VoiceConfig>) {
+/// Build the preamble text frame advertising the chosen codec. WAV mode
+/// still carries a preamble so consumers can parse it once and skip
+/// per-chunk RIFF reads.
+fn preamble_json(codec: Codec) -> String {
+    let (sr, frame_ms, name) = match codec {
+        Codec::Opus => (TARGET_SR, FRAME_MS, "opus"),
+        Codec::Wav => (24_000, 0, "wav"),
+    };
+    serde_json::json!({
+        "sample_rate": sr,
+        "channels": 1,
+        "frame_ms": frame_ms,
+        "codec": name,
+    })
+    .to_string()
+}
+
+async fn handle_socket(mut socket: WebSocket, state: AppState) {
     // Step 1: pull the prompt. One text frame, then we pivot to server-push.
     let prompt = match socket.recv().await {
         Some(Ok(Message::Text(t))) => t,
@@ -94,13 +137,20 @@ async fn handle_socket(mut socket: WebSocket, cfg: Arc<VoiceConfig>) {
             tracing::warn!(error = %e, "ws recv failed");
             return;
         }
-        None => {
-            tracing::debug!("client closed before sending prompt");
-            return;
-        }
+        None => return,
     };
 
-    let pipeline = match VoicePipeline::new((*cfg).clone()) {
+    // Step 2: send the codec preamble immediately — a browser can set up
+    // its decoder in parallel with first-byte latency.
+    if socket
+        .send(Message::Text(preamble_json(state.codec)))
+        .await
+        .is_err()
+    {
+        return;
+    }
+
+    let pipeline = match VoicePipeline::new((*state.voice_cfg).clone()) {
         Ok(p) => p,
         Err(e) => {
             tracing::error!(error = %e, "failed to build VoicePipeline");
@@ -113,16 +163,26 @@ async fn handle_socket(mut socket: WebSocket, cfg: Arc<VoiceConfig>) {
     let mut stream = pipeline.speak(prompt);
     while let Some(chunk) = stream.next().await {
         match chunk {
-            Ok(c) => {
-                // TODO(opus): when opus-rs/symphonia lands, re-encode c.wav
-                // to Opus packets and frame them here. For now we ship the
-                // raw WAV bytes as-is and the browser can decode via
-                // WebAudio's decodeAudioData.
-                if let Err(e) = socket.send(Message::Binary(c.wav.to_vec())).await {
-                    tracing::debug!(error = %e, "client went away mid-stream");
-                    return;
+            Ok(c) => match state.codec {
+                Codec::Wav => {
+                    if socket.send(Message::Binary(c.wav.to_vec())).await.is_err() {
+                        return;
+                    }
                 }
-            }
+                Codec::Opus => match encode_wav_to_opus(&c.wav, TARGET_SR) {
+                    Ok(packets) => {
+                        for pkt in packets {
+                            if socket.send(Message::Binary(pkt)).await.is_err() {
+                                return;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "opus encode failed; dropping chunk");
+                        let _ = socket.send(Message::Text(format!("error: {e}"))).await;
+                    }
+                },
+            },
             Err(e) => {
                 tracing::warn!(error = %e, "voice pipeline error");
                 let _ = socket.send(Message::Text(format!("error: {e}"))).await;
@@ -137,6 +197,7 @@ async fn handle_socket(mut socket: WebSocket, cfg: Arc<VoiceConfig>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
 
     #[test]
     fn default_bind_is_localhost_8085() {
@@ -154,26 +215,103 @@ mod tests {
             voice: "bf_emma".into(),
             ..Default::default()
         };
-
         let s = EchoServer {
             bind: default_bind(),
             voice_cfg: cfg.clone(),
+            codec: Codec::Opus,
         };
         assert_eq!(s.voice_cfg.llm_url, cfg.llm_url);
         assert_eq!(s.voice_cfg.tts_url, cfg.tts_url);
         assert_eq!(s.voice_cfg.voice, "bf_emma");
+        assert_eq!(s.codec, Codec::Opus);
     }
 
     #[test]
     fn construct_with_custom_bind_is_noop_until_run() {
-        // Can build an EchoServer on any bind without touching the network.
         let s = EchoServer {
             bind: "127.0.0.1:0".parse().unwrap(),
             voice_cfg: VoiceConfig::default(),
+            codec: Codec::Wav,
         };
         assert_eq!(s.bind.port(), 0);
-        // Default impl lines up with the explicit new().
         let d = EchoServer::default();
         assert_eq!(d.bind, default_bind());
+        assert_eq!(d.codec, Codec::Wav);
+    }
+
+    #[test]
+    fn codec_from_str_roundtrip() {
+        assert_eq!(Codec::from_str("wav").unwrap(), Codec::Wav);
+        assert_eq!(Codec::from_str("opus").unwrap(), Codec::Opus);
+        assert!(Codec::from_str("mp3").is_err());
+    }
+
+    #[test]
+    fn preamble_opus_shape() {
+        let v: serde_json::Value = serde_json::from_str(&preamble_json(Codec::Opus)).unwrap();
+        assert_eq!(v["codec"], "opus");
+        assert_eq!(v["sample_rate"], 48_000);
+        assert_eq!(v["channels"], 1);
+        assert_eq!(v["frame_ms"], 20);
+    }
+
+    /// Protocol smoke test: bring up `EchoServer` with `Codec::Opus` on
+    /// an ephemeral port, connect with tokio-tungstenite, send a prompt,
+    /// and assert the first inbound frame is the text-JSON preamble. The
+    /// voice pipeline is pointed at a dead loopback URL so we don't need
+    /// halo-server / halo-kokoro — the preamble is sent BEFORE the
+    /// pipeline runs, so it still arrives.
+    #[tokio::test]
+    async fn opus_mode_sends_text_preamble_first() {
+        use futures::SinkExt;
+        use tokio_tungstenite::tungstenite::Message as TMessage;
+
+        let voice_cfg = VoiceConfig {
+            llm_url: "http://127.0.0.1:1/v1/chat/completions".into(),
+            tts_url: "http://127.0.0.1:1/tts".into(),
+            timeout_secs: 2,
+            ..Default::default()
+        };
+        let state = AppState {
+            voice_cfg: Arc::new(voice_cfg),
+            codec: Codec::Opus,
+        };
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let bound = listener.local_addr().unwrap();
+        let app = Router::new().route("/ws", get(ws_handler)).with_state(state);
+        let server_handle =
+            tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        // Connect with a short retry since axum::serve is async to start.
+        let url = format!("ws://{bound}/ws");
+        let (mut ws, _) = {
+            let mut attempt = 0;
+            loop {
+                match tokio_tungstenite::connect_async(&url).await {
+                    Ok(pair) => break pair,
+                    Err(_) if attempt < 10 => {
+                        attempt += 1;
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                    Err(e) => panic!("ws connect failed: {e}"),
+                }
+            }
+        };
+
+        ws.send(TMessage::Text("hello".into())).await.unwrap();
+        let first = tokio::time::timeout(std::time::Duration::from_secs(5), ws.next())
+            .await
+            .expect("preamble timeout")
+            .expect("stream ended")
+            .expect("ws error");
+        let text = match first {
+            TMessage::Text(t) => t,
+            other => panic!("expected Text preamble, got {other:?}"),
+        };
+        let v: serde_json::Value = serde_json::from_str(&text).expect("preamble is valid JSON");
+        assert_eq!(v["codec"], "opus");
+        assert_eq!(v["sample_rate"], 48_000);
+
+        server_handle.abort();
     }
 }

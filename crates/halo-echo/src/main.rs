@@ -14,7 +14,7 @@
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use halo_echo::EchoServer;
+use halo_echo::{Codec, EchoServer};
 use halo_voice::VoiceConfig;
 use std::net::SocketAddr;
 
@@ -33,6 +33,11 @@ struct Cli {
     /// Voice id forwarded to kokoro.
     #[arg(long, default_value = "af_sky")]
     voice: String,
+    /// Wire codec for audio frames. `wav` forwards the RIFF files from
+    /// kokoro verbatim; `opus` re-encodes each chunk into 20 ms Opus
+    /// packets at 48 kHz for browsers.
+    #[arg(long, value_enum, default_value_t = Codec::Wav)]
+    codec: Codec,
 }
 
 #[tokio::main]
@@ -57,6 +62,7 @@ async fn main() -> Result<()> {
     let server = EchoServer {
         bind: cli.bind,
         voice_cfg,
+        codec: cli.codec,
     };
 
     server.run().await.context("halo-echo server exited with error")

@@ -119,6 +119,13 @@ impl ToolRegistry {
         Self { tools }
     }
 
+    /// Append a non-specialist tool (e.g. `skill_manage`). The registry
+    /// is `tools/list`-facing only — dispatch is handled by the server's
+    /// own routing table.
+    pub fn push(&mut self, tool: Tool) {
+        self.tools.push(tool);
+    }
+
     /// Lookup by exact tool name. Case-sensitive.
     pub fn find(&self, name: &str) -> Option<&Tool> {
         self.tools.iter().find(|t| t.name == name)

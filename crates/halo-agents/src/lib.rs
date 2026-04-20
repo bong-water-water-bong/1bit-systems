@@ -40,6 +40,10 @@ pub use sessions::{Hit, SessionDb};
 pub mod skills;
 pub use skills::{Skill, SkillAction, SkillStore};
 
+pub mod memory;
+pub use memory::{MemoryKind, MemoryStore, DELIMITER as MEMORY_DELIMITER,
+                 MAX_MEMORY_CHARS, MAX_USER_CHARS};
+
 /// The 17 specialists. Ordering matches agent-cpp/specialists/ for easy diff.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Name {

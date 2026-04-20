@@ -28,3 +28,8 @@ tracing-subscriber = { workspace = true }
 clap       = { workspace = true }
 bytes      = { workspace = true }
 halo-voice = { path = "../halo-voice" }
+# Opus encoder. `audiopus` is the maintained safe binding to libopus.
+audiopus   = { version = "0.2", default-features = false }
+
+[dev-dependencies]
+tokio-tungstenite = { version = "0.23", default-features = false, features = ["connect"] }
