@@ -487,6 +487,23 @@ unsafe extern "C" {
     ) -> rcpp_status_t;
 
     // -------------------------------------------------------------------------
+    // BitNet v2 — H-BitLinear Hadamard activation rotation.
+    //
+    // `K` is the total fp16 element count (= n_blocks * 128). Device-side
+    // kernel hardcodes the block size to HADAMARD_BLOCK=128; `K` must be a
+    // multiple of 128. In-place aliasing (x_in == y_out) is permitted.
+    //
+    // Returns `void` — no rcpp_status_t. Callers that need error reporting
+    // must check hipGetLastError() at the next synchronization boundary.
+    // -------------------------------------------------------------------------
+    pub fn rcpp_hadamard_rotate_fp16_butterfly_launch(
+        x_in: *const c_void,
+        y_out: *mut c_void,
+        K: c_int,
+        stream: *mut c_void,
+    );
+
+    // -------------------------------------------------------------------------
     // Standalone (CK-free) prefill
     // -------------------------------------------------------------------------
     pub fn rcpp_standalone_gemm(
@@ -711,6 +728,19 @@ mod stub {
         A_dev: *const c_void, B_dev_packed: *const c_void, C_dev: *mut c_void,
         M: c_int, N: c_int, K: c_int, stream: *mut c_void
     ) -> rcpp_status_t);
+
+    // Hadamard rotate: void return — no-op in stub mode. Callers see
+    // `Unsupported` at the safe-wrapper level (lib.rs checks the feature
+    // before dispatching) so this shim is only for symbol completeness.
+    #[inline]
+    #[allow(unused_variables, non_snake_case)]
+    pub unsafe extern "C" fn rcpp_hadamard_rotate_fp16_butterfly_launch(
+        x_in: *const c_void,
+        y_out: *mut c_void,
+        K: c_int,
+        stream: *mut c_void,
+    ) {
+    }
 }
 
 #[cfg(not(feature = "link-rocm"))]

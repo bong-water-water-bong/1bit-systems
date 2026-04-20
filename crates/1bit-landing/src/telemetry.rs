@@ -341,7 +341,10 @@ async fn probe_shadow_burn(path: &Path) -> f32 {
             continue;
         };
         total += 1;
-        if v.get("full_match").and_then(|b| b.as_bool()).unwrap_or(false) {
+        if v.get("full_match")
+            .and_then(|b| b.as_bool())
+            .unwrap_or(false)
+        {
             matches += 1;
         }
     }
@@ -413,21 +416,30 @@ mod tests {
     fn parse_rocm_smi_degrades_on_garbage() {
         let v = serde_json::json!({ "card0": { "bogus": 1 } });
         assert_eq!(parse_rocm_smi_json(&v), (0.0, 0));
-        assert_eq!(
-            parse_rocm_smi_json(&serde_json::Value::Null),
-            (0.0, 0)
-        );
+        assert_eq!(parse_rocm_smi_json(&serde_json::Value::Null), (0.0, 0));
     }
 
     #[test]
     fn service_delta_detects_flips() {
         let prev = vec![
-            ServiceState { name: "a".into(), active: true },
-            ServiceState { name: "b".into(), active: false },
+            ServiceState {
+                name: "a".into(),
+                active: true,
+            },
+            ServiceState {
+                name: "b".into(),
+                active: false,
+            },
         ];
         let next = vec![
-            ServiceState { name: "a".into(), active: true },
-            ServiceState { name: "b".into(), active: true },
+            ServiceState {
+                name: "a".into(),
+                active: true,
+            },
+            ServiceState {
+                name: "b".into(),
+                active: true,
+            },
         ];
         let d = service_delta(&prev, &next).expect("change detected");
         assert_eq!(d.len(), 1);
@@ -438,8 +450,14 @@ mod tests {
     #[test]
     fn service_delta_is_none_when_steady() {
         let s = vec![
-            ServiceState { name: "a".into(), active: true },
-            ServiceState { name: "b".into(), active: true },
+            ServiceState {
+                name: "a".into(),
+                active: true,
+            },
+            ServiceState {
+                name: "b".into(),
+                active: true,
+            },
         ];
         assert!(service_delta(&s, &s).is_none());
     }
@@ -520,10 +538,7 @@ mod tests {
     }
 
     fn tempdir_fallback() -> PathBuf {
-        let p = PathBuf::from(format!(
-            "/tmp/1bit-landing-test-{}",
-            std::process::id()
-        ));
+        let p = PathBuf::from(format!("/tmp/1bit-landing-test-{}", std::process::id()));
         std::fs::create_dir_all(&p).unwrap();
         p
     }

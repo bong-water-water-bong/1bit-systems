@@ -490,10 +490,7 @@ mod tests {
                     body: Body::from(r#"{"backend":"a"}"#),
                 })
             }
-            async fn completions(
-                &self,
-                _req: UpstreamRequest,
-            ) -> anyhow::Result<UpstreamResponse> {
+            async fn completions(&self, _req: UpstreamRequest) -> anyhow::Result<UpstreamResponse> {
                 unreachable!()
             }
             async fn models(&self) -> anyhow::Result<UpstreamResponse> {
@@ -519,10 +516,7 @@ mod tests {
                     body: Body::from(r#"{"backend":"b"}"#),
                 })
             }
-            async fn completions(
-                &self,
-                _req: UpstreamRequest,
-            ) -> anyhow::Result<UpstreamResponse> {
+            async fn completions(&self, _req: UpstreamRequest) -> anyhow::Result<UpstreamResponse> {
                 unreachable!()
             }
             async fn models(&self) -> anyhow::Result<UpstreamResponse> {
@@ -534,10 +528,7 @@ mod tests {
         }
 
         let mut reg = ModelRegistry::new();
-        reg.insert(
-            "x",
-            ModelEntry::new("local/x", vec!["chat".into()]),
-        );
+        reg.insert("x", ModelEntry::new("local/x", vec!["chat".into()]));
         let state_a = AppState::with_upstream(reg.clone(), Arc::new(BackendA));
         let state_b = AppState::with_upstream(reg, Arc::new(BackendB));
 

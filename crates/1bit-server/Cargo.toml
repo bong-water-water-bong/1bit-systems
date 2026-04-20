@@ -48,3 +48,13 @@ onebit-hip    = { path = "../1bit-hip", optional = true }
 
 [dev-dependencies]
 reqwest            = { workspace = true }
+# Used by benches/sampler.rs + parallel-sampler parity tests. Both are
+# workspace members already — dev-deps here don't grow the link graph of
+# the shipping binary; they only affect `cargo test` / `cargo bench`.
+onebit-core        = { workspace = true }
+onebit-router      = { workspace = true }
+fastrand           = { workspace = true }
+
+[[bench]]
+name    = "sampler"
+harness = false

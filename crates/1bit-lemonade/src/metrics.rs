@@ -166,8 +166,14 @@ impl Metrics {
                     out,
                     "onebit_lemonade_request_seconds_bucket{{route=\"init\",le=\"+Inf\"}} 0"
                 );
-                let _ = writeln!(out, "onebit_lemonade_request_seconds_sum{{route=\"init\"}} 0");
-                let _ = writeln!(out, "onebit_lemonade_request_seconds_count{{route=\"init\"}} 0");
+                let _ = writeln!(
+                    out,
+                    "onebit_lemonade_request_seconds_sum{{route=\"init\"}} 0"
+                );
+                let _ = writeln!(
+                    out,
+                    "onebit_lemonade_request_seconds_count{{route=\"init\"}} 0"
+                );
             } else {
                 for (route, h) in m.iter() {
                     let r = escape_label(route);
@@ -285,7 +291,9 @@ mod tests {
             "onebit_lemonade_request_seconds_bucket{route=\"/v1/models\",le=\"0.005\"} 1"
         ));
         assert!(
-            out.contains("onebit_lemonade_request_seconds_bucket{route=\"/v1/models\",le=\"10\"} 1")
+            out.contains(
+                "onebit_lemonade_request_seconds_bucket{route=\"/v1/models\",le=\"10\"} 1"
+            )
         );
         assert!(out.contains(
             "onebit_lemonade_request_seconds_bucket{route=\"/v1/models\",le=\"+Inf\"} 1"

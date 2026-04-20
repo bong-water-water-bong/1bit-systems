@@ -149,7 +149,10 @@ mod tests {
     fn hash_embed_self_similarity_is_one() {
         let v = hash_embed("bob prefers terse CLI output");
         let s = cosine(&v, &v);
-        assert!((s - 1.0).abs() < 1e-5, "self cosine should be ~1.0, got {s}");
+        assert!(
+            (s - 1.0).abs() < 1e-5,
+            "self cosine should be ~1.0, got {s}"
+        );
     }
 
     /// Two texts that share most tokens should score higher than two

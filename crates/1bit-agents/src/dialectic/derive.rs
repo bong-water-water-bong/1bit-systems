@@ -85,12 +85,15 @@ fn strip_code_fence(s: &str) -> &str {
 /// Derive claims from an observation using the default halo-server URL
 /// and model. This is the entry point [`super::observe`] uses when the
 /// `llm-derive` feature is enabled.
-pub async fn derive_claims(
-    observation: &str,
-    observed_peer: &str,
-    client: &Client,
-) -> Vec<String> {
-    derive_claims_with_url(observation, observed_peer, client, DEFAULT_CHAT_URL, DEFAULT_MODEL).await
+pub async fn derive_claims(observation: &str, observed_peer: &str, client: &Client) -> Vec<String> {
+    derive_claims_with_url(
+        observation,
+        observed_peer,
+        client,
+        DEFAULT_CHAT_URL,
+        DEFAULT_MODEL,
+    )
+    .await
 }
 
 /// Derivation with explicit base URL + model — used by tests that point
@@ -204,8 +207,12 @@ mod tests {
         let canned = r#"{"choices":[{"message":{"content":"[\"bob prefers terse CLI\", \"bob reviews PRs fast\"]"}}]}"#;
         let url = spawn_mock(canned);
         let client = Client::new();
-        let claims = derive_claims_with_url("bob: lgtm, ship it", "bob", &client, &url, DEFAULT_MODEL).await;
-        assert_eq!(claims, vec!["bob prefers terse CLI", "bob reviews PRs fast"]);
+        let claims =
+            derive_claims_with_url("bob: lgtm, ship it", "bob", &client, &url, DEFAULT_MODEL).await;
+        assert_eq!(
+            claims,
+            vec!["bob prefers terse CLI", "bob reviews PRs fast"]
+        );
     }
 
     #[tokio::test]

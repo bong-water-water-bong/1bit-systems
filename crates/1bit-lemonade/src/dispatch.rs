@@ -81,8 +81,7 @@ pub trait Upstream: Send + Sync + std::fmt::Debug {
     ) -> Result<UpstreamResponse, UpstreamError>;
 
     /// `POST /v1/completions` forwarded upstream.
-    async fn completions(&self, req: UpstreamRequest)
-    -> Result<UpstreamResponse, UpstreamError>;
+    async fn completions(&self, req: UpstreamRequest) -> Result<UpstreamResponse, UpstreamError>;
 
     /// `GET /v1/models` passthrough. No request body.
     async fn models(&self) -> Result<UpstreamResponse, UpstreamError>;
@@ -138,7 +137,11 @@ impl HaloServer {
         Ok(Self { client, base })
     }
 
-    async fn post_forward(&self, path: &str, req: UpstreamRequest) -> Result<UpstreamResponse, UpstreamError> {
+    async fn post_forward(
+        &self,
+        path: &str,
+        req: UpstreamRequest,
+    ) -> Result<UpstreamResponse, UpstreamError> {
         // Strip leading slash so url::Url::join doesn't drop the base path.
         let rel = path.trim_start_matches('/');
         let url = self
@@ -194,10 +197,7 @@ impl Upstream for HaloServer {
         self.post_forward("/v1/chat/completions", req).await
     }
 
-    async fn completions(
-        &self,
-        req: UpstreamRequest,
-    ) -> Result<UpstreamResponse, UpstreamError> {
+    async fn completions(&self, req: UpstreamRequest) -> Result<UpstreamResponse, UpstreamError> {
         self.post_forward("/v1/completions", req).await
     }
 

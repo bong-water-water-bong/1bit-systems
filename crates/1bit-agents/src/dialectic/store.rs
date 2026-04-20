@@ -123,8 +123,8 @@ impl SqliteDialecticStore {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("create parent dir for {}", path.display()))?;
         }
-        let conn = Connection::open(path)
-            .with_context(|| format!("open sqlite at {}", path.display()))?;
+        let conn =
+            Connection::open(path).with_context(|| format!("open sqlite at {}", path.display()))?;
         conn.execute_batch(SCHEMA_SQL)
             .context("run dialectic-db schema bootstrap")?;
         Ok(Self { conn })
@@ -171,7 +171,12 @@ impl DialecticStore for SqliteDialecticStore {
                 "INSERT INTO dialectic_inferences
                    (observer_id, observed_id, claim, created_at)
                  VALUES (?1, ?2, ?3, ?4)",
-                params![observer_id, observed_id, inference.claim, inference.created_at],
+                params![
+                    observer_id,
+                    observed_id,
+                    inference.claim,
+                    inference.created_at
+                ],
             )
             .context("insert dialectic inference")?;
         let inf_id = self.conn.last_insert_rowid();
@@ -212,9 +217,7 @@ impl DialecticStore for SqliteDialecticStore {
         let mut out = Vec::with_capacity(rows.len());
         let mut supports_stmt = self
             .conn
-            .prepare_cached(
-                "SELECT observation_id FROM dialectic_supports WHERE inference_id = ?1",
-            )
+            .prepare_cached("SELECT observation_id FROM dialectic_supports WHERE inference_id = ?1")
             .context("prepare supports lookup")?;
         for (id, claim, created_at) in rows {
             let supports: Vec<i64> = supports_stmt

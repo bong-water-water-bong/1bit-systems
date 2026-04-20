@@ -9,17 +9,36 @@
 //! * transport modules (`client`, `conversation`, `session`, `stream`) —
 //!   reused from the scaffold; OpenAI-compat chat client with SSE stream
 //!   parser. No UI dependency.
-//! * `app` — eframe `App` impl. Five panes (Status, Chat, Skills, Memory,
-//!   Models) behind a top-bar switcher + left nav panel.
+//! * `bearer`     — system keyring + XDG-file fallback for `/v1/*` bearer.
+//! * `telemetry`  — long-lived SSE subscription to 1bit-landing.
+//! * `models`     — `GET /v1/models` client for the Models pane.
+//! * `conv_log`   — JSONL conversation snapshot on close.
+//! * `app`        — eframe `App` impl. Five panes behind a top-bar switcher.
+//!
+//! Brand: **1bit monster**, domain `1bit.systems`. The hero strip + about
+//! dialog surface these strings verbatim.
 
 pub mod app;
+pub mod bearer;
 pub mod client;
+pub mod conv_log;
 pub mod conversation;
+pub mod models;
 pub mod session;
 pub mod stream;
+pub mod telemetry;
 
 pub use app::{HelmApp, Pane};
+pub use bearer::{Bearer, BearerBackend};
 pub use client::HelmClient;
+pub use conv_log::{LogEntry, default_root as conv_log_root, read_session, write_session};
 pub use conversation::{ChatTurn, Conversation, Role};
+pub use models::{ModelCard, fetch_models, parse_models};
 pub use session::SessionConfig;
 pub use stream::{SseEvent, parse_sse_line};
+pub use telemetry::{LiveStats, ServiceDot, TelemetryMsg, parse_stats};
+
+/// Product name surfaced in UI strings (hero strip + about dialog).
+pub const BRAND: &str = "1bit monster";
+/// Canonical domain for the about dialog.
+pub const BRAND_DOMAIN: &str = "1bit.systems";

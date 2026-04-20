@@ -15,9 +15,7 @@ impl TernaryBackend for MlxBackend {
         false
     }
     fn load_h1b(&mut self, _path: &str) -> anyhow::Result<()> {
-        anyhow::bail!(
-            "1bit-mlx built without 'mlx-apple' feature; MLX backend is a stub here"
-        )
+        anyhow::bail!("1bit-mlx built without 'mlx-apple' feature; MLX backend is a stub here")
     }
     fn generate(&mut self, _prompt: &[u32], _max_new: usize) -> anyhow::Result<Vec<u32>> {
         anyhow::bail!("1bit-mlx stub — build with --features mlx-apple on macOS to enable")

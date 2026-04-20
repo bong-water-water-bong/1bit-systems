@@ -22,17 +22,9 @@ unsafe extern "C" {
 
     pub fn onebit_whisper_free(ctx: *mut WhisperCtx);
 
-    pub fn onebit_whisper_feed(
-        ctx: *mut WhisperCtx,
-        pcm: *const i16,
-        n_samples: usize,
-    ) -> i32;
+    pub fn onebit_whisper_feed(ctx: *mut WhisperCtx, pcm: *const i16, n_samples: usize) -> i32;
 
-    pub fn onebit_whisper_drain(
-        ctx: *mut WhisperCtx,
-        out_buf: *mut c_char,
-        out_len: usize,
-    ) -> i32;
+    pub fn onebit_whisper_drain(ctx: *mut WhisperCtx, out_buf: *mut c_char, out_len: usize) -> i32;
 }
 
 // Silence an unused-import warning in stub-only builds: `c_int` may not

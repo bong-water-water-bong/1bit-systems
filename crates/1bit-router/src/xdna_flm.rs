@@ -359,9 +359,13 @@ mod tests {
     #[test]
     fn missing_binary_returns_flm_spawn_or_stub() {
         let fake = Path::new("/nonexistent/flm-definitely-not-here");
-        let err =
-            flm_prefill_with_binary("hello", "llama-3.2-3b-q4nx", /* is_ternary */ false, fake)
-                .expect_err("fake binary must error");
+        let err = flm_prefill_with_binary(
+            "hello",
+            "llama-3.2-3b-q4nx",
+            /* is_ternary */ false,
+            fake,
+        )
+        .expect_err("fake binary must error");
 
         if cfg!(feature = "flm-subprocess") {
             match err {
@@ -371,9 +375,7 @@ mod tests {
                         "spawn error must mention the binary / pkg; got: {msg}"
                     );
                 }
-                other => panic!(
-                    "with flm-subprocess ON, expected FlmSpawn, got {other:?}"
-                ),
+                other => panic!("with flm-subprocess ON, expected FlmSpawn, got {other:?}"),
             }
         } else {
             match err {
@@ -383,9 +385,7 @@ mod tests {
                         "stub message must point at the fix; got: {msg}"
                     );
                 }
-                other => panic!(
-                    "with flm-subprocess OFF, expected NotYetWired, got {other:?}"
-                ),
+                other => panic!("with flm-subprocess OFF, expected NotYetWired, got {other:?}"),
             }
         }
     }
@@ -439,6 +439,9 @@ mod tests {
     #[test]
     fn defaults_are_populated() {
         assert!(!default_flm_model_id().is_empty());
-        assert_eq!(default_flm_binary().as_path(), Path::new(DEFAULT_FLM_BINARY));
+        assert_eq!(
+            default_flm_binary().as_path(),
+            Path::new(DEFAULT_FLM_BINARY)
+        );
     }
 }

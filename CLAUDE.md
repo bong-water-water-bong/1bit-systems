@@ -9,10 +9,11 @@ Keep terse; when in doubt, follow `ARCHITECTURE.md`.
   once on a dev box (requantizers, analysis notebooks), never inside a
   systemd unit or a path that serves HTTP. If a component needs orchestration,
   write it in Rust.
-- **Rule B — C++20 only for kernels.** All HIP kernels stay in
-  `bong-water-water-bong/rocm-cpp`. Do NOT reimplement kernels in Rust.
-  FFI through `1bit-hip`. (Old `stampby/rocm-cpp` is archived,
-  `stampby` handle retired.)
+- **Rule B — C++20 only for kernels.** All HIP kernels stay in the
+  `rocm-cpp/` subtree of `1bit-systems` (fold pending; during grace
+  week, the standalone `bong-water-water-bong/rocm-cpp` mirror still
+  works). Do NOT reimplement kernels in Rust. FFI through `1bit-hip`.
+  (Old `stampby/rocm-cpp` archived, `stampby` handle retired.)
 - **Rule C — hipBLAS is banned** in the runtime path. Native Tensile kernels
   only. If you find yourself reaching for hipBLAS, step back and port the
   kernel to `rocm-cpp` instead.

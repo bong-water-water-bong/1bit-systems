@@ -136,7 +136,10 @@ mod tests {
 
     #[test]
     fn classify_bug_label_routes_to_sentinel() {
-        assert_eq!(classify(&ev("weird thing", &["bug"], false)), Name::Sentinel);
+        assert_eq!(
+            classify(&ev("weird thing", &["bug"], false)),
+            Name::Sentinel
+        );
     }
 
     #[test]
@@ -187,7 +190,10 @@ mod tests {
             classify(&ev("fix: segfault", &["bug"], true)),
             Name::Magistrate
         );
-        assert_eq!(classify(&ev("docs: typo", &["documentation"], true)), Name::Magistrate);
+        assert_eq!(
+            classify(&ev("docs: typo", &["documentation"], true)),
+            Name::Magistrate
+        );
     }
 
     #[test]

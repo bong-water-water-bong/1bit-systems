@@ -50,6 +50,26 @@ use crate::types::{
 
 pub const H1B_MAGIC: [u8; 4] = *b"H1B\0";
 
+/// Bit flag (in `H1bConfig::reserved` / `cfg[8]`) marking a checkpoint
+/// whose activation stream has been **Walsh-Hadamard-rotated offline**
+/// per BitNet v2 (arXiv 2504.18415). When this bit is set the online
+/// forward pass is expected to apply the inverse rotation's counterpart
+/// (i.e. a fresh `H x / sqrt(B)` per activation quant site) before
+/// dispatching the GEMV — the weights have already absorbed `W' = W @ H^T`.
+///
+/// **We reuse the `reserved` cfg slot rather than bumping the format
+/// version** because:
+///   * No on-disk layout changes — only the interpretation of a previously
+///     unused integer.
+///   * Existing v1/v2/v3/v4 loaders that predate this flag read `reserved`
+///     as zero (no rotation) which is the correct fallback on untrained
+///     weights. A version bump would reject those files outright.
+///   * The offline requantizer (issuing `W' = W @ H^T` and rewriting the
+///     `.h1b`) sets this bit; everyone else leaves it at zero.
+///
+/// Other bits of `reserved` remain unassigned — future flags compose.
+pub const H1B_FLAG_HADAMARD_ROTATED: i32 = 0x1;
+
 /// Fixed-size header sizes, for offset arithmetic.
 const CFG_BYTES: usize = 9 * 4;
 const EXTRAS_BYTES: usize = 2 * 4;
@@ -147,6 +167,17 @@ impl H1bConfig {
 
     pub fn weight_format(&self) -> Result<H1bWeightFormat, HaloError> {
         H1bWeightFormat::from_version(self.version)
+    }
+
+    /// Whether this checkpoint ships Hadamard-rotated activations per
+    /// BitNet v2. See [`H1B_FLAG_HADAMARD_ROTATED`] for the flag rationale.
+    ///
+    /// Today's 2B-4T base model (and every shipping checkpoint) returns
+    /// `false` — the bit is cleared in all weights we distribute. The
+    /// 1bit-router's `bitnet-v2` feature consults this accessor to decide
+    /// whether to dispatch the online rotation kernel.
+    pub fn is_hadamard_rotated(&self) -> bool {
+        (self.reserved & H1B_FLAG_HADAMARD_ROTATED) != 0
     }
 }
 
@@ -894,5 +925,47 @@ mod tests {
         // TQ1: cols rounded up to mult of 20, then /5.
         assert_eq!(H1bWeightFormat::TQ1V4.row_bytes(20).unwrap(), 4);
         assert_eq!(H1bWeightFormat::TQ1V4.row_bytes(21).unwrap(), 8);
+    }
+
+    /// `H1B_FLAG_HADAMARD_ROTATED` lives in bit 0 of the `reserved` cfg
+    /// slot. Zero-reserved → not rotated (status quo on every ship-side
+    /// checkpoint today). Bit 0 set → rotated. Other bits are reserved
+    /// for future flags so they must not trip the accessor.
+    #[test]
+    fn is_hadamard_rotated_reads_reserved_bit0() {
+        let mut cfg = H1bConfig {
+            version: 2,
+            hidden_size: 128,
+            intermediate_size: 128,
+            num_layers: 1,
+            num_heads: 1,
+            num_kv_heads: 1,
+            vocab_size: 4,
+            max_seq_len: 8,
+            tie_embeddings: 0,
+            reserved: 0,
+            rope_theta: DEFAULT_ROPE_THETA,
+            rms_norm_eps: DEFAULT_RMS_NORM_EPS,
+        };
+        assert!(
+            !cfg.is_hadamard_rotated(),
+            "default reserved=0 → not rotated"
+        );
+
+        cfg.reserved = H1B_FLAG_HADAMARD_ROTATED;
+        assert!(cfg.is_hadamard_rotated(), "bit0 set → rotated");
+
+        // Foreign bits don't leak into the accessor.
+        cfg.reserved = 0x1000_0000;
+        assert!(
+            !cfg.is_hadamard_rotated(),
+            "unrelated reserved bits must not trip the rotated flag"
+        );
+
+        cfg.reserved = H1B_FLAG_HADAMARD_ROTATED | 0x1000_0000;
+        assert!(
+            cfg.is_hadamard_rotated(),
+            "bit0 still reads through when other reserved bits are set"
+        );
     }
 }

@@ -32,9 +32,9 @@ use onebit_agents::watch::{
 };
 use onebit_agents::{Name, Registry};
 use serde_json::json;
+use serenity::Client;
 use serenity::all::{Context, EventHandler, GatewayIntents, Message, Ready};
 use serenity::async_trait;
-use serenity::Client;
 use tracing::{error, info, warn};
 
 const DEFAULT_SERVER_URL: &str = "http://127.0.0.1:8180";
@@ -125,13 +125,13 @@ impl Handler {
         let models_url = format!("{}/v1/models", self.server_url);
         let metrics_url = format!("{}/metrics", self.landing_url);
 
-        let models = self
-            .http
-            .get(&models_url)
-            .send()
-            .await
-            .ok()
-            .and_then(|r| if r.status().is_success() { Some(r) } else { None });
+        let models = self.http.get(&models_url).send().await.ok().and_then(|r| {
+            if r.status().is_success() {
+                Some(r)
+            } else {
+                None
+            }
+        });
         let model_count = match models {
             Some(r) => match r.json::<serde_json::Value>().await {
                 Ok(v) => v

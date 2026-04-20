@@ -44,8 +44,7 @@ impl RealEngine {
     pub fn new<P: AsRef<Path>>(model: P) -> Result<Self, WhisperError> {
         let path = model.as_ref();
         let path_str = path.to_string_lossy().into_owned();
-        let c_path = CString::new(path_str.clone())
-            .map_err(|_| WhisperError::InvalidPath)?;
+        let c_path = CString::new(path_str.clone()).map_err(|_| WhisperError::InvalidPath)?;
 
         // SAFETY: `onebit_whisper_init` reads the NUL-terminated string
         // from `c_path.as_ptr()` and returns either NULL or a valid

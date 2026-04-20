@@ -17,9 +17,7 @@
 
 use anyhow::Result;
 use onebit_agents::Registry;
-use onebit_agents::watch::github::{
-    Event, classify, poll_seconds_from_env, repos_from_env,
-};
+use onebit_agents::watch::github::{Event, classify, poll_seconds_from_env, repos_from_env};
 use serde_json::json;
 use std::time::Duration;
 use tracing::{info, warn};
@@ -164,11 +162,7 @@ async fn poll_repo(
     let mut out = Vec::with_capacity(page.items.len());
     for issue in page.items {
         let is_pr = issue.pull_request.is_some();
-        let labels = issue
-            .labels
-            .into_iter()
-            .map(|l| l.name)
-            .collect::<Vec<_>>();
+        let labels = issue.labels.into_iter().map(|l| l.name).collect::<Vec<_>>();
         out.push(Event {
             title: issue.title,
             body: issue.body.unwrap_or_default(),

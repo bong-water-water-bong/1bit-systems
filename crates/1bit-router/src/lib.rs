@@ -54,7 +54,7 @@ use onebit_core::types::TokenId;
 use tokio::sync::Mutex;
 
 pub use backend_impl::{BackendError, HipBackend, ModelFormat, sniff_model_format};
-pub use cpu_lane::{CpuLane, CpuLaneError};
+pub use cpu_lane::{CpuLane, CpuLaneError, SAMPLER_MODE_ENV, SamplerMode, sampler_mode_from_env};
 pub use detect::{BackendKind, detect};
 
 // Re-exported below once the type is declared — see PerplexityResult.
@@ -141,18 +141,32 @@ pub const XDNA_PREFILL_MIN_TOKENS: usize = 33;
 pub struct RouterConfig {
     /// Which execution surface the router dispatches the forward pass to.
     pub backend: Backend,
+    /// Which sampler dispatch path the router takes — inline (default)
+    /// or offloaded to the [`cpu_lane::CpuLane`]. Read from
+    /// [`cpu_lane::SAMPLER_MODE_ENV`] (`HALO_SAMPLER`) in
+    /// [`RouterConfig::from_env`].
+    ///
+    /// See `docs/wiki/CPU-Lane-Plan.md` for the decision memo that
+    /// explains why the default is `Inline` — short version, the
+    /// sampler is ~4.5% of a 15 ms forward pass and doesn't justify
+    /// pipelining today.
+    pub sampler_mode: SamplerMode,
 }
 
 impl RouterConfig {
-    /// Build a config from the `HALO_BACKEND` env var. Unset → defaults
-    /// (Hip). Set but unparsable → [`BackendError::Other`].
+    /// Build a config from the `HALO_BACKEND` + `HALO_SAMPLER` env vars.
+    /// Unset → defaults (Hip / Inline). Set but unparsable →
+    /// [`BackendError::Other`].
     pub fn from_env() -> Result<Self, BackendError> {
-        match std::env::var("HALO_BACKEND") {
-            Ok(raw) if !raw.is_empty() => Ok(Self {
-                backend: Backend::parse_env(&raw)?,
-            }),
-            _ => Ok(Self::default()),
-        }
+        let backend = match std::env::var("HALO_BACKEND") {
+            Ok(raw) if !raw.is_empty() => Backend::parse_env(&raw)?,
+            _ => Backend::default(),
+        };
+        let sampler_mode = sampler_mode_from_env()?;
+        Ok(Self {
+            backend,
+            sampler_mode,
+        })
     }
 }
 
@@ -211,6 +225,17 @@ pub struct Router {
     /// *detected* hardware); `backend` is what the operator asked for via
     /// `HALO_BACKEND` / [`RouterConfig`].
     backend: Backend,
+    /// Sampler dispatch path — inline (on the same blocking task as
+    /// forward_token, today's default) or parallel (offloaded to the
+    /// CPU lane's rayon pool). See [`SamplerMode`] + the CPU-Lane-Plan
+    /// wiki page.
+    sampler_mode: SamplerMode,
+    /// CPU lane. Always constructed — the pool is cheap — but only
+    /// dispatched through when `sampler_mode == SamplerMode::Parallel`.
+    /// Held behind an `Arc` so `generate_blocking` can clone a handle
+    /// into the spawn_blocking closure without taking a reference to
+    /// `self`.
+    cpu_lane: Arc<CpuLane>,
 }
 
 struct Inner {
@@ -273,10 +298,20 @@ impl Router {
         match kind {
             BackendKind::Hip => {
                 let backend = HipBackend::new(h1b_path, htok_path, model_id.clone(), max_context)?;
+                // Build the CPU lane once and keep it on the router so
+                // `HALO_SAMPLER=parallel` doesn't race to construct a
+                // pool per request. Constructing with the default
+                // policy honours `HALO_CPU_THREADS` automatically.
+                let cpu_lane = Arc::new(
+                    CpuLane::new()
+                        .map_err(|e| BackendError::Other(format!("cpu lane init: {e}")))?,
+                );
                 tracing::info!(
                     model_id,
                     hw = %kind.label(),
                     requested = cfg.backend.label(),
+                    sampler = cfg.sampler_mode.label(),
+                    cpu_lane_threads = cpu_lane.num_threads(),
                     label = backend.label(),
                     "router ready"
                 );
@@ -285,6 +320,8 @@ impl Router {
                     model_id,
                     kind,
                     backend: cfg.backend,
+                    sampler_mode: cfg.sampler_mode,
+                    cpu_lane,
                 })
             }
             BackendKind::Mlx => {
@@ -329,9 +366,11 @@ impl Router {
     pub async fn generate(&self, req: RouterRequest) -> Result<RouterResponse, BackendError> {
         let inner = self.inner.clone();
         let backend = self.backend;
+        let sampler_mode = self.sampler_mode;
+        let cpu_lane = self.cpu_lane.clone();
         tokio::task::spawn_blocking(move || {
             let mut guard = inner.blocking_lock();
-            generate_blocking(&mut guard, req, None, backend)
+            generate_blocking(&mut guard, req, None, backend, sampler_mode, &cpu_lane)
         })
         .await
         .map_err(|e| BackendError::Other(format!("blocking task join: {e}")))?
@@ -351,6 +390,8 @@ impl Router {
     > {
         let inner = self.inner.clone();
         let backend = self.backend;
+        let sampler_mode = self.sampler_mode;
+        let cpu_lane = self.cpu_lane.clone();
         let (tx, rx) = tokio::sync::mpsc::channel::<Result<String, BackendError>>(64);
         tokio::task::spawn_blocking(move || {
             let mut guard = inner.blocking_lock();
@@ -359,11 +400,23 @@ impl Router {
                 // If the client hung up we cannot do anything useful; drop.
                 let _ = tx_clone.blocking_send(Ok(delta));
             };
-            if let Err(e) = generate_blocking(&mut guard, req, Some(Box::new(sink)), backend) {
+            if let Err(e) = generate_blocking(
+                &mut guard,
+                req,
+                Some(Box::new(sink)),
+                backend,
+                sampler_mode,
+                &cpu_lane,
+            ) {
                 let _ = tx.blocking_send(Err(e));
             }
         });
         Ok(tokio_stream::wrappers::ReceiverStream::new(rx))
+    }
+
+    /// Which sampler path the router is using (process-level dial).
+    pub fn sampler_mode(&self) -> SamplerMode {
+        self.sampler_mode
     }
 
     /// Reset any per-conversation state on the backend (KV cache pointer).
@@ -541,6 +594,8 @@ fn generate_blocking(
     req: RouterRequest,
     mut on_delta: Option<Box<dyn FnMut(String) + Send>>,
     backend: Backend,
+    sampler_mode: SamplerMode,
+    cpu_lane: &CpuLane,
 ) -> Result<RouterResponse, BackendError> {
     // ---- Tokenize prompt ----
     let prompt_ids: Vec<TokenId> = inner.backend.tokenize(&req.prompt);
@@ -568,11 +623,7 @@ fn generate_blocking(
     // that invariant — when the GGUF Q4 loader lands and HipBackend
     // grows a `model_format` accessor, this call site should consult it
     // instead.
-    prefill_routing_decision_with_model(
-        backend,
-        prompt_ids.len(),
-        /* is_ternary */ true,
-    )?;
+    prefill_routing_decision_with_model(backend, prompt_ids.len(), /* is_ternary */ true)?;
 
     let prompt_tokens = prompt_ids.len() as u32;
     let max_new = req.max_new_tokens.max(1) as usize;
@@ -614,9 +665,20 @@ fn generate_blocking(
         let pos = inner.pos + step as i32;
         let argmax_next = inner.backend.forward_token(cur, pos, &mut logits_scratch)?;
 
-        // Optional host-side sampling path.
+        // Optional host-side sampling path. `SamplerMode::Inline`
+        // takes the direct call (today's default). `SamplerMode::Parallel`
+        // routes through the CPU lane so the sampler cycles land on a
+        // named `halo-cpu-<idx>` thread — bit-identical output, see
+        // `CpuLane::sample` for the why. Greedy (temp<=0) short-circuits
+        // to the GPU-returned argmax in both modes since there's no
+        // scalar work to do.
         let next = if req.sampler.temperature > 0.0 {
-            sampler.sample(&mut logits_scratch, &history)?
+            match sampler_mode {
+                SamplerMode::Inline => sampler.sample(&mut logits_scratch, &history)?,
+                SamplerMode::Parallel => {
+                    cpu_lane.sample(&mut sampler, &mut logits_scratch, &history)?
+                }
+            }
         } else {
             argmax_next
         };
@@ -1013,8 +1075,7 @@ mod backend_config_tests {
 
         // Ternary + Hip → always OK regardless of prompt length.
         assert!(
-            prefill_routing_decision_with_model(Backend::Hip, 4096, /* is_ternary */ true)
-                .is_ok(),
+            prefill_routing_decision_with_model(Backend::Hip, 4096, /* is_ternary */ true).is_ok(),
             "Hip + ternary must pass — we're supposed to run on the iGPU"
         );
         assert!(
@@ -1070,10 +1131,7 @@ mod backend_config_tests {
         // same env-var the module exposes for tests + ops dry-runs.
         let _g = ENV_LOCK.lock().unwrap();
         unsafe {
-            std::env::set_var(
-                xdna_flm::FLM_BINARY_ENV,
-                "/nonexistent/flm-routing-test",
-            );
+            std::env::set_var(xdna_flm::FLM_BINARY_ENV, "/nonexistent/flm-routing-test");
         }
 
         let err = prefill_routing_decision_with_model(
@@ -1091,13 +1149,9 @@ mod backend_config_tests {
                 // good — subprocess path engaged, regardless of outcome
             }
             BackendError::NpuTernaryUnsupported(msg) => {
-                panic!(
-                    "ternary gate fired on is_ternary=false — bug! msg: {msg}"
-                );
+                panic!("ternary gate fired on is_ternary=false — bug! msg: {msg}");
             }
-            other => panic!(
-                "unexpected error from non-ternary flm bridge: {other:?}"
-            ),
+            other => panic!("unexpected error from non-ternary flm bridge: {other:?}"),
         }
 
         unsafe {

@@ -7,6 +7,13 @@ A8→A4 recipe we had queued after Sherry lands.
 **Landed**: 2026-04-20 — skeleton kernel + plan only. No forward-pass
 wiring, no weight pipeline, no PPL runs yet.
 
+**Updated 2026-04-20 (PM)**: CMakeLists.txt linked, FFI exported, 1bit-hip
+safe wrapper landed, 1bit-router `bitnet-v2` feature flag + hook landed.
+See §10 for the wiring map. Still missing: **rotated checkpoint** — no
+shipping `.h1b` carries `H1B_FLAG_HADAMARD_ROTATED` yet, so the hook is
+dormant on every production box today. PPL delta measurement waits on
+the offline requantizer (plan §4, item 5).
+
 ---
 
 ## 1. Algorithm summary
@@ -259,3 +266,96 @@ only, not production-facing).
 | tile | launches | us/launch | us/block | GB/s | bit-exact vs ref |
 |------|----------|-----------|----------|------|-------------------|
 | 2048 × 2560 | 40960 blocks | __ | __ | __ | __ |
+
+## 10. Wiring map (2026-04-20)
+
+CMakeLists + FFI + router hook all landed. Dispatch is dormant by default;
+flipping it on is a per-build feature flag PLUS a per-model header bit.
+
+### Build / link
+
+- **`rocm-cpp/CMakeLists.txt`** — `kernels/hadamard_rotate_butterfly.hip`
+  is in `rocm_cpp SHARED` sources and the `set_source_files_properties …
+  PROPERTIES LANGUAGE HIP` block. Build `librocm_cpp.so` via the usual
+  `cmake --build build`.
+- **`rocm-cpp/include/rocm_cpp/ck_gemm.h`** — exports
+  `void rcpp_hadamard_rotate_fp16_butterfly_launch(const void* x_in,
+  void* y_out, int K, void* stream)`. Signature takes `K` (total fp16
+  element count = n_blocks × 128); device kernel has block size hard-
+  coded via constexpr `HADAMARD_BLOCK = 128`.
+
+### FFI (1bit-hip)
+
+- **Hand-rolled**, not bindgen (matches every other `rcpp_*` symbol in
+  `crates/1bit-hip/src/ffi.rs`). New raw decl + stub-branch shim for
+  CI hosts without ROCm.
+- Safe wrappers in `crates/1bit-hip/src/lib.rs`:
+  - `hadamard_rotate_fp16_device(x, y, k, stream) -> RcppStatus` —
+    device-pointer entry point matching the rest of the crate API.
+  - `hadamard_rotate_fp16(in_bits, out_bits, block_size) -> Result<()>` —
+    host-slice convenience wrapper (allocates scratch, H2D+D2H). Only
+    for tests / offline tooling; not the hot path.
+  - `HADAMARD_BLOCK: usize = 128` public constant.
+- Divisibility + length preconditions enforced Rust-side before dispatch.
+
+### Feature gate (1bit-router)
+
+- New Cargo feature `bitnet-v2` in `crates/1bit-router/Cargo.toml`. Off
+  by default. Does NOT depend on the `hip` feature (the code path is
+  compiled even for stub-mode builds so tests cover both branches).
+- **Model metadata**: `H1B_FLAG_HADAMARD_ROTATED = 0x1` lives in bit 0
+  of `H1bConfig::reserved` (= `cfg[8]` on disk). No format version bump;
+  existing loaders still parse the file.
+  - Accessor: `H1bConfig::is_hadamard_rotated()` in `1bit-core`.
+- **Decision matrix** (`HipBackend::resolve_hadamard_gate`):
+
+  | feature | model flag | behaviour                |
+  |---------|------------|--------------------------|
+  | OFF     | *any*      | never rotate (status quo)|
+  | ON      | OFF        | pass-through, warn-once  |
+  | ON      | ON         | dispatch at every site   |
+
+- **Hook sites** (4 per layer — 112 launches / token at 28 layers):
+  1. input_norm → Q/K/V pre-quant
+  2. attn_sub_norm → O pre-quant
+  3. post_attn_norm → gate/up pre-quant
+  4. ffn_sub_norm → down pre-quant (on `silu_out`, not `normed`)
+
+  Rotation is **in place** on the respective scratch buffer; the device
+  kernel completes each lane's load before the store so `x == y`
+  aliasing is safe.
+
+- **Test-only counter**: `HipBackend::hadamard_dispatch_count()` is
+  compiled under `cfg(any(test, feature = "bitnet-v2"))` so shipping
+  builds without the feature pay nothing for it. Integration test
+  `tests/smoke_hip.rs::hadamard_hook_fires_four_times_per_layer`
+  asserts it divides evenly by 4 per `forward_token`.
+
+### Tests added
+
+- `1bit-core::h1b::tests::is_hadamard_rotated_reads_reserved_bit0` —
+  pure flag accessor + foreign-bit isolation.
+- `1bit-hip::tests::hadamard_rotate_fp16_preconditions` — GPU-free
+  precondition checks on the safe wrapper.
+- `1bit-hip::tests::hadamard_rotate_inverse_identity` (`#[ignore]`) —
+  `H · H · x / B = x` round-trip within fp16 ε on 1 KiB of random input.
+- `1bit-router::bitnet_v2_hadamard_tests::gate_*` — three tests, one
+  per decision-matrix row, `#[cfg]`-gated so we cover both feature-on
+  and feature-off builds.
+- `1bit-router::tests::hadamard_hook_fires_four_times_per_layer`
+  (`#[ignore]`, needs rotated `.h1b`) — live counter check.
+
+### Still TODO
+
+1. **Offline requantizer** (`1bit-core` tooling path). `W' = W @ H^T`,
+   write new `.h1b` with bit 0 of `reserved` set. Paper §3.2 says
+   per-token int4 scale post-Hadamard — confirm before committing to
+   per-token in the packer.
+2. **Fused int4-quant kernel** — `kernels/hadamard_rotate_fused_quant.hip`
+   (plan §4 item 3). Replaces two launches per site with one.
+3. **PPL delta measurement** — blocked on #1. Gate is
+   `benchmarks/ppl-gen2.sh` ≤ 9.30 on wikitext-103 (paper: +0.05-0.08
+   PPL, our budget +0.12). **Actual PPL delta TBD until we have a
+   rotated checkpoint to load.**
+4. **Kernel perf numbers** — fill in §9's "Measured numbers" table
+   after a manual `rocprof` run on a live decode.

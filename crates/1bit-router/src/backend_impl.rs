@@ -25,11 +25,11 @@ use std::io::Read as _;
 use std::path::Path;
 
 use half::f16;
-use onebit_hip as hip;
-use onebit_hip::{DeviceBuffer, DeviceMutPtr, DevicePtr, HipStream, RcppError};
 use onebit_core::gguf::{GGUF_MAGIC, GgufFile};
 use onebit_core::h1b::{H1B_MAGIC, H1bConfig, H1bFile, H1bLayerOffsets, H1bWeightFormat, Span};
 use onebit_core::htok::HtokFile;
+use onebit_hip as hip;
+use onebit_hip::{DeviceBuffer, DeviceMutPtr, DevicePtr, HipStream, RcppError};
 
 use crate::tokenizer::ByteLevelBpe;
 
@@ -282,6 +282,23 @@ pub struct HipBackend {
     max_context: usize,
     model_id: String,
     hip_label: String,
+    /// BitNet v2 online-Hadamard dispatch state. `true` iff the crate was
+    /// built with the `bitnet-v2` feature **and** the loaded `.h1b` has
+    /// `H1B_FLAG_HADAMARD_ROTATED` set on its `reserved` cfg slot. Only
+    /// when both are true does [`HipBackend::forward_token`] dispatch
+    /// `hadamard_rotate_fp16_device` at each pre-GEMV quant site.
+    ///
+    /// Plumbed through `new()` once so the hot path is a single
+    /// branch-prediction-friendly field load rather than re-reading the
+    /// cfg every layer. See
+    /// `/home/bcloud/repos/halo-workspace/docs/wiki/BitNet-v2-Hadamard-Plan.md`
+    /// for the feature-gate matrix.
+    hadamard_active: bool,
+    /// Debug counter: how many Hadamard rotations the forward pass has
+    /// dispatched since `new()`. Only incremented in test builds; the
+    /// release hot path doesn't pay for the atomic.
+    #[cfg(any(test, feature = "bitnet-v2"))]
+    hadamard_dispatch_count: std::sync::atomic::AtomicU64,
 }
 
 impl HipBackend {
@@ -421,6 +438,17 @@ impl HipBackend {
             "1bit-router HIP backend ready"
         );
 
+        // --- BitNet v2 H-BitLinear feature gate resolution ---------------------
+        // The live dispatch matrix (see docs/wiki/BitNet-v2-Hadamard-Plan.md §6):
+        //   feature OFF              → never rotate (status quo).
+        //   feature ON  + flag ON    → rotate at every pre-GEMV quant site.
+        //   feature ON  + flag OFF   → pass-through, warn-once. Prevents a
+        //       dev-build accidentally double-quantizing a stock model whose
+        //       weights were not trained under Hadamard (correctness bug:
+        //       rotating activations on W-unrotated weights produces garbage
+        //       logits).
+        let hadamard_active = Self::resolve_hadamard_gate(&cfg);
+
         Ok(Self {
             cfg,
             weights,
@@ -430,7 +458,49 @@ impl HipBackend {
             max_context,
             model_id,
             hip_label,
+            hadamard_active,
+            #[cfg(any(test, feature = "bitnet-v2"))]
+            hadamard_dispatch_count: std::sync::atomic::AtomicU64::new(0),
         })
+    }
+
+    /// Centralise the bitnet-v2 feature × model-flag decision so tests can
+    /// exercise the matrix without standing up a full HipBackend.
+    fn resolve_hadamard_gate(cfg: &H1bConfig) -> bool {
+        #[cfg(feature = "bitnet-v2")]
+        {
+            if cfg.is_hadamard_rotated() {
+                tracing::info!(
+                    "bitnet-v2: online Hadamard rotation ENABLED \
+                     (feature flag + model H1B_FLAG_HADAMARD_ROTATED both set)"
+                );
+                true
+            } else {
+                tracing::warn!(
+                    "bitnet-v2 feature built in, but loaded model does NOT have \
+                     H1B_FLAG_HADAMARD_ROTATED set — passing through unrotated. \
+                     Rotate the checkpoint offline (see \
+                     docs/wiki/BitNet-v2-Hadamard-Plan.md §4) to enable."
+                );
+                false
+            }
+        }
+        #[cfg(not(feature = "bitnet-v2"))]
+        {
+            // Unused when the feature is off — silence the field-read warning.
+            let _ = cfg.is_hadamard_rotated();
+            false
+        }
+    }
+
+    /// Test-only: how many Hadamard rotations the forward pass has
+    /// dispatched since this backend was constructed. Exposed for the
+    /// `hook_fires_exactly_once_per_site_per_layer` test below; production
+    /// code should not rely on it.
+    #[cfg(any(test, feature = "bitnet-v2"))]
+    pub fn hadamard_dispatch_count(&self) -> u64 {
+        self.hadamard_dispatch_count
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Human-readable backend label for `/v1/models` and logs.
@@ -451,6 +521,70 @@ impl HipBackend {
     /// Decode a sequence of ids into raw bytes.
     pub fn detokenize(&self, ids: &[i32]) -> String {
         self.tokenizer.decode(ids)
+    }
+
+    /// BitNet v2 H-BitLinear online rotation hook. Called immediately
+    /// before each of the four per-layer activation-quant sites; no-op
+    /// when `self.hadamard_active` is false.
+    ///
+    /// Rotates `self.scratch.normed` **in place** (`x_in == y_out` is
+    /// explicitly supported by the device kernel) across the first `k`
+    /// elements. `k` is always `hs` at Q/K/V/O and `is_` at the FFN-down
+    /// site; both are multiples of 128 on BitNet-2B-4T (2560 = 20·128,
+    /// 6912 = 54·128) so the kernel's divisibility precondition is
+    /// satisfied without a runtime guard.
+    ///
+    /// The rotation is cheap (7 butterfly stages per block, no LDS on
+    /// stages 0..4) but we keep the call site behind the `hadamard_active`
+    /// gate so a `bitnet-v2` build on a non-rotated model has zero kernel
+    /// overhead, not just "correct output".
+    ///
+    /// Free-function form (rather than `&mut self`) so call sites inside
+    /// the layer loop don't collide with the `ly = &self.weights.layers[l]`
+    /// immutable borrow. Takes the two fields it actually needs by
+    /// reference — mutable only for the scratch buffer.
+    #[inline]
+    fn maybe_hadamard_rotate_normed(
+        scratch: &mut Scratch,
+        hadamard_active: bool,
+        #[cfg(any(test, feature = "bitnet-v2"))]
+        dispatch_count: &std::sync::atomic::AtomicU64,
+        k: i32,
+        stream: HipStream,
+    ) -> Result<(), BackendError> {
+        if !hadamard_active {
+            return Ok(());
+        }
+        // In-place rotation: src == dst. Device kernel completes each
+        // lane's load before issuing the store, so aliasing is safe.
+        let ptr = scratch.normed.as_device_mut_ptr();
+        let src = DevicePtr(ptr.0 as *const u16);
+        ok(hip::hadamard_rotate_fp16_device(src, ptr, k, stream))?;
+        #[cfg(any(test, feature = "bitnet-v2"))]
+        dispatch_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// Variant of [`Self::maybe_hadamard_rotate_normed`] targeting the
+    /// `silu_out` scratch (the FFN-down pre-quant site). Same contract.
+    #[inline]
+    fn maybe_hadamard_rotate_silu(
+        scratch: &mut Scratch,
+        hadamard_active: bool,
+        #[cfg(any(test, feature = "bitnet-v2"))]
+        dispatch_count: &std::sync::atomic::AtomicU64,
+        k: i32,
+        stream: HipStream,
+    ) -> Result<(), BackendError> {
+        if !hadamard_active {
+            return Ok(());
+        }
+        let ptr = scratch.silu_out.as_device_mut_ptr();
+        let src = DevicePtr(ptr.0 as *const u16);
+        ok(hip::hadamard_rotate_fp16_device(src, ptr, k, stream))?;
+        #[cfg(any(test, feature = "bitnet-v2"))]
+        dispatch_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
     }
 
     /// Run one forward token and return (next_token_id, full logits copy).
@@ -527,6 +661,17 @@ impl HipBackend {
                 hs,
                 stream,
             ))?;
+            // Site #1: Hadamard rotation of the residual stream before
+            // Q/K/V pre-quantization. See plan doc §3 — this is the
+            // highest-outlier site (RMSNorm output feeds three projections).
+            Self::maybe_hadamard_rotate_normed(
+                &mut self.scratch,
+                self.hadamard_active,
+                #[cfg(any(test, feature = "bitnet-v2"))]
+                &self.hadamard_dispatch_count,
+                hs,
+                stream,
+            )?;
             ok(hip::quantize_fp16_to_i8(
                 self.scratch.normed.as_device_ptr(),
                 self.scratch.x_i8.as_device_mut_ptr(),
@@ -637,6 +782,15 @@ impl HipBackend {
                 hs,
                 stream,
             ))?;
+            // Site #2: Hadamard rotation before O projection's pre-quant.
+            Self::maybe_hadamard_rotate_normed(
+                &mut self.scratch,
+                self.hadamard_active,
+                #[cfg(any(test, feature = "bitnet-v2"))]
+                &self.hadamard_dispatch_count,
+                hs,
+                stream,
+            )?;
             ok(hip::quantize_fp16_to_i8(
                 self.scratch.normed.as_device_ptr(),
                 self.scratch.x_i8.as_device_mut_ptr(),
@@ -671,6 +825,15 @@ impl HipBackend {
                 hs,
                 stream,
             ))?;
+            // Site #3: Hadamard rotation before gate+up pre-quant.
+            Self::maybe_hadamard_rotate_normed(
+                &mut self.scratch,
+                self.hadamard_active,
+                #[cfg(any(test, feature = "bitnet-v2"))]
+                &self.hadamard_dispatch_count,
+                hs,
+                stream,
+            )?;
             ok(hip::quantize_fp16_to_i8(
                 self.scratch.normed.as_device_ptr(),
                 self.scratch.x_i8.as_device_mut_ptr(),
@@ -711,6 +874,17 @@ impl HipBackend {
                 is_,
                 stream,
             ))?;
+            // Site #4: Hadamard rotation before FFN-down pre-quant.
+            // Targets silu_out (size `is_ = intermediate_size`, 6912 = 54·128
+            // on 2B-4T so divisibility by 128 holds).
+            Self::maybe_hadamard_rotate_silu(
+                &mut self.scratch,
+                self.hadamard_active,
+                #[cfg(any(test, feature = "bitnet-v2"))]
+                &self.hadamard_dispatch_count,
+                is_,
+                stream,
+            )?;
             ok(hip::quantize_fp16_to_i8(
                 self.scratch.silu_out.as_device_ptr(),
                 self.scratch.silu_i8.as_device_mut_ptr(),
@@ -1274,5 +1448,97 @@ mod format_sniff_tests {
         // We deliberately don't call `load_gguf_into_hip` — today it would
         // `unimplemented!` on the first tensor directory walk. The
         // assertion above is the whole point: dispatch fired.
+    }
+}
+
+#[cfg(test)]
+mod bitnet_v2_hadamard_tests {
+    //! GPU-free tests for the BitNet v2 online-Hadamard feature gate.
+    //!
+    //! The live kernel dispatch requires a GPU + a real checkpoint, so it
+    //! ships as an `#[ignore]` integration test (see
+    //! `tests/smoke_hip.rs`). The policy matrix — feature flag ×
+    //! `H1B_FLAG_HADAMARD_ROTATED` bit — is covered here because it's
+    //! pure Rust and directly guards whether the hot path dispatches the
+    //! rotation at all.
+    //!
+    //! Three cases, matching the plan doc §6:
+    //!   * feature OFF                 → never rotate (byte-identical to
+    //!                                    today's forward pass).
+    //!   * feature ON  + model flag ON → rotate at every site.
+    //!   * feature ON  + model flag OFF→ pass-through, warn-once.
+    //!
+    //! All three exercise `HipBackend::resolve_hadamard_gate` (the single
+    //! source of truth the constructor consults), so they match the
+    //! behaviour of the live forward pass one-for-one.
+    use super::*;
+    use onebit_core::H1B_FLAG_HADAMARD_ROTATED;
+    use onebit_core::types::{DEFAULT_RMS_NORM_EPS, DEFAULT_ROPE_THETA};
+
+    fn cfg_with_reserved(reserved: i32) -> H1bConfig {
+        H1bConfig {
+            version: 2,
+            hidden_size: 2560,
+            intermediate_size: 6912,
+            num_layers: 28,
+            num_heads: 20,
+            num_kv_heads: 5,
+            vocab_size: 128_256,
+            max_seq_len: 4096,
+            tie_embeddings: 1,
+            reserved,
+            rope_theta: DEFAULT_ROPE_THETA,
+            rms_norm_eps: DEFAULT_RMS_NORM_EPS,
+        }
+    }
+
+    /// Feature flag off → gate always resolves to false regardless of
+    /// model flag. This is the default-build behaviour every CI host
+    /// observes.
+    #[test]
+    #[cfg(not(feature = "bitnet-v2"))]
+    fn gate_is_always_off_when_feature_disabled() {
+        let not_rotated = cfg_with_reserved(0);
+        let rotated = cfg_with_reserved(H1B_FLAG_HADAMARD_ROTATED);
+        assert!(
+            !HipBackend::resolve_hadamard_gate(&not_rotated),
+            "feature off + flag off → off (expected default)"
+        );
+        assert!(
+            !HipBackend::resolve_hadamard_gate(&rotated),
+            "feature off + flag ON → STILL off (feature gate is the outer switch)"
+        );
+    }
+
+    /// Feature on + model flag on → gate resolves to true. Decode will
+    /// dispatch `hadamard_rotate_fp16_device` at every pre-GEMV site.
+    #[test]
+    #[cfg(feature = "bitnet-v2")]
+    fn gate_fires_when_feature_on_and_model_flagged() {
+        let rotated = cfg_with_reserved(H1B_FLAG_HADAMARD_ROTATED);
+        assert!(
+            HipBackend::resolve_hadamard_gate(&rotated),
+            "feature on + flag ON → must enable the rotation hook"
+        );
+    }
+
+    /// Feature on + model flag off → gate resolves to false (pass-through
+    /// + warn-once). Dev-build safety against double-quantizing a stock
+    /// model.
+    #[test]
+    #[cfg(feature = "bitnet-v2")]
+    fn gate_is_passthrough_when_feature_on_but_model_not_flagged() {
+        let not_rotated = cfg_with_reserved(0);
+        assert!(
+            !HipBackend::resolve_hadamard_gate(&not_rotated),
+            "feature on + flag off → must NOT rotate (model wasn't trained for it)"
+        );
+        // Bit-0 is the only bit the accessor reads — other reserved bits
+        // don't accidentally flip the gate either.
+        let unrelated = cfg_with_reserved(0x1000_0000);
+        assert!(
+            !HipBackend::resolve_hadamard_gate(&unrelated),
+            "unrelated reserved bits must not enable the hook"
+        );
     }
 }

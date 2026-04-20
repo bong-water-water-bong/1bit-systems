@@ -41,7 +41,9 @@ pub use gguf::{
     BitnetHeader, GGUF_MAGIC, GGUF_MIN_VERSION, GgufArray, GgufFile, GgufTensorInfo,
     GgufTensorType, GgufValue, GgufValueType,
 };
-pub use h1b::{H1B_MAGIC, H1bConfig, H1bFile, H1bLayerOffsets, H1bWeightFormat};
+pub use h1b::{
+    H1B_FLAG_HADAMARD_ROTATED, H1B_MAGIC, H1bConfig, H1bFile, H1bLayerOffsets, H1bWeightFormat,
+};
 pub use htok::{HTOK_MAGIC, HtokFile, Merge};
 pub use sampler::{Sampler, SamplerConfig};
 pub use types::{MAX_SUPPORTED_VERSION, MIN_SUPPORTED_VERSION, TokenId};

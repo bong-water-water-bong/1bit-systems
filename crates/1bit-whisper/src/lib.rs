@@ -93,9 +93,7 @@ impl fmt::Display for WhisperError {
             Self::ShimError { op, code } => {
                 write!(f, "shim call {op} failed with code {code}")
             }
-            Self::InvalidPath => {
-                f.write_str("model path contained an interior NUL byte")
-            }
+            Self::InvalidPath => f.write_str("model path contained an interior NUL byte"),
             Self::Utf8(e) => write!(f, "shim returned non-UTF-8 text: {e}"),
         }
     }
@@ -132,19 +130,17 @@ impl WhisperEngine {
         #[cfg(feature = "real-whisper")]
         {
             let eng = real::RealEngine::new(model)?;
-            return Ok(Self {
+            Ok(Self {
                 inner: EngineImpl::Real(eng),
-            });
+            })
         }
         #[cfg(all(feature = "stub", not(feature = "real-whisper")))]
         {
             let eng = stub::StubEngine::new(model)?;
-            return Ok(Self {
+            Ok(Self {
                 inner: EngineImpl::Stub(eng),
-            });
+            })
         }
-        // If the user somehow disabled both features, fall through with a
-        // clear error rather than a compile failure.
         #[cfg(not(any(feature = "stub", feature = "real-whisper")))]
         {
             let _ = model;
@@ -231,4 +227,3 @@ mod tests {
         assert!(s.contains("-1"));
     }
 }
-

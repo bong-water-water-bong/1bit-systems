@@ -9,7 +9,9 @@ fn script_path() -> PathBuf {
         .map(Into::into)
         .unwrap_or_else(|| {
             let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-            PathBuf::from(format!("{home}/1bit systems-core/benchmarks/shadow-burnin.sh"))
+            PathBuf::from(format!(
+                "{home}/1bit systems-core/benchmarks/shadow-burnin.sh"
+            ))
         })
 }
 

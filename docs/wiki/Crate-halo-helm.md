@@ -1,5 +1,5 @@
 ---
-phase: solutioning
+phase: implementation
 owner: cartograph
 renamed_from: halo-gaia
 rename_date: 2026-04-20
@@ -51,29 +51,34 @@ HALO_HELM_TOKEN  # optional bearer
 ### Public API (crate)
 
 ```rust
-pub struct HelmApp { /* ...config, panes, transport... */ }
+pub struct HelmApp { /* ...config, panes, transport, runtime handle... */ }
 impl HelmApp {
-    pub fn new(cfg: SessionConfig) -> Self;                       // runtime-free; test-safe
+    pub fn new(cfg: SessionConfig) -> Self;                                    // runtime-free; test-safe
     pub fn from_cc(cc: &eframe::CreationContext, cfg: SessionConfig) -> Self;
-    pub fn refresh_skills(&mut self);                             // reads ~/.halo/skills
-    pub fn refresh_memory(&mut self);                             // reads ~/.halo/memories
+    pub fn attach_runtime(&mut self, handle: tokio::runtime::Handle,
+                          http: reqwest::Client);                              // called once from main
+    pub fn refresh_skills(&mut self);                                          // reads ~/.halo/skills
+    pub fn refresh_memory(&mut self);                                          // reads ~/.halo/memories
+    pub fn refresh_models(&mut self);                                          // spawns GET /v1/models
+    pub fn send_chat(&mut self);                                               // spawns SSE POST
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone, Eq, PartialEq)]
-pub enum Pane { Status, Chat, Skills, Memory, Models }
+pub enum Pane { Status, Chat, Skills, Memory, Models, Settings }
 ```
 
 `HelmApp` implements `eframe::App`. Panes:
 
-| Pane    | Source of truth                                  | Write path         |
-| ------- | ------------------------------------------------ | ------------------ |
-| Status  | `GET /_health` + `/v1/models` + probe metrics    | read-only          |
-| Chat    | `POST /v1/chat/completions`, `stream: true`      | HelmClient stream  |
-| Skills  | `onebit_agents::SkillStore::list`                  | read-only for now  |
-| Memory  | `onebit_agents::MemoryStore::list(Memory \| User)` | read-only for now  |
-| Models  | `GET /v1/models`                                 | read-only          |
+| Pane     | Source of truth                                                 | Write path                            |
+| -------- | --------------------------------------------------------------- | ------------------------------------- |
+| Status   | SSE subscription to `http://127.0.0.1:8190/_live/stats`         | read-only                             |
+| Chat     | `POST /v1/chat/completions` (gateway :8200), `stream: true`     | stream worker → `UiMsg::ChatDelta`    |
+| Skills   | `onebit_agents::SkillStore::list` + body on row-click            | `$EDITOR` spawn on "Edit"             |
+| Memory   | `onebit_agents::MemoryStore::list(Memory \| User)`               | inline "Add" → `store.add(kind, ...)` |
+| Models   | `GET /v1/models` (gateway :8200)                                | Load button → toast (model-swap TBD)  |
+| Settings | `keyring::Entry` / XDG file via `Bearer`                        | Save/Reset bearer                     |
 
-Top bar: 5-button pane switcher. Left side panel: the same 5 panes as a radio list, plus a small config summary (default model). Bottom panel: status strip with reachability + tok/s OR last error in red.
+Top bar: 6-button pane switcher. Left side panel: the same 6 panes as a radio list, plus a small config summary (default model + landing URL). Bottom strip: live dot + brand + loaded model + tok/s + GPU temp/util, or an error/toast row.
 
 ### Persistence
 
@@ -81,26 +86,47 @@ eframe's `persistence` feature stores state in the platform config dir (`~/.conf
 
 ## Test matrix
 
-| Invariant                                            | Test                                             |
-| ---------------------------------------------------- | ------------------------------------------------ |
-| App constructs without window / tokio / FS access    | `app::tests::new_constructs_without_panic_...`   |
-| Status-first default (invariant 5 keyboard-trip)     | `app::tests::default_pane_is_status`             |
-| Pane-switcher coverage (tripwire on new variants)    | `app::tests::pane_all_covers_five_panes...`      |
-| Stable pane labels (top-bar text contract)           | `app::tests::pane_labels_are_stable_strings`     |
-| Persistence round-trip (serde stays wired)           | `app::tests::pane_round_trips_through_serde`     |
+| Invariant                                               | Test                                                          |
+| ------------------------------------------------------- | ------------------------------------------------------------- |
+| App constructs without window / tokio / FS access       | `app::tests::new_constructs_without_panic_...`                |
+| Status-first default (invariant 5 keyboard-trip)        | `app::tests::default_pane_is_status`                          |
+| Pane-switcher coverage (tripwire on new variants)       | `app::tests::pane_all_covers_six_panes...`                    |
+| Stable pane labels (top-bar text contract)              | `app::tests::pane_labels_are_stable_strings`                  |
+| Persistence round-trip (serde stays wired)              | `app::tests::pane_round_trips_through_serde`                  |
+| Skills reads from tempdir-seeded root                   | `app::tests::refresh_skills_picks_up_tempdir_seed`            |
+| Memory reads from tempdir-seeded root                   | `app::tests::refresh_memory_reads_tempdir_seed`               |
+| Chat `stream: true` body shape                          | `app::tests::build_chat_body_sets_stream_true_and_includes_turns` |
+| SSE delta → assistant-turn state machine                | `app::tests::apply_ui_msg_chat_delta_then_done_lands_assistant_turn` |
+| Telemetry disconnect flips `live_connected` flag        | `app::tests::apply_ui_msg_telemetry_disconnected_flips_state` |
+| Conversation log roundtrip (write + read)               | `app::tests::conversation_log_flushes_on_save_path` + `conv_log::tests::roundtrip_write_then_read_preserves_turns` |
+| Keyring fallback writes 0600 + reloads                  | `bearer::tests::file_fallback_roundtrip_creates_0600_and_reloads` |
+| Bearer clear nukes on-disk copy                         | `bearer::tests::clear_removes_on_disk_copy`                   |
+| Models pane parses OpenAI `/v1/models` shape            | `models::tests::parses_standard_openai_shape`                 |
+| Landing SSE parse (full + minimal + garbage)            | `telemetry::tests::parse_stats_full_shape` + `..._tolerates_missing_fields` + `..._rejects_garbage` |
 
 Transport modules (`client`, `conversation`, `session`, `stream`) keep their pre-rename test coverage.
 
-## Phase: solutioning
+## Phase: implementation
 
-Promoted from `analysis` on 2026-04-20 alongside the rename. The interface sketch above and the first real `HelmApp` + `Pane` types in `crates/1bit-helm/src/app.rs` give magistrate + cartograph something concrete to review.
+Promoted from `solutioning` on 2026-04-20 when all five panes went live against real transports. The scaffolded "not wired yet" placeholders are gone; everything renders from real SSE / REST / filesystem sources.
 
-Remaining open questions for the jump to `implementation`:
+Closed since the solutioning cut:
 
-- Async plumbing for network panes. Today `refresh_models` / chat streaming are marked `not wired yet`. Path of least resistance: a `tokio` runtime handle stashed on `HelmApp`, a `mpsc::UnboundedReceiver<PaneMsg>` drained each frame. Keep the runtime out of `HelmApp::new` so tests stay runtime-free.
-- Keyring backend selection per-OS. libsecret on Linux; keychain on macOS.
-- Does it own its own 1bit-server lifecycle (start/stop via systemd --user) or just observe?
-- egui theming: go with `egui::Visuals::dark` default or read the system prefers-colour-scheme hint?
+- [x] **Async plumbing for network panes.** A multi-thread tokio runtime is spun up on the side in `main`; `HelmApp::attach_runtime(handle, http)` hands the app a `Handle` + shared `reqwest::Client`, and workers post back via `mpsc::UnboundedSender<UiMsg>`. `HelmApp::new` stays runtime-free — tests construct it without touching tokio (see `app::tests::new_constructs_without_panic_and_defaults_are_sane`).
+- [x] **Keyring backend selection.** `keyring` 3.x on `sync-secret-service` + `crypto-rust` features. Linux gets `dbus-secret-service` (pure Rust, no libsecret C dep). File fallback: `~/.config/1bit-helm/bearer.txt` chmod 0600. Backend on the current session is surfaced in the Settings pane via `Bearer::backend()`.
+- [x] **Status-pane live probe.** Subscribes to `http://127.0.0.1:8190/_live/stats` (1bit-landing SSE). Long-lived connection with exp-backoff reconnect (500 ms → 5 s cap). Cadence matches the server's 1.5 s SSE_INTERVAL.
+- [x] **Chat pane streaming.** `POST /v1/chat/completions` with `stream: true`, reuses the hand-rolled `parse_sse_line` parser from `stream.rs`. Token-by-token append to the streaming bubble; `stick_to_bottom(true)` ScrollArea.
+- [x] **Skills + Memory pane reads.** Direct calls to `onebit_agents::SkillStore::list` + `onebit_agents::MemoryStore::list(MemoryKind)`. Both accept `..._root_override: Option<PathBuf>` so tests seed a tempdir.
+- [x] **Conversation log on close.** Flushed from `eframe::App::save` into `~/.halo/helm/conversations/<ts>.jsonl` (roundtrip tested).
+- [x] **Desktop entry + icon.** `crates/1bit-helm/assets/1bit-helm.desktop` + `crates/1bit-helm/assets/icon.svg` (copy of the `1b` cyan monogram from `1bit-site/assets/logo.svg`).
+- [x] **Brand surfacing.** Top bar shows "1bit-helm — 1bit monster"; bottom strip and Settings → About show `1bit monster` and `1bit.systems`.
+
+Remaining for `verified` (needs user manual-run screenshot):
+
+- [ ] Manual run on strixhalo: screenshot of Status pane with live telemetry + Chat pane streaming a real reply + Models pane populated from the gateway.
+- [ ] Model-swap API. Today the "Load" button in the Models pane emits a toast ("halo-server loads models at startup today; model-swap API TBD"). Future hook: a `/v1/models/load` endpoint on lemonade.
+- [ ] egui theming. Shipped with egui's default `Visuals::dark`. A future polish pass can read the system prefers-colour-scheme hint.
+- [ ] 1bit-server lifecycle (observe-only today; the `systemctl --user start/stop` actions live in `halo` CLI — helm does not shell out).
 
 ## Runtime system deps
 

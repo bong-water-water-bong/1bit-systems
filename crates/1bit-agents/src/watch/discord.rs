@@ -112,8 +112,22 @@ pub fn classify(text: &str) -> Classification {
         return Classification::Question;
     }
     const Q_LEAD: &[&str] = &[
-        "how ", "how's", "what ", "what's", "why ", "why's", "when ", "where ", "who ", "which ",
-        "can i", "can you", "could you", "should i", "is there", "are there",
+        "how ",
+        "how's",
+        "what ",
+        "what's",
+        "why ",
+        "why's",
+        "when ",
+        "where ",
+        "who ",
+        "which ",
+        "can i",
+        "can you",
+        "could you",
+        "should i",
+        "is there",
+        "are there",
     ];
     let head = lower.trim_start();
     if Q_LEAD.iter().any(|k| head.starts_with(k)) {
@@ -182,9 +196,7 @@ pub fn is_direct_mention(content: &str, bot_id: u64) -> bool {
 pub fn strip_mention(content: &str, bot_id: u64) -> String {
     let plain = format!("<@{bot_id}>");
     let nick = format!("<@!{bot_id}>");
-    let stripped = content
-        .replacen(&plain, "", 1)
-        .replacen(&nick, "", 1);
+    let stripped = content.replacen(&plain, "", 1).replacen(&nick, "", 1);
     stripped.trim().to_lowercase()
 }
 
@@ -197,7 +209,10 @@ mod tests {
     #[test]
     fn classifier_catches_handcrafted_samples() {
         // Bugs
-        assert_eq!(classify("got a panic in the decode loop"), Classification::BugReport);
+        assert_eq!(
+            classify("got a panic in the decode loop"),
+            Classification::BugReport
+        );
         assert_eq!(
             classify("traceback on startup, crash with SIGSEGV"),
             Classification::BugReport
@@ -213,12 +228,21 @@ mod tests {
             classify("would be nice to have darkmode"),
             Classification::FeatureRequest
         );
-        assert_eq!(classify("feat: add TTS sharding"), Classification::FeatureRequest);
+        assert_eq!(
+            classify("feat: add TTS sharding"),
+            Classification::FeatureRequest
+        );
 
         // Questions
         assert_eq!(classify("how do I build this?"), Classification::Question);
-        assert_eq!(classify("what is the current tok/s"), Classification::Question);
-        assert_eq!(classify("are there release notes"), Classification::Question);
+        assert_eq!(
+            classify("what is the current tok/s"),
+            Classification::Question
+        );
+        assert_eq!(
+            classify("are there release notes"),
+            Classification::Question
+        );
 
         // Chat fallback
         assert_eq!(classify("gm everyone"), Classification::Chat);
@@ -237,7 +261,10 @@ mod tests {
     #[test]
     fn classification_routes_to_expected_specialist() {
         assert_eq!(Classification::BugReport.specialist(), Name::Sentinel);
-        assert_eq!(Classification::FeatureRequest.specialist(), Name::Magistrate);
+        assert_eq!(
+            Classification::FeatureRequest.specialist(),
+            Name::Magistrate
+        );
         assert_eq!(Classification::Question.specialist(), Name::Herald);
         assert_eq!(Classification::Chat.specialist(), Name::Herald);
     }

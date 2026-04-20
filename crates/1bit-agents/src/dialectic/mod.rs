@@ -201,10 +201,7 @@ pub fn infer<S: DialecticStore>(
     // one lowercased query token as a substring. Identical to the old
     // scoring function's admission rule — regression-safe for the
     // five original tests.
-    let q_terms: Vec<String> = query
-        .split_whitespace()
-        .map(|t| t.to_lowercase())
-        .collect();
+    let q_terms: Vec<String> = query.split_whitespace().map(|t| t.to_lowercase()).collect();
     let candidates: Vec<Inference> = all
         .into_iter()
         .filter(|inf| {
@@ -283,19 +280,30 @@ mod tests {
         let id2 = observe(
             &store,
             "alice",
-            obs("s1", "bob", "bob dislikes verbose logging in CLI tools", 1001),
+            obs(
+                "s1",
+                "bob",
+                "bob dislikes verbose logging in CLI tools",
+                1001,
+            ),
         )
         .unwrap();
         // A keyword ("CLI") present in both claims should return both.
         let hits = infer(&store, "alice", "bob", "CLI preferences").unwrap();
         assert_eq!(hits.len(), 2, "want both claims, got {hits:?}");
         // Support vectors point at the original observation rows.
-        let supports: Vec<i64> = hits.iter().flat_map(|i| i.support_observations.clone()).collect();
+        let supports: Vec<i64> = hits
+            .iter()
+            .flat_map(|i| i.support_observations.clone())
+            .collect();
         assert!(supports.contains(&id1));
         assert!(supports.contains(&id2));
         // And an unrelated query returns nothing.
         let miss = infer(&store, "alice", "bob", "rocprof kernels").unwrap();
-        assert!(miss.is_empty(), "unrelated query should not match: {miss:?}");
+        assert!(
+            miss.is_empty(),
+            "unrelated query should not match: {miss:?}"
+        );
     }
 
     /// 3) Observations on different observed peers don't leak across:
@@ -323,7 +331,11 @@ mod tests {
         assert!(bob_model[0].claim.contains("terse"));
 
         let carol_model = store.list_inferences("alice", "carol").unwrap();
-        assert_eq!(carol_model.len(), 1, "carol's model: want 1, got {carol_model:?}");
+        assert_eq!(
+            carol_model.len(),
+            1,
+            "carol's model: want 1, got {carol_model:?}"
+        );
         assert!(carol_model[0].claim.contains("verbose"));
 
         // And queries into each stay scoped.
@@ -358,7 +370,12 @@ mod tests {
     fn empty_query_returns_all_newest_first() {
         let (_dir, store) = open_tempstore();
         observe(&store, "alice", obs("s1", "bob", "first observation", 1000)).unwrap();
-        observe(&store, "alice", obs("s1", "bob", "second observation", 2000)).unwrap();
+        observe(
+            &store,
+            "alice",
+            obs("s1", "bob", "second observation", 2000),
+        )
+        .unwrap();
         observe(&store, "alice", obs("s1", "bob", "third observation", 3000)).unwrap();
 
         let out = infer(&store, "alice", "bob", "").unwrap();
@@ -385,7 +402,12 @@ mod tests {
         observe(
             &store,
             "alice",
-            obs("s1", "bob", "bob dislikes verbose logging in CLI tools", 1001),
+            obs(
+                "s1",
+                "bob",
+                "bob dislikes verbose logging in CLI tools",
+                1001,
+            ),
         )
         .unwrap();
         observe(

@@ -906,7 +906,9 @@ mod tests {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
         let h1b = std::env::var("HALO_MODEL_H1B")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from(format!("{home}/1bit systems/models/halo-1bit-2b.h1b")));
+            .unwrap_or_else(|_| {
+                PathBuf::from(format!("{home}/1bit systems/models/halo-1bit-2b.h1b"))
+            });
         if !h1b.exists() {
             eprintln!("skipping: {} not found", h1b.display());
             return;

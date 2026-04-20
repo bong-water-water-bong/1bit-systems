@@ -1,10 +1,10 @@
-# cloudflared tunnel config for halo-ai.studio subdomains
+# cloudflared tunnel config for 1bit.systems subdomains
 #
 # BEFORE USING:
 #   1. cloudflared tunnel login                         # browser: authenticate CF account
-#   2. cloudflared tunnel create halo-ai-studio         # returns a UUID, writes ~/.cloudflared/<UUID>.json
-#   3. cloudflared tunnel route dns halo-ai-studio api.halo-ai.studio
-#   4. cloudflared tunnel route dns halo-ai-studio audio.halo-ai.studio
+#   2. cloudflared tunnel create 1bit.systems         # returns a UUID, writes ~/.cloudflared/<UUID>.json
+#   3. cloudflared tunnel route dns 1bit.systems api.1bit.systems
+#   4. cloudflared tunnel route dns 1bit.systems audio.1bit.systems
 #   5. cp ~/.cloudflared/config.yml.template ~/.cloudflared/config.yml
 #   6. sed -i "s/PLACEHOLDER_UUID/<UUID from step 2>/" ~/.cloudflared/config.yml
 #
@@ -17,9 +17,9 @@ credentials-file: /home/bcloud/.cloudflared/PLACEHOLDER_UUID.json
 # CF terminates TLS at the edge; we forward plaintext HTTP to loopback.
 ingress:
   # Primary OpenAI-compat endpoint — completions / embeddings / models.
-  # Hermes users can `hermes model` at https://api.halo-ai.studio/v1 and
+  # Hermes users can `hermes model` at https://api.1bit.systems/v1 and
   # reach our native-HIP inference.
-  - hostname: api.halo-ai.studio
+  - hostname: api.1bit.systems
     service: http://127.0.0.1:8180
     originRequest:
       connectTimeout: 30s
@@ -28,7 +28,7 @@ ingress:
   # Audio lane — halo-echo WebSocket voice server (Opus frames over ws).
   # halo-echo must be running under strix-echo.service on :8085.
   # "the-architect" audio business subdomain (2026-04-20 lock-in).
-  - hostname: audio.halo-ai.studio
+  - hostname: audio.1bit.systems
     service: http://127.0.0.1:8085
     originRequest:
       connectTimeout: 30s

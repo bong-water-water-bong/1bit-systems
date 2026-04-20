@@ -374,8 +374,7 @@ mod tests {
             .find(|l| l.starts_with("data:"))
             .unwrap_or_else(|| panic!("first SSE frame must have a data line; raw={text:?}"));
         let json_str = data_line.trim_start_matches("data:").trim();
-        let v: serde_json::Value =
-            serde_json::from_str(json_str).expect("SSE data must be JSON");
+        let v: serde_json::Value = serde_json::from_str(json_str).expect("SSE data must be JSON");
         for k in [
             "loaded_model",
             "tok_s_decode",

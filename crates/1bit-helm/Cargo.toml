@@ -11,11 +11,9 @@ description  = "1bit-helm — native Rust (egui/eframe) desktop client for 1bit-
 [lib]
 name = "onebit_helm"
 path = "src/lib.rs"
-
 [[bin]]
 name = "1bit-helm"
 path = "src/main.rs"
-
 [dependencies]
 anyhow       = { workspace = true }
 reqwest      = { workspace = true }
@@ -24,16 +22,21 @@ serde_json   = { workspace = true }
 tokio        = { workspace = true }
 futures      = { workspace = true }
 async-stream = { workspace = true }
-
+dirs         = { workspace = true }
+tracing      = { workspace = true }
 # 1bit-agents for SkillStore + MemoryStore reads (Skills / Memory panes).
 onebit-agents  = { workspace = true }
-
+# Bearer-token storage. keyring 3.x uses secret-service on Linux via zbus
+# (pure Rust — no openssl, no libsecret C dep). If secret-service is not
+# reachable at runtime (headless server, missing gnome-keyring) we fall
+# back to `~/.config/1bit-helm/bearer.txt` (chmod 0600). See
+# `bearer::Bearer`.
+keyring      = { version = "3", default-features = false, features = ["sync-secret-service", "crypto-rust"] }
 # Native GUI stack. default-features = false so we do NOT pull openssl or
 # optional accesskit/ime/wgpu extras. `glow` keeps us on an OpenGL backend
 # that ships with mesa on any Wayland/X11 distro. `persistence` gives us
 # window-size + last-open-pane save via eframe's built-in ron-backed storage.
 eframe       = { version = "0.29", default-features = false, features = ["glow", "default_fonts", "persistence"] }
 egui         = "0.29"
-
 [dev-dependencies]
 tempfile = "3"

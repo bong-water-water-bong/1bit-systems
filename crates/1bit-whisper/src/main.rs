@@ -66,11 +66,7 @@ fn main() -> ExitCode {
                 match engine.drain_partials() {
                     Ok(parts) => {
                         for p in parts {
-                            let _ = writeln!(
-                                stdout,
-                                "[{}..{}ms] {}",
-                                p.start_ms, p.end_ms, p.text
-                            );
+                            let _ = writeln!(stdout, "[{}..{}ms] {}", p.start_ms, p.end_ms, p.text);
                             let _ = stdout.flush();
                         }
                     }
