@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>halo-ai-rs wiki · halo-ai docs</title>
-  <meta name="description" content="halo-ai docs: halo-ai-rs wiki">
+  <title>AMD Manageability Tools Scan · halo-ai docs</title>
+  <meta name="description" content="halo-ai docs: AMD Manageability Tools Scan">
   <link rel="stylesheet" href="/docs/docs.css">
 </head>
-<body data-slug="home">
+<body data-slug="amd-manageability-scan">
 <nav class="doc-topbar">
   <a href="/" class="logo">halo-<span>ai</span></a>
   <a href="/docs/">docs</a>
@@ -57,38 +57,38 @@
 </nav>
 
 <main class="doc-main">
-  <h1>halo-ai-rs wiki</h1>
-  <p>Plain-English explanations of the architectural calls we made — one page per decision, citations where they exist.</p>
-<h2 id="decisions">Decisions</h2>
+  <h1>AMD Manageability Tools Scan</h1>
+  <p>Source: &lt;https://www.amd.com/en/support/downloads/manageability-tools.html&gt; (WebFetch timed out three times against the JS-rendered page; reconstructed from AMD sub-pages and search results — cited inline.) Date: 2026-04-20. Target: Ryzen AI MAX+ 395 (Strix Halo, gfx1151, XDNA2) on Linux.</p>
+<h2 id="verdict">Verdict</h2>
+<p>Page is <strong>enterprise-only</strong>. Nothing on it reads LPDDR5 bandwidth, Infinity Fabric utilization, per-core Zen5 telemetry, iGPU memory clock, or NPU tile occupancy on a consumer Strix Halo APU under Linux. Our existing stack (<code>amd_hsmp</code>, <code>rocm-smi</code>, <code>xrt-smi</code>, <code>ryzenadj</code> via <code>halo power</code>) already covers the gaps these tools <em>don't</em> fill.</p>
+<h2 id="catalogue">Catalogue</h2>
+<table>
+<thead><tr><th>Tool</th><th>URL</th><th>Platform</th><th>Linux</th><th>Relevant</th></tr></thead>
+<tbody>
+<tr><td>AMD Management Console (AMC)</td><td>&lt;https://www.amd.com/en/technologies/manageability-tools&gt;</td><td>Ryzen PRO desktop/mobile (DASH)</td><td>No — Windows only</td><td>No — OOB corporate remote-power/asset, not telemetry</td></tr>
+<tr><td>DASH CLI (v2.2)</td><td>&lt;https://developer.amd.com/tools-for-dmtf-dash/&gt;</td><td>Ryzen PRO (DASH client)</td><td>Yes — open-source SDK builds on Linux</td><td>No — OOB power/inventory; no perf counters</td></tr>
+<tr><td>AMD Management Plugin for SCCM (AMPS)</td><td>same</td><td>Ryzen PRO</td><td>No — Windows/SCCM</td><td>No</td></tr>
+<tr><td>EPYC System Management Software (E-SMS / E-SMI in-band + APML OOB)</td><td>&lt;https://www.amd.com/en/developer/e-sms.html&gt;, &lt;https://github.com/amd/esmi_ib_library&gt;</td><td><strong>EPYC server only</strong></td><td>Yes</td><td>No — EPYC SoC, not Strix Halo client APU</td></tr>
+<tr><td>amd\_smi\_exporter</td><td>&lt;https://github.com/amd/esmi_ib_library&gt;</td><td>EPYC + Instinct → Prometheus</td><td>Yes</td><td><strong>Partial</strong> — pattern is reusable, but the exporter itself binds to EPYC/Instinct, not client APU</td></tr>
+<tr><td>Rasdaemon (AMD EPYC MCE decoding)</td><td>linked under E-SMS</td><td>EPYC</td><td>Yes</td><td>No</td></tr>
+<tr><td>Radeon Pro / Instinct mgmt (ROCm SMI, AMD SMI)</td><td>already installed</td><td>Instinct + Radeon</td><td>Yes</td><td>Already in use — not new</td></tr>
+</tbody></table>
+<p>Everything else on the landing page is EPYC BMC / DASH / firmware-update fodder. One-line dismissal of enterprise-only entries: E-SMS, APML, SB-RMI/SB-TSI, Radeon Pro manageability, Instinct BMC — not applicable to a consumer BGA APU.</p>
+<h2 id="anything-for-halo-power-or-halo-doctor">Anything for <code>halo power</code> or <code>halo doctor</code>?</h2>
+<p><strong>No net-new integrations.</strong> Three notes for future reference:</p>
+<ol>
+<li><code>amd_smi_exporter</code> (EPYC/Instinct) is a decent <strong>design template</strong> for a</li>
+<p>   future <code>halo_smi_exporter</code> that unifies <code>amd_hsmp</code> + <code>rocm-smi</code> +    <code>xrt-smi</code> into one Prometheus endpoint. Code is not reusable; pattern is.</p>
+<li>DASH CLI is irrelevant for a headless mini-PC we already <code>ssh</code> into over</li>
+<p>   Headscale.</p>
+<li>If we ever ship a <code>halo pro</code> SKU with AMD PRO Manageability-enabled</li>
+<p>   firmware, revisit AMC. Not the case today.</p>
+</ol>
+<h2 id="honest-denials">Honest denials</h2>
 <ul>
-<li><a href="/docs/why-ternary.html">Why 1.58-bit ternary?</a> — the weight format</li>
-<li><a href="/docs/why-rust.html">Why Rust above + C++ below?</a> — the language split</li>
-<li><a href="/docs/why-strix-halo.html">Why Strix Halo (gfx1151)?</a> — the hardware target</li>
-<li><a href="/docs/why-shadow-burnin.html">Why shadow-burnin?</a> — the cutover discipline</li>
-<li><a href="/docs/why-h1b-format.html">Why our own <code>.h1b</code> format?</a> — vs GGUF</li>
-<li><a href="/docs/why-caddy-systemd.html">Why Caddy + systemd?</a> — the ops layer</li>
-<li><a href="/docs/why-halo-agents.html">Why halo-agents?</a> — the self-maintaining mesh</li>
-<li><a href="/docs/why-no-python.html">Why no Python at runtime?</a> — Rule A</li>
-<li><a href="/docs/why-parity-gates.html">Why shadow-traffic parity gates?</a> — cutover criteria</li>
-<li><a href="/docs/why-no-npu-yet.html">Why no NPU yet?</a> — XDNA 2 status + ONNX/FastFlowLM/IREE evaluation</li>
-<li><a href="/docs/why-this-way-how.html">Why this way + how?</a> — long-form walkthrough of all the decisions + end-to-end request path</li>
-</ul>
-<h2 id="integrations">Integrations</h2>
-<ul>
-<li><a href="/docs/hermes-integration.html">Hermes Agent integration</a> — Nous Research's agent as external client on halo-server; feature-port list for halo-agents</li>
-</ul>
-<h2 id="benchmarks-proof">Benchmarks + proof</h2>
-<ul>
-<li><a href="/docs/benchmarks.html">Live tok/s + PPL</a> — what we measure, what it means</li>
-<li><a href="/docs/faq.html">FAQ</a> — short answers to common questions</li>
-</ul>
-<h2 id="pointers">Pointers</h2>
-<ul>
-<li>Architectural data-flow: <a href="../../ARCHITECTURE.md"><code>../../ARCHITECTURE.md</code></a></li>
-<li>Cutover runbook: <a href="../../CUTOVER.md"><code>../../CUTOVER.md</code></a></li>
-<li>Demo script: <a href="../../DEMO.md"><code>../../DEMO.md</code></a></li>
-<li>Contributing: <a href="../../CONTRIBUTING.md"><code>../../CONTRIBUTING.md</code></a></li>
-<li>Repo conventions for AI agents: <a href="../../CLAUDE.md"><code>../../CLAUDE.md</code></a></li>
+<li>WebFetch against the landing page timed out (3x, 60s each). Content</li>
+<p>  reconstructed from <code>manageability-tools</code> (technologies), <code>e-sms</code>, and   <code>tools-for-dmtf-dash</code> sub-pages plus search snippets.</p>
+<li>If AMD later adds a Strix-Halo-specific tool to the page, re-scan.</li>
 </ul>
 
 </main>

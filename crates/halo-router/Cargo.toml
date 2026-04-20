@@ -33,6 +33,12 @@ futures   = { workspace = true }
 async-stream = { workspace = true }
 tokio-stream = { workspace = true }
 half      = { workspace = true }
+# Rayon is the CPU lane's thread pool — see `src/cpu_lane.rs`. Pinned to
+# the 1.x family; rayon is transitively present in the workspace already
+# (via tokenizers + hf-tokenizers in other crates) so adding it here
+# doesn't grow the build graph. Not a workspace dep today — if another
+# crate needs it we'll promote it then.
+rayon     = "1"
 
 halo-core        = { workspace = true }
 halo-bitnet-hip  = { path = "../halo-bitnet-hip", default-features = false }

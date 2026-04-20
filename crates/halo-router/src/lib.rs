@@ -32,6 +32,7 @@
 #![warn(missing_docs)]
 
 pub mod backend_impl;
+pub mod cpu_lane;
 pub mod detect;
 pub mod tokenizer;
 
@@ -52,6 +53,7 @@ use halo_core::types::TokenId;
 use tokio::sync::Mutex;
 
 pub use backend_impl::{BackendError, HipBackend, ModelFormat, sniff_model_format};
+pub use cpu_lane::{CpuLane, CpuLaneError};
 pub use detect::{BackendKind, detect};
 
 // Re-exported below once the type is declared — see PerplexityResult.
@@ -72,9 +74,11 @@ pub use detect::{BackendKind, detect};
 ///   crossover at prompt length ≥ 33. Stub today; real dispatch wires on
 ///   once Peano lands a working xclbin (see
 ///   `docs/wiki/NPU-Kernel-Design.md`).
-/// * [`Backend::Cpu`] — host fallback. Not implemented; constructing a
-///   router with `Backend::Cpu` is accepted but any forward pass will
-///   surface [`BackendError::NotYetWired`].
+/// * [`Backend::Cpu`] — host CPU lane. 7th aspirational surface from
+///   `docs/wiki/Peak-Performance-Projection.md`. Scaffolded today in
+///   [`cpu_lane::CpuLane`] but not on the critical path yet; selecting
+///   it returns [`BackendError::CpuLaneStub`] (see
+///   `docs/wiki/CPU-Lane-Plan.md` for the three-step wire-up plan).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Backend {
     /// gfx1151 iGPU path via `halo-bitnet-hip` (the production path).
@@ -83,7 +87,9 @@ pub enum Backend {
     /// behind `real-xdna`; in default builds forward() returns
     /// [`BackendError::NotYetWired`] for prompts ≥ 33 tokens.
     Xdna,
-    /// Host CPU fallback. Placeholder — no kernels wired.
+    /// Host CPU lane — sampler + tokenizer + dispatcher on Zen5 cores
+    /// via [`cpu_lane::CpuLane`]. Scaffolded today but not on the
+    /// critical path; dispatch surfaces [`BackendError::CpuLaneStub`].
     Cpu,
 }
 
@@ -678,7 +684,10 @@ fn default_model_id(h1b_path: &Path) -> String {
 ///   Peano first, see docs/wiki/NPU-Kernel-Design.md")`.
 /// * [`Backend::Xdna`] with a shorter prompt → OK (we fall through to HIP
 ///   decode; the NPU isn't worth its launch overhead on tiny prompts).
-/// * [`Backend::Cpu`] → always `NotYetWired` (no CPU kernels yet).
+/// * [`Backend::Cpu`] → always [`BackendError::CpuLaneStub`]. The lane
+///   itself (thread pool, parallel sampler primitive) is scaffolded in
+///   [`cpu_lane`], but it's not on the critical path yet; operators who
+///   explicitly set `HALO_BACKEND=cpu` hit this arm.
 ///
 /// Separate from [`Router::check_prefill_routing`] so tests don't need to
 /// stand up a Router (which requires HIP + a real .h1b). Both paths share
@@ -696,8 +705,8 @@ pub fn prefill_routing_decision(
             ))
         }
         Backend::Xdna => Ok(()),
-        Backend::Cpu => Err(BackendError::NotYetWired(
-            "CPU fallback backend is unimplemented — set HALO_BACKEND=hip",
+        Backend::Cpu => Err(BackendError::CpuLaneStub(
+            "CPU sampler lane scaffolded, not yet on critical path; see docs/wiki/CPU-Lane-Plan.md",
         )),
     }
 }
@@ -865,12 +874,19 @@ mod backend_config_tests {
         assert!(prefill_routing_decision(Backend::Xdna, 32).is_ok());
         assert!(prefill_routing_decision(Backend::Xdna, 1).is_ok());
 
-        // Hip is always fine; Cpu always refuses.
+        // Hip is always fine; Cpu always refuses with the scaffold stub.
         assert!(prefill_routing_decision(Backend::Hip, 4096).is_ok());
-        assert!(matches!(
-            prefill_routing_decision(Backend::Cpu, 1).unwrap_err(),
-            BackendError::NotYetWired(_)
-        ));
+        let cpu_err = prefill_routing_decision(Backend::Cpu, 1).unwrap_err();
+        match cpu_err {
+            BackendError::CpuLaneStub(msg) => {
+                assert_eq!(
+                    msg,
+                    "CPU sampler lane scaffolded, not yet on critical path; see docs/wiki/CPU-Lane-Plan.md",
+                    "cpu stub message drifted — update memory + docs together"
+                );
+            }
+            other => panic!("expected CpuLaneStub, got {other:?}"),
+        }
     }
 
     /// Label round-trip: every variant must render a stable, unique string

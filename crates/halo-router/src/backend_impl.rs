@@ -165,6 +165,19 @@ pub enum BackendError {
     /// retrying with `HALO_BACKEND=hip`.
     #[error("{0}")]
     NotYetWired(&'static str),
+    /// The CPU lane is scaffolded (see [`crate::cpu_lane`]) but not yet
+    /// on the critical path. Dispatching through `HALO_BACKEND=cpu`
+    /// today hits this arm rather than panicking; the lane's real
+    /// purpose is to run the sampler + tokenizer in parallel while the
+    /// iGPU grinds the next token, and that wire-up is tracked in
+    /// `docs/wiki/CPU-Lane-Plan.md`.
+    ///
+    /// Distinct from [`BackendError::NotYetWired`] because the CPU lane
+    /// *does* have working code — it's just not on the SSE hot path
+    /// yet. Keeping the two error kinds separate lets the HTTP layer
+    /// log + count them differently without regex on the message.
+    #[error("{0}")]
+    CpuLaneStub(&'static str),
     /// Anything else.
     #[error("router: {0}")]
     Other(String),
