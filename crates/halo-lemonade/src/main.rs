@@ -6,11 +6,10 @@
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use halo_lemonade::routes::{build, AppState};
+use halo_lemonade::routes::{AppState, build};
 use halo_lemonade::{LemonadeConfig, ModelEntry, ModelRegistry};
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 #[derive(Parser, Debug)]
 #[command(name = "halo-lemonade", about, version)]
@@ -18,6 +17,9 @@ struct Cli {
     /// Bind address
     #[arg(long, default_value = "127.0.0.1:8200")]
     bind: SocketAddr,
+    /// Upstream halo-server for chat/completions proxying (no trailing /).
+    #[arg(long, default_value = "http://127.0.0.1:8180", env = "HALO_LEMONADE_UPSTREAM")]
+    upstream: String,
     /// Optional TOML config at this path (registry + upstream_fallback)
     #[arg(long)]
     config: Option<PathBuf>,
@@ -45,10 +47,10 @@ async fn main() -> Result<()> {
         default_registry()
     };
 
-    let state = AppState { registry: Arc::new(registry) };
+    let state = AppState::new(registry, &cli.upstream);
     let app = build(state);
     let listener = tokio::net::TcpListener::bind(cli.bind).await?;
-    tracing::info!(bind = %cli.bind, "halo-lemonade listening");
+    tracing::info!(bind = %cli.bind, upstream = %cli.upstream, "halo-lemonade listening");
     axum::serve(listener, app).await?;
     Ok(())
 }
