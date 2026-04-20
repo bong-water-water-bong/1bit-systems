@@ -10,6 +10,88 @@ use std::collections::HashMap;
 
 use halo_core::htok::HtokFile;
 
+/// Llama-3 special tokens used by BitNet's chat template. IDs are fixed in
+/// the tiktoken-style vocabulary (shipped in `.htok`); we hard-code them
+/// here so `encode()` can emit them without a lookup per call.
+const SPECIAL_TOKENS: &[(&str, i32)] = &[
+    ("<|begin_of_text|>",     128000),
+    ("<|end_of_text|>",       128001),
+    ("<|start_header_id|>",   128006),
+    ("<|end_header_id|>",     128007),
+    ("<|eom_id|>",            128008),
+    ("<|eot_id|>",            128009),
+    ("<|python_tag|>",        128010),
+];
+
+/// Segment yielded by [`split_specials`]: either a literal text run that
+/// needs byte-level BPE, or a pre-resolved special-token id.
+enum Seg<'a> {
+    Text(&'a str),
+    Special(i32),
+}
+
+/// Scan `text` for special-token strings and split into segments. Leftmost
+/// match wins on overlap; empty `Text` segments are skipped.
+fn split_specials(text: &str) -> Vec<Seg<'_>> {
+    let mut out: Vec<Seg<'_>> = Vec::new();
+    let mut rest = text;
+    while !rest.is_empty() {
+        let hit = SPECIAL_TOKENS
+            .iter()
+            .filter_map(|(pat, id)| rest.find(pat).map(|pos| (pos, pat.len(), *id)))
+            .min_by_key(|(pos, _, _)| *pos);
+        match hit {
+            Some((pos, len, id)) => {
+                if pos > 0 {
+                    out.push(Seg::Text(&rest[..pos]));
+                }
+                out.push(Seg::Special(id));
+                rest = &rest[pos + len..];
+            }
+            None => {
+                out.push(Seg::Text(rest));
+                break;
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod special_tests {
+    use super::*;
+
+    #[test]
+    fn no_specials_returns_whole_text() {
+        let segs = split_specials("hello world");
+        assert_eq!(segs.len(), 1);
+        assert!(matches!(segs[0], Seg::Text("hello world")));
+    }
+
+    #[test]
+    fn eot_between_turns() {
+        let segs = split_specials("User: hi<|eot_id|>Assistant: ");
+        assert_eq!(segs.len(), 3);
+        assert!(matches!(segs[0], Seg::Text("User: hi")));
+        assert!(matches!(segs[1], Seg::Special(128009)));
+        assert!(matches!(segs[2], Seg::Text("Assistant: ")));
+    }
+
+    #[test]
+    fn leading_special_no_empty_prefix() {
+        let segs = split_specials("<|begin_of_text|>foo");
+        assert_eq!(segs.len(), 2);
+        assert!(matches!(segs[0], Seg::Special(128000)));
+        assert!(matches!(segs[1], Seg::Text("foo")));
+    }
+
+    #[test]
+    fn trailing_special_no_empty_suffix() {
+        let segs = split_specials("foo<|eot_id|>");
+        assert_eq!(segs.len(), 2);
+    }
+}
+
 /// GPT-2 byte <-> Unicode mapping. Printable ASCII maps to itself; the
 /// rest are shunted into U+0100..U+017F so every byte is a printable
 /// codepoint. Same table tiktoken / LLaMA-3 use.
@@ -148,16 +230,28 @@ impl ByteLevelBpe {
 
     /// Encode text into BitNet token ids. If `add_bos`, prepends the BOS
     /// token configured in the `.htok` header.
+    ///
+    /// Scans for Llama-3 special tokens (`<|eot_id|>`, etc.) before doing
+    /// byte-level BPE — without this, those strings are encoded as literal
+    /// bytes and the model never sees the expected end-of-turn signal.
+    /// Matches the C++ `srv_encode` path in `bitnet_decode` which also
+    /// hands special tokens through as-is.
     pub fn encode(&self, text: &str, add_bos: bool) -> Vec<i32> {
-        let chunks = pre_tokenize(text);
         let mut all_ids: Vec<i32> = Vec::new();
         if add_bos {
             all_ids.push(self.bos_id);
         }
-        for chunk in chunks {
-            let pieces = self.byte_level_split(&chunk);
-            let ids = self.bpe_encode(&pieces);
-            all_ids.extend_from_slice(&ids);
+        for seg in split_specials(text) {
+            match seg {
+                Seg::Special(id) => all_ids.push(id),
+                Seg::Text(t) => {
+                    for chunk in pre_tokenize(t) {
+                        let pieces = self.byte_level_split(&chunk);
+                        let ids = self.bpe_encode(&pieces);
+                        all_ids.extend_from_slice(&ids);
+                    }
+                }
+            }
         }
         all_ids
     }
