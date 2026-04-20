@@ -2,9 +2,11 @@
 //!
 //! Enough of the format to load any public BitNet b1.58 GGUF (notably
 //! `microsoft/bitnet-b1.58-2B-4t-gguf`) without requantizing to our native
-//! `.h1b`. This is intentionally *parse only*: tensor bytes are handed back
-//! as raw `&[u8]` slices — downstream code is responsible for dequant /
-//! bit-unpacking / GPU upload (same split as [`crate::h1b`]).
+//! `.h1b`. The top-level [`GgufFile`] remains *parse only*: tensor bytes
+//! are handed back as raw `&[u8]` slices. Actual bit-unpacking from
+//! llama.cpp ternary formats into halo's 2-bit packed layout lives in
+//! [`unpack`]; see [`unpack::iq2_s_to_halo_v2`] for the BitNet-compatible
+//! IQ2_S decoder.
 //!
 //! Layout (little-endian everywhere, offsets in bytes from start of file):
 //!
@@ -40,6 +42,9 @@ use byteorder::{ByteOrder, LittleEndian};
 
 use crate::error::HaloError;
 use crate::h1b::Mapped;
+
+mod iq2s_grid;
+pub mod unpack;
 
 pub const GGUF_MAGIC: [u8; 4] = *b"GGUF"; // 0x47475546 LE
 pub const GGUF_MIN_VERSION: u32 = 3;

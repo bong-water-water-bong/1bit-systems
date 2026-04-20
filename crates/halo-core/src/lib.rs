@@ -9,7 +9,11 @@
 //! * [`h1b`]    — `.h1b` ternary-BitNet model format (parser + writer).
 //! * [`gguf`]   — GGUF v3 parser (mmap + metadata KVs + tensor directory).
 //!                Drop-in compat with public BitNet GGUFs (e.g.
-//!                `microsoft/bitnet-b1.58-2B-4t-gguf`); no dequantization.
+//!                `microsoft/bitnet-b1.58-2B-4t-gguf`). The top-level
+//!                [`gguf::GgufFile`] is parse-only; bit-unpacking from
+//!                llama.cpp IQ2_S (the BitNet-compatible 2-bit format)
+//!                into halo's 2-bit packed ternary + per-block fp16 scale
+//!                lives in [`gguf::unpack`].
 //! * [`htok`]   — `.htok` tokenizer file format (parser + writer).
 //! * [`sampler`] — host-side logits sampler (temperature, top-k, top-p,
 //!                 repetition penalty). Ported from `bitnet_decode.cpp`'s

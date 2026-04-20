@@ -853,13 +853,18 @@ fn _use_devices(_d: DevicePtr<u8>, _m: DeviceMutPtr<u8>) {}
 // ----------------------------------------------------------------------------
 // GGUF loader — dispatch target for `sniff_model_format(..) == Gguf`.
 //
-// This sprint is plumbing only: we parse the GGUF, extract the
-// `BitnetHeader`, walk the standard llama.cpp tensor-name grid, and hit
-// `unimplemented!` the moment we actually need to turn IQ2_S / TQ2_0
-// super-blocks into halo's 2-bit packed layout. The H1b path is untouched,
-// and a future agent plugs in the bit-unpacking by replacing the
-// `unimplemented!` in `gguf_tensor_to_halo_packed` with a real requantizer
-// — no change to the format-sniffing dispatch is required.
+// Two sprints deep now:
+//   1. Plumbing — parse header, extract `BitnetHeader`, walk the standard
+//      llama.cpp tensor-name grid, return raw mmap slices. DONE.
+//   2. Bit-unpack — IQ2_S → halo v2 (2 bpw) on the host side via
+//      `halo_core::gguf::unpack::iq2_s_to_halo_v2`. DONE (2026-04-19).
+//
+// What's still open is device-side integration: the unpacked payload +
+// fp16 absmean scales need to be `memcpy_h2d`'d into `DeviceBuffer<u8>` /
+// `DeviceBuffer<f16>` slots on `HipBackend`, and those pointers stashed
+// where the forward-pass code can find them. Today we just drop the host
+// copies after the unpack succeeds — the loader will still tap out at the
+// outer `unimplemented!` since it can't construct a usable `HipBackend`.
 // ----------------------------------------------------------------------------
 
 /// GGUF tensor-name grid (llama.cpp convention). We build the expected
@@ -874,14 +879,20 @@ fn layer_tensor_name(layer_idx: usize, tail: &str) -> String {
 /// Dispatch target for `.gguf` — mirrors the shape of
 /// [`HipBackend::load_h1b_into_hip`] but reads from [`GgufFile`] instead.
 ///
-/// Scope this sprint:
+/// Scope today (post-unpack sprint):
 ///   1. Parse header + tensor directory.
 ///   2. Extract [`halo_core::BitnetHeader`] (hidden_size, num_layers,
 ///      rope_theta, rms_norm_eps, ...).
 ///   3. For each layer, look up the canonical llama.cpp tensor names and
 ///      pull the raw bytes out of the mmap.
-///   4. Bail with `unimplemented!` the moment we need to dequantize an
-///      IQ2_S / TQ2_0 super-block into halo's 2-bit packed layout.
+///   4. Host-side bit-unpack via
+///      [`halo_core::gguf::unpack::iq2_s_to_halo_v2`]. The unpacked
+///      payload is dropped immediately — device-buffer integration is
+///      deliberately split into its own sprint.
+///   5. Bail with `unimplemented!` after the directory walk succeeds —
+///      we've proven the unpack works end-to-end on a real file, but
+///      the `HipBackend` we'd want to return still has no device
+///      allocations.
 ///
 /// The signature deliberately matches [`HipBackend::load_h1b_into_hip`]
 /// minus the separate `htok_path` — GGUFs carry the tokenizer inline, so
@@ -949,35 +960,70 @@ fn load_gguf_into_hip(
         }
     }
 
-    // We got through the directory walk — but turning raw GGUF bytes into
-    // device-resident halo weights is the *next* sprint. Stop here so a
-    // bad config can still fail fast during integration testing.
+    // We got through the directory walk and host-side unpack — but we
+    // still don't have device-resident weights. Stop here so a bad
+    // config can still fail fast during integration testing. Wiring up
+    // `DeviceBuffer<u8>` + `memcpy_h2d` is the next sprint.
     unimplemented!(
-        "IQ2_S → halo 2-bit repack is the next sprint; \
-         load_gguf_into_hip only plumbs format sniffing + tensor lookup today"
+        "GGUF → HipBackend device-buffer integration is the next sprint; \
+         host-side IQ2_S unpack is landed and exercised above"
     )
 }
 
-/// Placeholder requantizer — returns unit today. A future agent replaces
-/// this body with: dtype-aware dispatch (IQ2_S, TQ2_0, F16, F32) → halo's
-/// packed-ternary + per-row-fp32-scale layout, then upload.
+/// Requantizer shim — bit-unpacks GGUF tensor bytes into halo's packed
+/// ternary layout on the host. **This sprint does the CPU-side unpack
+/// only**; device-buffer integration (allocating `DeviceBuffer<u8>`s for
+/// the packed payload + fp32 scales, `memcpy_h2d`, stashing the device
+/// pointers on [`HipBackend`]) is still the next sprint. That split is
+/// deliberate: the unpacker is backend-agnostic and lives in
+/// [`halo_core::gguf::unpack`] where it can be tested without HIP.
 ///
-/// Keeping this as a standalone function (rather than inlining the match
-/// inside the directory walk) means "plug in the bit-unpacker" is a
-/// one-file, one-function change that does not touch dispatch.
+/// Dtype dispatch:
+///   * `IQ2_S` — routed through [`halo_core::gguf::unpack::iq2_s_to_halo_v2`].
+///     Produces halo v2 packed bytes + per-super-block fp16 absmean scales.
+///   * `F16` / `F32` / `BF16` — norms + embeddings. Still TODO; these
+///     need a typed upload, not a bit-unpack.
+///   * `TQ2_0` / `TQ1_0` — llama.cpp's newer native BitNet formats. TODO.
 fn gguf_tensor_to_halo_packed(
     dtype: halo_core::GgufTensorType,
-    _bytes: &[u8],
+    bytes: &[u8],
 ) -> Result<(), BackendError> {
     use halo_core::GgufTensorType::*;
     match dtype {
         // FP16 / FP32 norms + embeddings — easy, land these first.
         F16 | F32 | BF16 => {
-            unimplemented!("fp16/fp32 upload from GGUF is the next sprint");
+            // TODO(tier-1): typed upload into a DeviceBuffer<f16 / f32>.
+            // No bit-unpack needed, just a bytewise memcpy_h2d.
+            Ok(())
         }
-        // BitNet's native 2-bit ternary packing in llama.cpp.
-        IQ2_S | TQ2_0 | TQ1_0 => {
-            unimplemented!("IQ2_S / TQ2_0 → halo 2-bit repack is the next sprint");
+        // BitNet's canonical public 2-bit ternary packing in llama.cpp.
+        IQ2_S => {
+            use halo_core::gguf::unpack;
+            // n_weights is derivable from the payload size: each super-block
+            // is 82 bytes for 256 weights. Round down; the caller gave us
+            // a whole tensor so this should be exact.
+            let n_blocks = bytes.len() / unpack::IQ2_S_BLOCK_BYTES;
+            let n_weights = n_blocks * 256;
+            let mut packed = vec![0u8; n_weights.div_ceil(4)];
+            let _scales = unpack::iq2_s_to_halo_v2(bytes, &mut packed, n_weights)
+                .map_err(|e| {
+                    BackendError::Other(format!(
+                        "IQ2_S → halo v2 bit-unpack failed: {e}"
+                    ))
+                })?;
+            // TODO(tier-1): memcpy_h2d the `packed` and `_scales` vectors
+            // into DeviceBuffer<u8> / DeviceBuffer<f16> slots on
+            // HipBackend, then drop the host copies. We deliberately don't
+            // do this yet — the unpack is tested in isolation in
+            // halo-core, and the device-buffer plumbing is its own PR.
+            Ok(())
+        }
+        TQ2_0 | TQ1_0 => {
+            // TODO(halo-core/unpack): port llama.cpp's base-3 packing
+            // (block_tq2_0 / block_tq1_0). Bit-layout is different from
+            // IQ2_S — 5 ternaries per byte for TQ1_0 via the
+            // d0+3·d1+9·d2+27·d3+81·d4 polynomial.
+            unimplemented!("TQ2_0 / TQ1_0 → halo 2-bit repack is the next sprint");
         }
         other => Err(BackendError::Other(format!(
             "GGUF dtype {other:?} is not a BitNet-supported tensor format"
