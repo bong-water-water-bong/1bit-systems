@@ -35,7 +35,58 @@ code, pre { font-family: var(--mono); }
 .bar nav a { color: var(--muted); text-decoration: none; }
 .bar nav a:hover { color: var(--accent); }
 
-main { max-width: 960px; margin: 0 auto; padding: 3rem 1.5rem 5rem; }
+main { max-width: 960px; margin: 0 auto; padding: 2rem 1.5rem 5rem; }
+
+/* ── OS warning — can't miss it ─────────────── */
+.os-warn {
+  margin: 0 0 2.5rem; padding: 1.5rem 1.75rem;
+  border: 2px solid #d4a520;
+  border-left: 8px solid #d4a520;
+  background: linear-gradient(90deg, rgba(212, 165, 32, 0.18), rgba(212, 165, 32, 0.04));
+  border-radius: 8px;
+  box-shadow: 0 0 0 1px rgba(212, 165, 32, 0.25), 0 4px 16px rgba(212, 165, 32, 0.05);
+}
+.os-warn h2 {
+  margin: 0 0 0.5rem; border: none; padding: 0;
+  color: #f0b429; font-family: var(--mono); font-size: 1.35rem;
+}
+.os-warn h2::before { content: none; }
+.os-warn p { margin: 0.5rem 0; font-size: 1.02rem; color: #e8c56a; }
+.os-warn strong { color: #ffd95b; }
+.os-warn code {
+  background: rgba(212, 165, 32, 0.22); color: #ffd95b;
+  padding: 0.1rem 0.4rem; border-radius: 3px; font-family: var(--mono);
+  font-size: 0.9em;
+}
+.os-warn-actions { margin-top: 1rem !important; display: flex; gap: 0.75rem; flex-wrap: wrap; }
+.btn {
+  display: inline-block; padding: 0.55rem 1rem;
+  background: #f0b429; color: #0d1117 !important;
+  border-radius: 4px; font-family: var(--mono); font-weight: 600;
+  text-decoration: none; font-size: 0.9rem;
+}
+.btn:hover { background: #ffd95b; }
+.btn.ghost {
+  background: transparent; color: #f0b429 !important;
+  border: 1px solid #f0b429;
+}
+.btn.ghost:hover { background: rgba(212, 165, 32, 0.15); }
+
+/* ── wiki link grid ─────────────────────────── */
+.wiki-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.6rem; margin-top: 1rem;
+}
+.wiki-grid a {
+  padding: 0.8rem 1rem;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 6px; color: var(--accent);
+  font-family: var(--mono); text-decoration: none;
+  font-size: 0.95rem;
+}
+.wiki-grid a:hover { border-color: var(--accent); background: rgba(0,212,255,0.05); }
+.wiki a { color: var(--accent); }
 h2 {
   font-size: 1.4rem; font-weight: 700;
   margin: 2.5rem 0 1.25rem; padding-bottom: 0.5rem;

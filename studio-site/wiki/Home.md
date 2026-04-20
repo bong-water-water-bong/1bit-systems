@@ -13,7 +13,6 @@ Plain-English explanations of the architectural calls we made — one page per d
 - [Why halo-agents?](./Why-Halo-Agents.md) — the self-maintaining mesh
 - [Why no Python at runtime?](./Why-No-Python.md) — Rule A
 - [Why shadow-traffic parity gates?](./Why-Parity-Gates.md) — cutover criteria
-- [Why no NPU yet?](./Why-No-NPU-Yet.md) — XDNA 2 status + ONNX/FastFlowFM/IREE evaluation
 
 ## Benchmarks + proof
 
