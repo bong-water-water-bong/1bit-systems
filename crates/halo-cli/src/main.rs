@@ -13,6 +13,7 @@ mod status;
 mod doctor;
 mod install;
 mod logs;
+mod power;
 mod ppl;
 mod restart;
 mod say;
@@ -104,6 +105,17 @@ enum Cmd {
         #[arg(long, default_value_t = 6000)]
         bytes: usize,
     },
+    /// Apply / query Ryzen APU power profile (wraps FlyGoat/ryzenadj)
+    Power {
+        /// Profile to apply. Omit to print current state.
+        profile: Option<String>,
+        /// Print what would run without executing
+        #[arg(long)]
+        dry_run: bool,
+        /// List available profiles and exit
+        #[arg(long)]
+        list: bool,
+    },
 }
 
 #[tokio::main]
@@ -123,8 +135,10 @@ async fn main() -> Result<()> {
         Cmd::Update { no_build, no_restart } => update::run(no_build, no_restart).await,
         Cmd::Version                        => version::run().await,
         Cmd::Install { component, list }    => {
-            if list || component.is_none() { install::list().await }
-            else                             { install::run_install(&component.unwrap()).await }
+            match (list, component) {
+                (true, _) | (false, None) => install::list().await,
+                (false, Some(name))       => install::run_install(&name).await,
+            }
         }
         Cmd::Say { text, voice, speed }     => {
             let phrase = text.join(" ");
@@ -134,5 +148,6 @@ async fn main() -> Result<()> {
         Cmd::Chat  { url, model, max_tokens }            => chat::run(url, model, max_tokens).await,
         Cmd::Bench { rounds, since }                     => bench::run(rounds, since).await,
         Cmd::Ppl   { url, stride, max_tokens, bytes }    => ppl::run(url, stride, max_tokens, bytes).await,
+        Cmd::Power { profile, dry_run, list }            => power::run(profile, dry_run, list),
     }
 }

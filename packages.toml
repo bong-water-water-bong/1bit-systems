@@ -89,3 +89,10 @@ deps        = ["core", "bitnet-gen1"]
 build       = []
 units       = ["strix-burnin.service"]
 check       = ""
+
+[component.power]
+description = "Ryzen APU power-profile CLI (shells out to FlyGoat/ryzenadj)"
+deps        = ["core"]
+build       = []
+units       = []
+check       = ""
