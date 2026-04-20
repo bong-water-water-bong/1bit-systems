@@ -12,6 +12,7 @@ mod doctor;
 mod install;
 mod logs;
 mod restart;
+mod say;
 mod update;
 mod version;
 
@@ -59,6 +60,17 @@ enum Cmd {
         #[arg(long)]
         list: bool,
     },
+    /// Speak text through halo-kokoro :8083 + the host's audio player
+    Say {
+        /// The text to synthesize. Quote it for multi-word input.
+        text: Vec<String>,
+        /// Voice id (see `curl :8083/voices` for the list)
+        #[arg(short = 'v', long)]
+        voice: Option<String>,
+        /// Playback speed (0 < x ≤ 4)
+        #[arg(short = 's', long, default_value_t = 1.0)]
+        speed: f32,
+    },
 }
 
 #[tokio::main]
@@ -80,6 +92,11 @@ async fn main() -> Result<()> {
         Cmd::Install { component, list }    => {
             if list || component.is_none() { install::list().await }
             else                             { install::run_install(&component.unwrap()).await }
+        }
+        Cmd::Say { text, voice, speed }     => {
+            let phrase = text.join(" ");
+            let voice_owned: String = voice.unwrap_or_else(|| say::default_voice().into());
+            say::run(&phrase, &voice_owned, speed).await
         }
     }
 }

@@ -29,6 +29,7 @@ use crate::status::{LiveStatus, probe};
 
 const INDEX_HTML: &str = include_str!("../assets/index.html");
 const STYLE_CSS: &str = include_str!("../assets/style.css");
+const LOGO_SVG: &str = include_str!("../assets/logo.svg");
 
 #[derive(Clone)]
 struct AppState {
@@ -46,6 +47,7 @@ pub fn build_router() -> Router {
     Router::new()
         .route("/", get(index))
         .route("/style.css", get(style))
+        .route("/logo.svg", get(logo))
         .route("/_live/status", get(live_status))
         .route("/_health", get(health))
         .with_state(state)
@@ -65,6 +67,15 @@ async fn style() -> Response {
         StatusCode::OK,
         [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
         STYLE_CSS,
+    )
+        .into_response()
+}
+
+async fn logo() -> Response {
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "image/svg+xml; charset=utf-8")],
+        LOGO_SVG,
     )
         .into_response()
 }
