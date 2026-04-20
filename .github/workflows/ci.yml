@@ -1,0 +1,52 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: cargo test (default features, no GPU)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.85
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.85
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: cargo build (default features)
+        run: cargo build --workspace --release
+
+      - name: cargo test (default features)
+        run: cargo test --workspace --release
+
+  install-sh:
+    name: install.sh syntax + CI-mode dry-run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bash -n install.sh
+        run: bash -n install.sh
+
+      - name: Install Rust 1.85
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.85
+
+      - name: CI=1 ./install.sh (no ROCm, cargo check only)
+        env:
+          CI: "1"
+        run: ./install.sh
