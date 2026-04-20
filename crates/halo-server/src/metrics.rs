@@ -13,7 +13,7 @@
 //!   `Mutex<VecDeque<..>>` — contention is negligible (one lock per
 //!   completion, not per token) and the bounded size keeps memory flat.
 //! * `tokps_recent` is computed as
-//!     `sum(completion_tokens_recent) / sum(elapsed_recent).as_secs_f64()`,
+//!   `sum(completion_tokens_recent) / sum(elapsed_recent).as_secs_f64()`,
 //!   which matches the "tok/s the server just produced" intuition better
 //!   than a rolling moving-average over individual token inter-arrival
 //!   times (we don't see those at the HTTP layer anyway).

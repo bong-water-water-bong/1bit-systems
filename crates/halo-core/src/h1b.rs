@@ -646,9 +646,12 @@ impl Mapped {
 mod tests {
     use super::*;
 
+    /// (config, embedding_fp32, per-layer-norms, per-layer-tensors)
+    type TinyV2 = (H1bConfig, Vec<u8>, Vec<Vec<u8>>, Vec<Vec<u8>>);
+
     /// Build a tiny but structurally valid v2 `.h1b` in memory, then parse
     /// it, re-serialize, and compare byte-for-byte.
-    fn make_tiny_v2() -> (H1bConfig, Vec<u8>, Vec<Vec<u8>>, Vec<Vec<u8>>) {
+    fn make_tiny_v2() -> TinyV2 {
         // hs=8, is=16, L=1, nh=2, nkv=1 → hd=4; vocab=32.
         // HaloV2 row_bytes(cols) = (cols+3)/4.
         let config = H1bConfig {
@@ -667,11 +670,12 @@ mod tests {
         };
 
         // Per-layer fp32 norm bytes.
-        let mut norms = Vec::new();
-        norms.push(vec![0u8; 8 * 4]); // input_norm
-        norms.push(vec![1u8; 8 * 4]); // post_attn_norm
-        norms.push(vec![2u8; 8 * 4]); // attn_sub_norm
-        norms.push(vec![3u8; 16 * 4]); // ffn_sub_norm (len is)
+        let norms = vec![
+            vec![0u8; 8 * 4],  // input_norm
+            vec![1u8; 8 * 4],  // post_attn_norm
+            vec![2u8; 8 * 4],  // attn_sub_norm
+            vec![3u8; 16 * 4], // ffn_sub_norm (len is)
+        ];
 
         // Tensor shapes (rows, cols); hd = hs/nh = 4.
         //   q   : [nh*hd, hs]    = [8, 8]
@@ -681,7 +685,7 @@ mod tests {
         //   gate: [is, hs]       = [16, 8]
         //   up  : [is, hs]       = [16, 8]
         //   down: [hs, is]       = [8, 16]
-        let rbytes = |cols: usize| (cols + 3) / 4;
+        let rbytes = |cols: usize| cols.div_ceil(4);
         let packed_for = |rows: usize, cols: usize| vec![0xAAu8; rows * rbytes(cols)];
         let scales_for = |rows: usize| vec![0xBBu8; rows * 4];
 
@@ -846,8 +850,8 @@ mod tests {
             rms_norm_eps: 0.0,
         };
         let model = ModelTensors {
-            embedding_fp32: &vec![0u8; 4 * 8 * 4],
-            final_norm_fp32: &vec![0u8; 8 * 4],
+            embedding_fp32: &[0u8; 4 * 8 * 4],
+            final_norm_fp32: &[0u8; 8 * 4],
         };
         let bytes = serialize(&cfg, &model, &[]).unwrap();
         let f = H1bFile::parse_bytes("t", bytes).unwrap();

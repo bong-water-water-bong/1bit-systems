@@ -10,8 +10,8 @@
 //!
 //! * [`api`]      — OpenAI wire-format request / response types.
 //! * [`backend`]  — the [`InferenceBackend`] trait + a default [`EchoBackend`]
-//!                  stub that will be swapped for halo-router once the router
-//!                  crate grows a real dispatcher.
+//!   stub that will be swapped for halo-router once the router
+//!   crate grows a real dispatcher.
 //! * [`routes`]   — axum router, handlers, SSE streaming plumbing.
 //! * [`shutdown`] — SIGTERM / Ctrl-C graceful-shutdown future (for systemd).
 //! * [`error`]    — error type with `IntoResponse` → OpenAI-shaped JSON errors.

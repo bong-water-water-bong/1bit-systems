@@ -3,7 +3,7 @@
 //! This sprint plugs the gap between [`crate::gguf`] (parse-only GGUF mmap)
 //! and [`crate::h1b`]'s 2-bit ternary layout (`uint8[rows, (cols+3)/4]`
 //! + per-row scale) so [`halo-router`]'s GGUF loader can stop blowing up on
-//! `unimplemented!("IQ2_S …")`.
+//!   `unimplemented!("IQ2_S …")`.
 //!
 //! ## IQ2_S block layout (for future grep)
 //!
@@ -387,7 +387,7 @@ mod tests {
         raw.extend_from_slice(&block0);
         raw.extend_from_slice(&block0);
 
-        let mut out = vec![0u8; (257 + 3) / 4]; // = 65 bytes
+        let mut out = vec![0u8; 257_usize.div_ceil(4)]; // = 65 bytes
         let scales = iq2_s_to_halo_v2(&raw, &mut out, 257).unwrap();
 
         assert_eq!(scales.len(), 2, "one scale per super-block");

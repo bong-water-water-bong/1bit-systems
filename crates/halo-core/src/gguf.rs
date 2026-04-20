@@ -1005,9 +1005,9 @@ mod tests {
         let cur_len = buf.len();
         let pad = (DEFAULT_ALIGNMENT - (cur_len as u64 % DEFAULT_ALIGNMENT))
             % DEFAULT_ALIGNMENT;
-        buf.extend(std::iter::repeat(0).take(pad as usize));
+        buf.extend(std::iter::repeat_n(0, pad as usize));
         // 2*3*f32 = 24 bytes of payload. Just zeros is fine.
-        buf.extend(std::iter::repeat(0xAA).take(6 * 4));
+        buf.extend(std::iter::repeat_n(0xAA, 6 * 4));
 
         assert!(buf.len() >= 24, "buffer too tiny: {}", buf.len());
         let g = GgufFile::parse_bytes("t", buf).unwrap();

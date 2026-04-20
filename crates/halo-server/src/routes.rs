@@ -5,7 +5,7 @@
 //! * `GET  /v1/models`             — backend-supplied model list.
 //! * `POST /v1/chat/completions`   — OpenAI chat, SSE when `stream: true`.
 //! * `POST /v1/completions`        — classic text completion, SSE when
-//!                                   `stream: true`.
+//!   `stream: true`.
 //!
 //! SSE wire format matches the legacy C++ `bitnet_decode --server`:
 //! each event is `data: {json}\n\n`, the first chunk carries the role
@@ -527,7 +527,7 @@ mod tests {
         let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["object"], "list");
-        assert!(v["data"].as_array().unwrap().len() >= 1);
+        assert!(!v["data"].as_array().unwrap().is_empty());
         assert_eq!(v["data"][0]["object"], "model");
         assert_eq!(v["data"][0]["owned_by"], "halo-ai");
     }

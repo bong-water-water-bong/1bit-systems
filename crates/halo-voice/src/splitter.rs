@@ -22,6 +22,13 @@
 /// all four are equally weighted.
 pub const BOUNDARY_BYTES: [u8; 4] = [b'.', b'!', b'?', b'\n'];
 
+/// Does the sentence contain any alphanumeric glyph? If not, it's punctuation
+/// + whitespace only (lone `"!"`, `"."`, `"..."`) — skip it. TTS would otherwise
+///   synthesize a click or silence frame. Live-run edge case 2026-04-20.
+fn has_speakable(s: &str) -> bool {
+    s.chars().any(|c| c.is_alphanumeric())
+}
+
 /// Streaming splitter. Not `Send + Sync` (holds a `String` buffer) but can
 /// be wrapped in `Mutex` trivially if a consumer needs cross-task use.
 #[derive(Debug, Default)]
@@ -40,10 +47,10 @@ impl SentenceSplitter {
         let mut out = Vec::new();
         let mut last = 0usize;
         let bytes = self.buf.as_bytes();
-        for i in 0..bytes.len() {
-            if BOUNDARY_BYTES.contains(&bytes[i]) {
+        for (i, b) in bytes.iter().enumerate() {
+            if BOUNDARY_BYTES.contains(b) {
                 let sentence = self.buf[last..=i].trim().to_string();
-                if !sentence.is_empty() { out.push(sentence); }
+                if has_speakable(&sentence) { out.push(sentence); }
                 last = i + 1;
             }
         }
@@ -139,6 +146,27 @@ mod tests {
         let mut s = SentenceSplitter::new();
         let out = s.feed("e.g. this.");
         assert_eq!(out, vec!["e.", "g.", "this."]);
+    }
+
+    #[test]
+    fn lone_punctuation_delta_is_dropped() {
+        // Live-run 2026-04-20: model emitted "Hello" then "!" as separate SSE
+        // deltas AFTER an already-closed prior sentence ("Hi."), leaving buf
+        // empty when "!" arrived. Old behaviour emitted "!" as its own
+        // sentence; TTS would click. Drop it instead.
+        let mut s = SentenceSplitter::new();
+        assert_eq!(s.feed("Hi."), vec!["Hi."]);
+        let out = s.feed("!");
+        assert!(out.is_empty(), "lone punctuation must not emit a sentence");
+    }
+
+    #[test]
+    fn ellipsis_emits_at_most_one_speakable_sentence() {
+        let mut s = SentenceSplitter::new();
+        let out = s.feed("Hello...");
+        assert_eq!(out, vec!["Hello."]);
+        // remaining ".." is punctuation-only, no emission on flush
+        assert_eq!(s.finish(), None);
     }
 
     #[test]
