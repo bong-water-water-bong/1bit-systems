@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>halo-ai.studio — 1-bit inference with all the bells and whistles</title>
+<meta name="description" content="halo-ai — a 1-bit ternary inference engine for AMD Strix Halo. 80+ tok/s, PPL 9.18, Rust-native orchestration, no Python at runtime. One command to install.">
+<meta property="og:title" content="halo-ai.studio">
+<meta property="og:description" content="a 1-bit inference engine with all the bells and whistles">
+<meta property="og:type" content="website">
+<link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+<link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+
+<header class="bar">
+  <a class="brand" href="#">
+    <img src="/assets/logo.svg" alt="" width="28" height="28">
+    <span>halo-ai<span class="dot">.</span>studio</span>
+  </a>
+  <nav>
+    <a href="#stack">stack</a>
+    <a href="#bench">benchmarks</a>
+    <a href="#clients">clients</a>
+    <a href="#studios">studios</a>
+    <a href="#install">install</a>
+  </nav>
+</header>
+
+<main>
+
+<section id="hero" class="hero">
+  <p class="eyebrow">amd strix halo · gfx1151 · bitnet b1.58</p>
+  <h1>a 1-bit inference engine<br><span class="accent">with all the bells and whistles</span></h1>
+  <p class="lede">Native Rust orchestration over a ternary BitNet stack on the Radeon 8060S. 80+ tok/s on a $3k mini-PC. No cloud. No Python. One install.</p>
+  <div class="metrics">
+    <div><b>83</b><span>tok/s @ 64</span></div>
+    <div><b>68</b><span>tok/s @ 1024</span></div>
+    <div><b>9.18</b><span>PPL wikitext</span></div>
+    <div><b>2-bit</b><span>weights</span></div>
+    <div><b>96.6%</b><span>byte-parity vs C++</span></div>
+    <div><b>11</b><span>crates, 121 tests</span></div>
+  </div>
+  <p class="tagline">everything's visible · nothing's hidden · the engine is local · the output is yours</p>
+</section>
+
+<section id="stack" class="grid">
+  <h2>the stack</h2>
+  <article class="card">
+    <h3>rust orchestration</h3>
+    <p>halo-workspace — 11 cargo crates, edition 2024, rust 1.86. Native <code>async/await</code>, tokio, axum. Zero Python at runtime.</p>
+  </article>
+  <article class="card">
+    <h3>amd hip kernels</h3>
+    <p>rocm-cpp ternary GEMV + split-KV Flash-Decoding attention. 92% of LPDDR5 peak on gfx1151. The only public gfx1151 BitNet kernel.</p>
+  </article>
+  <article class="card">
+    <h3>apple mlx path</h3>
+    <p>Feature-gated <code>mlx-apple</code> via bitnet-mlx-rs. Same workspace, Apple Silicon binary. One codebase, two architectures.</p>
+  </article>
+  <article class="card">
+    <h3>openai-compat api</h3>
+    <p>halo-server on <code>:8180</code>. <code>/v1/chat/completions</code>, <code>/v1/completions</code>, <code>/v1/models</code>, <code>/ppl</code>, <code>/metrics</code>. SSE streaming, drop-in for any OpenAI client.</p>
+  </article>
+  <article class="card">
+    <h3>lemonade shim</h3>
+    <p>halo-lemonade on <code>:8200</code>. AMD Lemonade API compat — Sorana, TabNeuron, diffron, any Lemonade-SDK client works without shim code.</p>
+  </article>
+  <article class="card">
+    <h3>mcp specialists</h3>
+    <p>halo-mcp exposes 17 specialists via JSON-RPC stdio. JsonSchema tools/list, typed handler trait, Claude Code plugin ready.</p>
+  </article>
+</section>
+
+<section id="bench" class="bench">
+  <h2>benchmarks</h2>
+  <table>
+    <thead>
+      <tr><th>max tokens</th><th>tok/s</th><th>p95 latency</th><th>notes</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>64</td><td>83.1</td><td>~960 ms</td><td>short prompt</td></tr>
+      <tr><td>256</td><td>73.5</td><td>~4.2 s</td><td>short prompt</td></tr>
+      <tr><td>512</td><td>71.1</td><td>~10 s</td><td>short prompt</td></tr>
+      <tr><td>1024</td><td>68.6</td><td>~30 s</td><td>short prompt</td></tr>
+    </tbody>
+  </table>
+  <p class="note">ternary BitNet-b1.58-2B-4T. AMD Ryzen AI MAX+ 395, Radeon 8060S, 128 GB LPDDR5. Temperature 0, split-KV Flash-Decoding. Shadow burnin 96.66% byte-exact vs gen-1 C++ after 1500+ rounds.</p>
+  <p class="note">PPL on wikitext-103 (1024 tokens) = <b>9.18</b> — matches Microsoft's BitNet paper baseline (~9.1607) within ±0.05.</p>
+</section>
+
+<section id="clients" class="grid">
+  <h2>works with</h2>
+  <article class="card">
+    <h3>open webui</h3>
+    <p>Settings → Connections → Add OpenAI API → point at <code>https://strixhalo.local/v2</code>. Full multi-conv, RAG, MCP tools.</p>
+  </article>
+  <article class="card">
+    <h3>librechat</h3>
+    <p>Drop <code>endpoints.custom</code> into <code>librechat.yaml</code>. Runs on any Linux.</p>
+  </article>
+  <article class="card">
+    <h3>dspy (stanford)</h3>
+    <p><code>dspy.LM("openai/halo-bitnet-1.58", api_base="http://strixhalo.local:8180/v1")</code>. Compile prompt chains against halo-server. Free external validation.</p>
+  </article>
+  <article class="card">
+    <h3>claude code</h3>
+    <p>halo-mcp registers as an MCP server. 17 specialists appear in <code>tools/list</code>. Slash commands + statusline + auto-memory hook via the halo-ai plugin.</p>
+  </article>
+  <article class="card">
+    <h3>halo-gaia</h3>
+    <p>Our own ratatui TUI. Keyboard-only, streaming SSE, works over SSH to a headless box.</p>
+  </article>
+  <article class="card">
+    <h3>bring your own</h3>
+    <p>Anything OpenAI-compat with a <code>base_url</code> setting works. No shim, no token translation, no proprietary protocol.</p>
+  </article>
+</section>
+
+<section id="studios" class="studios">
+  <h2>the studios</h2>
+  <p>halo-ai.studio is the umbrella. The engine powers other halos — voice, music, games, agents. Each studio ships its own experience on the same ternary runtime.</p>
+  <div class="studio-list">
+    <div><b>the architect</b><span>voice · audiobooks · music · 3d audio · always lowercase</span></div>
+    <div><b>the halos</b><span>voxel game platform · roblox-model · one engine many stories</span></div>
+    <div><b>halo-ai core</b><span>the public ternary kernel stack · stampby/halo-ai-core</span></div>
+    <div><b>halo-agents</b><span>17 specialists · mcp exposed · tokio bus · schema-typed</span></div>
+  </div>
+  <p class="note">Strict separation. Voice brand is not halo-ai. Games are not halo-ai. Kernels are not halo-ai. halo-ai is what runs underneath all of it.</p>
+</section>
+
+<section id="install" class="install">
+  <h2>install</h2>
+  <pre><code>git clone git@github.com:stampby/halo-ai-core.git
+cd halo-ai-core
+./install-strixhalo.sh
+
+# then:
+halo doctor
+halo chat
+halo bench
+halo say "hello strix"</code></pre>
+  <p class="note">CachyOS recommended — kernel 7.x ships the <code>amdxdna</code> NPU driver + ROCm-7. Other distros need a kernel build first.</p>
+  <p class="note">The Rust side (halo-ai-rs) is private until launch. Request a read-only collaborator invite on Discord.</p>
+</section>
+
+</main>
+
+<footer>
+  <p>halo-ai · strix-ai-rs · 2026 · MIT</p>
+  <p class="muted">silent-closet inference · no cloud · no tracking · no javascript</p>
+</footer>
+
+</body>
+</html>
