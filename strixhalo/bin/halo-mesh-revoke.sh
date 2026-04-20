@@ -29,7 +29,10 @@ fi
 #    can rejoin with a new key tomorrow).
 sudo headscale users destroy --name "$handle" 2>&1 | head -3 || true
 
-# 4. Reload Caddy.
-sudo systemctl reload caddy.service
+# 4. Rebuild the shared Caddy bearer matcher + reload. Revoking one user
+#    must leave the other nine accepted — the helper regenerates
+#    /etc/caddy/bearers.conf from the current bearers.txt.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+"${SCRIPT_DIR}/halo-caddy-bearers.sh" --reload
 
 echo "[mesh] $handle revoked — Headscale + bearer cleared."

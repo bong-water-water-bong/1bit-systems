@@ -7,12 +7,19 @@
     admin off
 }
 
+# Per-user bearer matcher — regenerated from /etc/caddy/bearers.txt by
+# strixhalo/bin/halo-caddy-bearers.sh. Defines (bearer_matcher) snippet
+# so every gated route can `import bearer_matcher` and share one regex.
+# On a fresh box, bearers.conf is empty / placeholder; halo-mesh-invite.sh
+# creates bearers.txt on first invite and rebuilds this snippet.
+import /etc/caddy/bearers.conf
+
 strixhalo.local, 10.0.0.10 {
     tls internal
 
-    # OpenAI-compatible clients send "Authorization: Bearer sk-...".
-    # Token lives in /etc/caddy/token.secret (root-owned, 0600).
-    @authorized header_regexp Authorization ^Bearer\s+sk-halo-REPLACE_ME$
+    # Per-user bearers in /etc/caddy/bearers.txt → /etc/caddy/bearers.conf.
+    # Defines @authorized for this site; nested handle blocks inherit it.
+    import bearer_matcher
 
     # / + landing assets + live status → halo-landing (127.0.0.1:8190).
     # No bearer — marketing page, LAN-only via hostname.
@@ -32,8 +39,7 @@ strixhalo.local, 10.0.0.10 {
     # /v2/* → strix-server (gen-2 Rust, 127.0.0.1:8180). Same bearer gate as /v1/*.
     # Runs side-by-side with gen-1 /v1/* (bitnet_decode :8080) during burn-in.
     handle_path /v2/* {
-        @v2_authorized header_regexp Authorization ^Bearer\s+sk-halo-REPLACE_ME$
-        handle @v2_authorized {
+        handle @authorized {
             reverse_proxy 127.0.0.1:8180 {
                 flush_interval -1
                 transport http {
@@ -49,8 +55,7 @@ strixhalo.local, 10.0.0.10 {
 
     # /lemon/* → lemonade-server (lemond daemon, 127.0.0.1:8000). Bearer-gated.
     handle_path /lemon/* {
-        @lemon_authorized header_regexp Authorization ^Bearer\s+sk-halo-REPLACE_ME$
-        handle @lemon_authorized {
+        handle @authorized {
             reverse_proxy 127.0.0.1:8000 {
                 flush_interval -1
                 transport http {
@@ -66,8 +71,7 @@ strixhalo.local, 10.0.0.10 {
 
     # /sd/* → sd-server (stable-diffusion.cpp, 127.0.0.1:8081). Strip prefix.
     handle_path /sd/* {
-        @sd_authorized header_regexp Authorization ^Bearer\s+sk-halo-REPLACE_ME$
-        handle @sd_authorized {
+        handle @authorized {
             reverse_proxy 127.0.0.1:8081 {
                 flush_interval -1
                 transport http {
@@ -85,8 +89,7 @@ strixhalo.local, 10.0.0.10 {
     # /whisper/* → halo-whisper STT (127.0.0.1:8082). Bearer-gated.
     # Consumed by studio-site/voice/ mobile web app.
     handle_path /whisper/* {
-        @whisper_authorized header_regexp Authorization ^Bearer\s+sk-halo-REPLACE_ME$
-        handle @whisper_authorized {
+        handle @authorized {
             reverse_proxy 127.0.0.1:8082 {
                 flush_interval -1
                 transport http {
@@ -103,8 +106,7 @@ strixhalo.local, 10.0.0.10 {
     # /kokoro/* → halo-kokoro TTS (127.0.0.1:8083). Bearer-gated.
     # One sentence per POST; /voice/ splits SSE on sentence boundary.
     handle_path /kokoro/* {
-        @kokoro_authorized header_regexp Authorization ^Bearer\s+sk-halo-REPLACE_ME$
-        handle @kokoro_authorized {
+        handle @authorized {
             reverse_proxy 127.0.0.1:8083 {
                 flush_interval -1
                 transport http {

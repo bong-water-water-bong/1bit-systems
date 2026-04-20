@@ -68,7 +68,7 @@
     </article>
     <article class="pillar">
       <h3>3. Reach the box</h3>
-      <p>Once joined, your device has a mesh IP. Point your OpenAI client at <code>https://strixhalo.local:8443/v2/</code> and set the bearer token we gave you. The hostname resolves to <code>100.64.0.1</code> via mesh DNS.</p>
+      <p>Once joined, your device has a mesh IP. Point your OpenAI client at <code>https://strixhalo.local/v2/</code> and set the bearer token we gave you. The hostname resolves to <code>100.64.0.1</code> via mesh DNS.</p>
     </article>
     <article class="pillar">
       <h3>4. Install our root CA (browser only)</h3>
@@ -80,9 +80,41 @@
     </article>
     <article class="pillar">
       <h3>6. Mobile-first voice loop</h3>
-      <p>Once on the mesh, Tailscale iOS / Android route audio + completions through strixhalo just like a LAN. halo-echo <code>wss://strixhalo.local:8443/audio/ws</code> works from a phone in the grocery store.</p>
+      <p>Once on the mesh, Tailscale iOS / Android route audio + completions through strixhalo just like a LAN. halo-echo <code>wss://strixhalo.local/audio/ws</code> works from a phone in the grocery store.</p>
     </article>
   </div>
+</section>
+
+<section id="qr-box" class="qr-section">
+  <h2>Scan to join (mobile)</h2>
+  <p>
+    Operator: paste the one-time Headscale pre-auth key below. The QR updates
+    live. Show the screen to the invitee; their phone camera opens our
+    <code>/mobile/onboard/</code> page with the key + coordination URL ready to
+    paste into the Tailscale app. Key is single-use, 24h TTL.
+  </p>
+
+  <div class="qr-form">
+    <label for="qr-authkey">Pre-auth key</label>
+    <input id="qr-authkey" type="text" spellcheck="false" autocomplete="off"
+      placeholder="hskey-auth-... (paste here)" value="">
+    <label for="qr-server">Coordination server</label>
+    <input id="qr-server" type="text" spellcheck="false" autocomplete="off"
+      value="https://headscale.halo-ai.studio">
+  </div>
+
+  <div class="qr-canvas-wrap">
+    <canvas id="qr-canvas" width="320" height="320" aria-label="QR code"></canvas>
+    <p class="qr-empty" id="qr-empty">paste a key above to generate the QR</p>
+  </div>
+
+  <p class="qr-url" id="qr-url-display"></p>
+  <p class="note">
+    QR encodes <code>https://halo-ai.studio/mobile/onboard/?key=&lt;authkey&gt;&amp;srv=&lt;coord-url&gt;</code>.
+    The invitee's phone loads that page (mobile-optimized, one-tap copy
+    buttons) and follows the tap-by-tap instructions into the Tailscale app's
+    "custom coordination server" field.
+  </p>
 </section>
 
 <section id="invite" class="install">
@@ -123,6 +155,48 @@
 </footer>
 
 </main>
+
+<script src="/join/qrcode.min.js"></script>
+<script>
+(function(){
+  var BASE = "https://halo-ai.studio/mobile/onboard/";
+  var canvas = document.getElementById("qr-canvas");
+  var empty  = document.getElementById("qr-empty");
+  var urlEl  = document.getElementById("qr-url-display");
+  var keyEl  = document.getElementById("qr-authkey");
+  var srvEl  = document.getElementById("qr-server");
+
+  function render(){
+    var key = (keyEl.value || "").trim();
+    var srv = (srvEl.value || "").trim();
+    if (!key){
+      canvas.style.display = "none";
+      empty.style.display = "block";
+      urlEl.textContent = "";
+      return;
+    }
+    var url = BASE
+      + "?key=" + encodeURIComponent(key)
+      + "&srv=" + encodeURIComponent(srv);
+    canvas.style.display = "block";
+    empty.style.display = "none";
+    try {
+      QRCode.render(canvas, url, {
+        size: 320, margin: 3,
+        ecl: QRCode.ErrorCorrectLevel.M,
+        dark: "#0d1117", light: "#ffffff"
+      });
+      urlEl.textContent = url;
+    } catch (e){
+      urlEl.textContent = "QR error: " + e.message;
+    }
+  }
+
+  keyEl.addEventListener("input", render);
+  srvEl.addEventListener("input", render);
+  render();
+})();
+</script>
 
 </body>
 </html>

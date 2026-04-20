@@ -85,8 +85,12 @@ printf "%s  # %s  # issued %s  # expires %s\n" \
 sudo install -o caddy -g caddy -m 0640 "$tmp" "$BEARER_FILE"
 rm -f "$tmp"
 
-# Reload Caddy so the new bearer is live.
-sudo systemctl reload caddy.service
+# Rebuild the shared Caddy bearer matcher + reload. The helper is the
+# single source of truth for /etc/caddy/bearers.conf — every route
+# imports the (bearer_matcher) snippet so all bearers live/revoke
+# together without editing the Caddyfile itself.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+"${SCRIPT_DIR}/halo-caddy-bearers.sh" --reload
 
 # Print ready-to-send invite message.
 cat <<EOF
@@ -109,7 +113,7 @@ One-time steps (Linux / macOS):
        --authkey $authkey
 
   # 3. Test completions
-  curl https://strixhalo.local:8443/v2/v1/chat/completions \\
+  curl https://strixhalo.local/v2/v1/chat/completions \\
        -H "Authorization: Bearer $bearer" \\
        -H "content-type: application/json" \\
        -d '{"model":"halo-1bit-2b","messages":[{"role":"user","content":"hi"}]}'
@@ -119,8 +123,8 @@ coordination server https://headscale.halo-ai.studio and paste the
 same --authkey.
 
 Browser: once on the mesh, install our root CA cert once —
-  https://strixhalo.local:8443/ca/root.crt
-then https://strixhalo.local:8443/studio/ loads natively.
+  https://strixhalo.local/ca/root.crt
+then https://strixhalo.local/studio/ loads natively.
 
 This bearer expires on $expires_at (10-day beta TTL). To extend,
 ask bcloud to re-run halo-mesh-invite.sh for a fresh 10-day token.
