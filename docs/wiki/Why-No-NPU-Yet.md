@@ -1,6 +1,52 @@
 # Why no NPU yet?
 
-**One-line answer**: evaluated four stacks (ONNX-RT + Vitis EP, FastFlowLM, IREE-AIE, direct xrt). **Deferred** — no path runs BitNet-b1.58 on Strix Halo's XDNA 2 in Linux today, and the realistic decode ceiling is below our current iGPU. Update posture: quarterly passive monitoring, not active work.
+## 2026-04-20 RULE A CONSTRAINT — no Python in NPU path
+
+User directive 2026-04-20: **zero Python, build-time or runtime.** That rules IRON *as an authoring path* (it's Python+C++). IRON stays as a **reference-only read** — we crib its MLIR tile layouts + DMA descriptors, then reimplement the kernel in straight C++ against Peano.
+
+Production path when we start:
+
+| Layer | Choice | Why |
+|---|---|---|
+| AIE kernel source | C++ via [Peano](https://github.com/Xilinx/llvm-aie) | LLVM-AIE backend, direct AIE VLIW codegen, pure C++ |
+| Build orchestration | CMake + Peano | not IRON's Python `build.py` |
+| Runtime dispatch | [libxrt](https://github.com/Xilinx/XRT) C++ (`xrt::kernel`, `xrt::bo`) | loads xclbin, manages DMA, no Python |
+| Kernel driver | [amdxdna](https://github.com/amd/xdna-driver) | upstreamed Linux 6.10+, already works |
+| Rust FFI | new `halo-bitnet-xdna` crate | mirrors `halo-bitnet-hip` shape |
+
+Same discipline as `rocm-cpp` today: C++ kernels, Rust above, no interpreters anywhere. The IRON examples at `programming_examples/basic/matrix_multiplication/` and `ml/bert/` are maps, not tools.
+
+## 2026-04-20 UPDATE: IRON / MLIR-AIE lead from AMD Discord
+
+**Geramyl (AMD mod)** pointed us at a fifth path we had not scored: `iron` (and "the other one" — confirmed as `mlir-aie`). We now know:
+
+- **`amd/IRON`** ([repo](https://github.com/amd/IRON), Apache-2.0, 92 stars, last push 2026-04-17) — Python API + operator library that lowers to MLIR-AIE. ISCA 2025 tutorial + FCCM'25 paper. Ubuntu 24.04/24.10 Linux target. Python + C++, **no Rust bindings**.
+- **`Xilinx/mlir-aie`** ([repo](https://github.com/Xilinx/mlir-aie), Apache-2.0 + LLVM-exc, 620 stars, last push 2026-04-16) — MLIR dialect + compiler IRON lowers to. 2930+ merged PRs.
+- Companion C++ VLIW compiler: `Xilinx/llvm-aie` ("Peano", 195 stars, last push **2026-04-20 — active today**).
+- Kernel driver: `amd/xdna-driver` (576 stars, 2026-04-20 active, upstreamed in Linux 6.10+).
+
+**Strix Halo status today: PARTIAL — working this week for at least one user.**
+
+Evidence from IRON issue tracker (searched 2026-04-20):
+- Issue #103 "ERT_CMD_STATE_ERROR on Strix Halo with firmware 1.1.2.65" (2026-04-17) — commenter `AngryLoki` reports IRON running on Strix, kernel 6.19.11-gentoo, XRT master ~2.23.0, xdna-driver master. Requires `xrt-smi validate` to pass first. Reload driver via `mlir-aie/utils/reset_npu.sh`.
+- Issue #55 (2026-01-02) — community user hit **2.75 TFLOPS BF16 GEMM on XDNA 2** with 8 columns. Chengyue Wang's atb-gemm branch reaches **24.6 TFLOPS** (42% theoretical peak) with block-datatype microkernels.
+- Issue #43 (2025-12) — user `alxchk` ran a full BitNet-style decode at **20.82 tok/s** via IRON before hitting a xdna-driver regression, now fixed on master.
+- Issue #93 "INT8 GEMM support" (2026-04-09, open) — user contribution in flight to wire through existing `aie2p/mm.cc` i8 templates. This is the ticket that matters for ternary.
+- Issue #53 "GGML Operation Requirements" — AMD's own engineer (`ypapadop-amd`) is scoping ggml/sub-byte type support. Not speculative.
+
+**What this changes.**
+
+- IRON is **path #5, moved from "didn't know about it" to "actively evaluating"**.
+- This does *not* change the decode ceiling argument below — we still expect ~45-77 tok/s decode on NPU, slower than our 83 tok/s iGPU baseline. **Prefill** is the only real target.
+- One-week evaluation assigned: clone, build, run hello-world GEMM, measure 2048 BF16 GEMM, prototype an int8/ternary GEMV, sketch a `libxrt` Rust FFI shim. Full plan + kill criteria in `~/.claude/projects/-home-bcloud/memory/project_npu_path_analysis.md`.
+- **No Rust bindings today.** Plan is: offline IRON → xclbin build step (Python is OK at build time, Rule A), runtime load via `libxrt` C API from a new `crates/halo-bitnet-npu` shim. Decode stays on iGPU; only prefill layers route to NPU.
+- If the kill criteria trip (see memory), we re-defer to passive monitoring and the rest of this doc stands unchanged.
+
+**Honest framing**: this is a fifth evaluation track, not a green light to ship NPU. We are thanking AMD for the pointer and spending one week to confirm the reproducibility of issue #55's 2.75 TFLOPS number on our box. Everything below remains correct for the Ryzen AI SDK / FastFlowLM / IREE / ONNX paths.
+
+---
+
+**One-line answer**: evaluated four stacks (ONNX-RT + Vitis EP, FastFlowLM, IREE-AIE, direct xrt). **Deferred** — no path runs BitNet-b1.58 on Strix Halo's XDNA 2 in Linux today, and the realistic decode ceiling is below our current iGPU. Update posture: quarterly passive monitoring, not active work. **See 2026-04-20 update above for path #5 (IRON) now under active evaluation.**
 
 ## What's on the box
 

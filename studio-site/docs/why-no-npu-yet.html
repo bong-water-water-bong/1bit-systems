@@ -50,7 +50,47 @@
 
 <main class="doc-main">
   <h1>Why no NPU yet?</h1>
-  <p><strong>One-line answer</strong>: evaluated four stacks (ONNX-RT + Vitis EP, FastFlowLM, IREE-AIE, direct xrt). <strong>Deferred</strong> — no path runs BitNet-b1.58 on Strix Halo's XDNA 2 in Linux today, and the realistic decode ceiling is below our current iGPU. Update posture: quarterly passive monitoring, not active work.</p>
+  <h2 id="2026-04-20-rule-a-constraint-no-python-in-npu-path">2026-04-20 RULE A CONSTRAINT — no Python in NPU path</h2>
+<p>User directive 2026-04-20: <strong>zero Python, build-time or runtime.</strong> That rules IRON <em>as an authoring path</em> (it's Python+C++). IRON stays as a <strong>reference-only read</strong> — we crib its MLIR tile layouts + DMA descriptors, then reimplement the kernel in straight C++ against Peano.</p>
+<p>Production path when we start:</p>
+<table>
+<thead><tr><th>Layer</th><th>Choice</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td>AIE kernel source</td><td>C++ via <a href="https://github.com/Xilinx/llvm-aie">Peano</a></td><td>LLVM-AIE backend, direct AIE VLIW codegen, pure C++</td></tr>
+<tr><td>Build orchestration</td><td>CMake + Peano</td><td>not IRON's Python <code>build.py</code></td></tr>
+<tr><td>Runtime dispatch</td><td><a href="https://github.com/Xilinx/XRT">libxrt</a> C++ (<code>xrt::kernel</code>, <code>xrt::bo</code>)</td><td>loads xclbin, manages DMA, no Python</td></tr>
+<tr><td>Kernel driver</td><td><a href="https://github.com/amd/xdna-driver">amdxdna</a></td><td>upstreamed Linux 6.10+, already works</td></tr>
+<tr><td>Rust FFI</td><td>new <code>halo-bitnet-xdna</code> crate</td><td>mirrors <code>halo-bitnet-hip</code> shape</td></tr>
+</tbody></table>
+<p>Same discipline as <code>rocm-cpp</code> today: C++ kernels, Rust above, no interpreters anywhere. The IRON examples at <code>programming_examples/basic/matrix_multiplication/</code> and <code>ml/bert/</code> are maps, not tools.</p>
+<h2 id="2026-04-20-update-iron-mlir-aie-lead-from-amd-discord">2026-04-20 UPDATE: IRON / MLIR-AIE lead from AMD Discord</h2>
+<p><strong>Geramyl (AMD mod)</strong> pointed us at a fifth path we had not scored: <code>iron</code> (and "the other one" — confirmed as <code>mlir-aie</code>). We now know:</p>
+<ul>
+<li><strong><code>amd/IRON</code></strong> (<a href="https://github.com/amd/IRON">repo</a>, Apache-2.0, 92 stars, last push 2026-04-17) — Python API + operator library that lowers to MLIR-AIE. ISCA 2025 tutorial + FCCM'25 paper. Ubuntu 24.04/24.10 Linux target. Python + C++, <strong>no Rust bindings</strong>.</li>
+<li><strong><code>Xilinx/mlir-aie</code></strong> (<a href="https://github.com/Xilinx/mlir-aie">repo</a>, Apache-2.0 + LLVM-exc, 620 stars, last push 2026-04-16) — MLIR dialect + compiler IRON lowers to. 2930+ merged PRs.</li>
+<li>Companion C++ VLIW compiler: <code>Xilinx/llvm-aie</code> ("Peano", 195 stars, last push <strong>2026-04-20 — active today</strong>).</li>
+<li>Kernel driver: <code>amd/xdna-driver</code> (576 stars, 2026-04-20 active, upstreamed in Linux 6.10+).</li>
+</ul>
+<p><strong>Strix Halo status today: PARTIAL — working this week for at least one user.</strong></p>
+<p>Evidence from IRON issue tracker (searched 2026-04-20):</p>
+<ul>
+<li>Issue #103 "ERT_CMD_STATE_ERROR on Strix Halo with firmware 1.1.2.65" (2026-04-17) — commenter <code>AngryLoki</code> reports IRON running on Strix, kernel 6.19.11-gentoo, XRT master ~2.23.0, xdna-driver master. Requires <code>xrt-smi validate</code> to pass first. Reload driver via <code>mlir-aie/utils/reset_npu.sh</code>.</li>
+<li>Issue #55 (2026-01-02) — community user hit <strong>2.75 TFLOPS BF16 GEMM on XDNA 2</strong> with 8 columns. Chengyue Wang's atb-gemm branch reaches <strong>24.6 TFLOPS</strong> (42% theoretical peak) with block-datatype microkernels.</li>
+<li>Issue #43 (2025-12) — user <code>alxchk</code> ran a full BitNet-style decode at <strong>20.82 tok/s</strong> via IRON before hitting a xdna-driver regression, now fixed on master.</li>
+<li>Issue #93 "INT8 GEMM support" (2026-04-09, open) — user contribution in flight to wire through existing <code>aie2p/mm.cc</code> i8 templates. This is the ticket that matters for ternary.</li>
+<li>Issue #53 "GGML Operation Requirements" — AMD's own engineer (<code>ypapadop-amd</code>) is scoping ggml/sub-byte type support. Not speculative.</li>
+</ul>
+<p><strong>What this changes.</strong></p>
+<ul>
+<li>IRON is <strong>path #5, moved from "didn't know about it" to "actively evaluating"</strong>.</li>
+<li>This does <em>not</em> change the decode ceiling argument below — we still expect ~45-77 tok/s decode on NPU, slower than our 83 tok/s iGPU baseline. <strong>Prefill</strong> is the only real target.</li>
+<li>One-week evaluation assigned: clone, build, run hello-world GEMM, measure 2048 BF16 GEMM, prototype an int8/ternary GEMV, sketch a <code>libxrt</code> Rust FFI shim. Full plan + kill criteria in <code>~/.claude/projects/-home-bcloud/memory/project_npu_path_analysis.md</code>.</li>
+<li><strong>No Rust bindings today.</strong> Plan is: offline IRON → xclbin build step (Python is OK at build time, Rule A), runtime load via <code>libxrt</code> C API from a new <code>crates/halo-bitnet-npu</code> shim. Decode stays on iGPU; only prefill layers route to NPU.</li>
+<li>If the kill criteria trip (see memory), we re-defer to passive monitoring and the rest of this doc stands unchanged.</li>
+</ul>
+<p><strong>Honest framing</strong>: this is a fifth evaluation track, not a green light to ship NPU. We are thanking AMD for the pointer and spending one week to confirm the reproducibility of issue #55's 2.75 TFLOPS number on our box. Everything below remains correct for the Ryzen AI SDK / FastFlowLM / IREE / ONNX paths.</p>
+<hr>
+<p><strong>One-line answer</strong>: evaluated four stacks (ONNX-RT + Vitis EP, FastFlowLM, IREE-AIE, direct xrt). <strong>Deferred</strong> — no path runs BitNet-b1.58 on Strix Halo's XDNA 2 in Linux today, and the realistic decode ceiling is below our current iGPU. Update posture: quarterly passive monitoring, not active work. <strong>See 2026-04-20 update above for path #5 (IRON) now under active evaluation.</strong></p>
 <h2 id="what-s-on-the-box">What's on the box</h2>
 <ul>
 <li><strong>AMD XDNA 2</strong> — 50 TOPS int8 matrix accelerator in the Strix Halo APU package.</li>
