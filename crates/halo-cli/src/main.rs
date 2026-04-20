@@ -7,10 +7,13 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
+mod bench;
+mod chat;
 mod status;
 mod doctor;
 mod install;
 mod logs;
+mod ppl;
 mod restart;
 mod say;
 mod update;
@@ -71,6 +74,36 @@ enum Cmd {
         #[arg(short = 's', long, default_value_t = 1.0)]
         speed: f32,
     },
+    /// Interactive one-shot REPL against halo-server :8180
+    Chat {
+        #[arg(long)]
+        url: Option<String>,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long, default_value_t = 128)]
+        max_tokens: u32,
+    },
+    /// Shadow-burnin summary (parity vs gen-1 C++ :8080)
+    Bench {
+        /// If set, run N new rounds before printing the summary
+        #[arg(long)]
+        rounds: Option<u32>,
+        /// Only count rounds after this ISO-8601 timestamp
+        #[arg(long)]
+        since: Option<String>,
+    },
+    /// Perplexity against gen-1 wikitext baseline (9.1607)
+    Ppl {
+        #[arg(long)]
+        url: Option<String>,
+        #[arg(long, default_value_t = 1024)]
+        stride: u32,
+        #[arg(long, default_value_t = 1024)]
+        max_tokens: u32,
+        /// Bytes of wikitext to send (from the start of the file)
+        #[arg(long, default_value_t = 6000)]
+        bytes: usize,
+    },
 }
 
 #[tokio::main]
@@ -98,5 +131,8 @@ async fn main() -> Result<()> {
             let voice_owned: String = voice.unwrap_or_else(|| say::default_voice().into());
             say::run(&phrase, &voice_owned, speed).await
         }
+        Cmd::Chat  { url, model, max_tokens }            => chat::run(url, model, max_tokens).await,
+        Cmd::Bench { rounds, since }                     => bench::run(rounds, since).await,
+        Cmd::Ppl   { url, stride, max_tokens, bytes }    => ppl::run(url, stride, max_tokens, bytes).await,
     }
 }
