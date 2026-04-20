@@ -45,6 +45,8 @@ pub use memory::{
     DELIMITER as MEMORY_DELIMITER, MAX_MEMORY_CHARS, MAX_USER_CHARS, MemoryKind, MemoryStore,
 };
 
+pub mod watch;
+
 /// The 17 specialists. Ordering matches agent-cpp/specialists/ for easy diff.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Name {

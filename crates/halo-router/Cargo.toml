@@ -20,9 +20,18 @@ path = "src/lib.rs"
 # hosts without libxrt installed. Turn it on once Peano lands a working
 # xclbin — the Xdna backend arm in forward() will start actually dispatching
 # rather than returning the NotYetWired stub error.
-default    = []
-hip        = ["halo-bitnet-hip/link-rocm"]
-real-xdna  = ["halo-bitnet-xdna/real-xrt"]
+#
+# `flm-subprocess` flips the `xdna_flm` module from a compile-time stub
+# (always returns `NotYetWired`) into a real `/usr/bin/flm` spawner. ON
+# by default because the CachyOS `fastflowlm` pkg ships the binary and
+# every strixhalo box has it; CI hosts without it disable the feature so
+# the cargo build stays green (the dispatch arm falls back to the
+# canonical `NotYetWired` stub). Rule A: FLM is a subprocess, not a
+# Python runtime — clean.
+default         = ["flm-subprocess"]
+hip             = ["halo-bitnet-hip/link-rocm"]
+real-xdna       = ["halo-bitnet-xdna/real-xrt"]
+flm-subprocess  = []
 
 [dependencies]
 anyhow  = { workspace = true }

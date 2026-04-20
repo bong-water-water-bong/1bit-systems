@@ -48,8 +48,11 @@
 <li data-slug="benchmarks"><a href="/docs/benchmarks.html">Live tok/s + PPL</a></li>
 <li data-slug="beta-10-day-ttl"><a href="/docs/beta-10-day-ttl.html">Beta 10-Day TTL</a></li>
 <li data-slug="cpu-lane-plan"><a href="/docs/cpu-lane-plan.html">CPU Lane Plan</a></li>
+<li data-slug="crate-halo-echo"><a href="/docs/crate-halo-echo.html">Crate: halo-echo</a></li>
+<li data-slug="crate-halo-gaia"><a href="/docs/crate-halo-gaia.html">Crate: halo-gaia</a></li>
 <li data-slug="npu-kernel-design"><a href="/docs/npu-kernel-design.html">NPU-Kernel-Design</a></li>
 <li data-slug="peak-performance-projection"><a href="/docs/peak-performance-projection.html">Peak Performance Projection</a></li>
+<li data-slug="sdd-workflow"><a href="/docs/sdd-workflow.html">Spec-driven development workflow (halo-ai)</a></li>
 <li data-slug="ternary-on-aie-pack-plan"><a href="/docs/ternary-on-aie-pack-plan.html">Ternary-on-AIE: packing &amp; MAC plan</a></li>
 <li data-slug="vpn-only-api"><a href="/docs/vpn-only-api.html">VPN-only API — 10-seat private beta testing ground</a></li>
 <li data-slug="why-caddy-systemd"><a href="/docs/why-caddy-systemd.html">Why Caddy + user-scope systemd?</a></li>
@@ -97,8 +100,11 @@
 <a class="doc-card" href="/docs/benchmarks.html"><h3>Live tok/s + PPL</h3><p>What we measure and what each number means. All numbers taken on the production box (strixhalo, 100.64.0.1) unless noted.</p></a>
 <a class="doc-card" href="/docs/beta-10-day-ttl.html"><h3>Beta 10-Day TTL</h3><p>Policy (2026-04-20): the halo-ai private beta demo window is ten days. After ten days every bearer-token + Headscale user issued during the window auto-revokes, and any memory files explicitly tagged as beta artifacts purge themselves. Re-i…</p></a>
 <a class="doc-card" href="/docs/cpu-lane-plan.html"><h3>CPU Lane Plan</h3><p>The 7th surface of halo-ai's APU stack: the 16 Zen5 cores on Strix Halo, running the sampler + tokenizer + dispatcher in parallel with the iGPU's next-token grind.</p></a>
+<a class="doc-card" href="/docs/crate-halo-echo.html"><h3>Crate: halo-echo</h3><p>--- phase: implementation owner: anvil ---</p></a>
+<a class="doc-card" href="/docs/crate-halo-gaia.html"><h3>Crate: halo-gaia</h3><p>--- phase: analysis owner: cartograph ---</p></a>
 <a class="doc-card" href="/docs/npu-kernel-design.html"><h3>NPU-Kernel-Design</h3><p>Design notes for the straight-C++/Peano reimplementation of IRON's INT8 GEMM, targeting the Strix Halo XDNA2 NPU for BitNet prefill. Source reference: amd/IRON @ devel (cloned 2026-04-20 to /tmp/IRON-read).</p></a>
 <a class="doc-card" href="/docs/peak-performance-projection.html"><h3>Peak Performance Projection</h3><p>Quantitative projection of halo-ai end-state throughput on Strix Halo (Ryzen AI MAX+ 395) once all seven planned lanes ship. Every number has a derivation or a citation. All projections carry a ±20% band unless stated otherwise.</p></a>
+<a class="doc-card" href="/docs/sdd-workflow.html"><h3>Spec-driven development workflow (halo-ai)</h3><p>--- phase: verified owner: cartograph ---</p></a>
 <a class="doc-card" href="/docs/ternary-on-aie-pack-plan.html"><h3>Ternary-on-AIE: packing &amp; MAC plan</h3><p>Design doc for how BitNet-b1.58-2B-4T weights (ternary, values {-1, 0, +1}) land on the XDNA 2 AIE2P tile array. Extends `NPU-Kernel-Design.md`. Read that first for the 8×4 tile grid + INT8 GEMM gotchas.</p></a>
 <a class="doc-card" href="/docs/vpn-only-api.html"><h3>VPN-only API — 10-seat private beta testing ground</h3><p>Policy (2026-04-20): the halo-ai test API does not expose a public endpoint. Every client — laptop, mobile, browser, agent — reaches the box over a private Headscale mesh. No Cloudflare Tunnel, no public ACME cert, no port-forward. The …</p></a>
 <a class="doc-card" href="/docs/why-caddy-systemd.html"><h3>Why Caddy + user-scope systemd?</h3><p>Caddy handles TLS, HTTP/3, reverse-proxy, and reload semantics with a 20-line config. systemd --user lets every halo-ai process restart without root. Snapper catches any mistake. No Docker, no k8s, no YAML jungle.</p></a>

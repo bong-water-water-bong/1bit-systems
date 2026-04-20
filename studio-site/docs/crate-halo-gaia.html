@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Why `halo power`? · halo-ai docs</title>
-  <meta name="description" content="halo-ai docs: Why `halo power`?">
+  <title>Crate: halo-gaia · halo-ai docs</title>
+  <meta name="description" content="halo-ai docs: Crate: halo-gaia">
   <link rel="stylesheet" href="/docs/docs.css">
 </head>
-<body data-slug="why-halo-power">
+<body data-slug="crate-halo-gaia">
 <nav class="doc-topbar">
   <a href="/" class="logo">halo-<span>ai</span></a>
   <a href="/docs/">docs</a>
@@ -63,35 +63,45 @@
 </nav>
 
 <main class="doc-main">
-  <h1>Why <code>halo power</code>?</h1>
-  <p><strong>One-line answer</strong>: Strix Halo shares one LPDDR5 memory controller between CPU and GPU, so package-power spent on idle x86 cores directly costs decode tok/s. <code>halo power</code> exposes three named envelopes that you can flip between without memorizing <code>ryzenadj</code> flags.</p>
-<h2 id="the-three-profiles">The three profiles</h2>
-<table>
-<thead><tr><th>Profile</th><th>stapm</th><th>fast</th><th>slow</th><th>tctl</th><th>When to switch to it</th></tr></thead>
-<tbody>
-<tr><td><code>inference</code></td><td>65 W</td><td>80 W</td><td>75 W</td><td>95 °C</td><td>Long bitnet decode, batch PPL runs, burn-in sweeps.</td></tr>
-<tr><td><code>chat</code></td><td>45 W</td><td>65 W</td><td>55 W</td><td>90 °C</td><td>Default — interactive <code>halo chat</code>, halo-gaia traffic.</td></tr>
-<tr><td><code>idle</code></td><td>20 W</td><td>35 W</td><td>25 W</td><td>80 °C</td><td>Closet-quiet after &gt;60 s of zero traffic.</td></tr>
-</tbody></table>
-<p>Values come from <code>docs/halo-power-design.md</code>; they're a starting point pending a decode-bench sweep.</p>
-<h2 id="why-these-three-and-not-more">Why these three and not more?</h2>
-<p>We drive profile by <em>traffic pattern</em>, not by per-process rules (the RyzenZPilot model). Our process set is small and our HTTP surface is one server — three envelopes cover every realistic halo-ai workload and every extra knob is just another thing to forget about.</p>
-<h2 id="how-it-works-under-the-hood">How it works under the hood</h2>
+  <h1>Crate: halo-gaia</h1>
+  <hr>
+<p>phase: analysis owner: cartograph</p>
+<hr>
+<h2 id="problem">Problem</h2>
+<p>Operator + end-user desktop client for halo-ai. Today the paths are (a) browser at <code>/studio/voice/</code> (Apple watch to Android phone to laptop), (b) <code>halo</code> CLI (terse, power-user). Nothing pulls everything into one pane: live metrics + voice chat + skill + memory inspection + remote mesh peers. halo-gaia is that pane.</p>
+<p>Named after the Greek primordial of Earth — the surface where all the other halo crates (rocm-cpp kernels underneath, halo-server + halo-voice + halo-echo + halo-agents above) finally meet the person using the box.</p>
+<h2 id="invariants">Invariants</h2>
+<ol>
+<li><strong>Single binary, no runtime deps.</strong> Native Rust GUI (iced / egui / ratatui-first then maybe a native-window wrapper). Ships as one ELF, runs on Linux first, macOS later. No Electron, no web-view shell. No Python, no node. Rule A applies all the way to the user's desktop.</li>
+<li><strong>Works offline.</strong> Must render + let the user manage local skills / memory / models even when halo-server is down.</li>
+<li><strong>Mesh-aware.</strong> The same binary running on any mesh peer (laptop, second mini-PC, Pi) should see the same halo-ai state by pointing at the mesh IP. No per-device state drift.</li>
+<li><strong>Bearer secrets never land in files.</strong> Tokens live in the system keyring (secret-service / kwallet / libsecret). No plaintext token on disk.</li>
+<li><strong>One keyboard trip equals one user intention.</strong> No popup dialogs for routine ops. CLI power-user can drive every pane with keyboard alone.</li>
+</ol>
+<h2 id="non-goals">Non-goals</h2>
 <ul>
-<li><code>halo power &lt;profile&gt;</code> → <code>sudo ryzenadj --tctl-temp=N --slow-limit=N --fast-limit=N --stapm-limit=N</code>.</li>
-<li>Flag order is deliberate: thermal ceiling up first, power limits up second. Ctrl-C mid-apply leaves you in a safe state.</li>
-<li><code>halo power</code> (no args) reads back current state via <code>ryzenadj --info</code>.</li>
-<li><code>halo power --dry-run inference</code> prints the argv without executing.</li>
+<li>Not a web-browser shell (use <code>/studio/voice/</code> in Firefox if you want a browser — this is the native client lane).</li>
+<li>Not a model trainer — halo-gaia never spawns training jobs. Training happens on Battlemage or a rented box; halo-gaia consumes the resulting weights via <code>halo install</code>.</li>
+<li>Not a chat-logging product — conversation history lives in the server-side FTS5 sessions DB (halo-agents::sessions), NOT in halo-gaia. halo-gaia is a view.</li>
+<li>Not a web-facing product. Distribution is via <code>halo install gaia</code> or <code>cargo install halo-gaia</code> — no signed installers for Windows / macOS ahead of Linux.</li>
+<li>Not a multi-tenant app — each user runs their own mesh peer.</li>
 </ul>
-<h2 id="why-not-link-a-rust-ryzenadj-crate">Why not link a Rust ryzenadj crate?</h2>
-<p>Because <code>FlyGoat/ryzenadj</code> tracks AMD Family 19h stepping quirks upstream. When a new Strix Halo BIOS lands, we <code>pacman -Syu</code> and inherit the fix. A vendored Rust port would make us the second ryzenadj maintainer — an 800–1200-LOC commitment for ~zero upside. See <code>docs/halo-power-design.md</code> option (c).</p>
-<h2 id="install">Install</h2>
-<p>Not bundled. <code>ryzenadj</code> is an AUR/pacman package on CachyOS:</p>
-<pre><code>sudo pacman -S ryzenadj
-</code></pre>
-<p>If it's missing, <code>halo power</code> warns cleanly and no-ops — the CLI stays usable on boxes where thermal tuning isn't relevant (e.g. dev laptops).</p>
-<h2 id="not-in-scope">Not in scope</h2>
-<p>CPU governor (<code>cpupower</code>), amdgpu sysfs (<code>power_dpm_force_performance_level</code>), and fan curves (BIOS/EC) are all owned elsewhere. See <code>docs/halo-power-design.md</code> safety notes.</p>
+<h2 id="phase-analysis">Phase: analysis</h2>
+<p>Spec is at <code>analysis</code> until invariants + non-goals are reviewed by <code>magistrate</code> and the interface shape is approved by <code>cartograph</code>. Promote the commit message: <code>spec(halo-gaia): promote from analysis → solutioning — ...</code> once both reviewers sign off.</p>
+<p>Open questions for solutioning:</p>
+<ul>
+<li><code>iced</code> or <code>egui</code> or a split (ratatui on terminal + egui on desktop)?</li>
+<li>Which panes go in the v0 minimum? Proposal: (1) live metrics + service status, (2) voice chat (wraps <code>/voice/</code> but native-mic), (3) skill browser (halo-agents::SkillStore), (4) memory browser (MEMORY.md + USER.md), (5) model catalog + install from <code>halo install</code>.</li>
+<li>Keyring backend selection per-OS. libsecret on Linux; keychain on macOS.</li>
+<li>Does it own its own halo-server lifecycle (start/stop via systemd --user) or just observe?</li>
+</ul>
+<h2 id="cross-refs">Cross-refs</h2>
+<ul>
+<li>CLAUDE.md — Rule A (no Python) applies.</li>
+<li><code>docs/wiki/SDD-Workflow.md</code> — phase gate + review specialist mapping.</li>
+<li><code>docs/wiki/VPN-Only-API.md</code> — mesh-awareness requirement (invariant 3).</li>
+<li><code>crates/halo-gaia/</code> — current scaffold.</li>
+</ul>
 
 </main>
 </div>

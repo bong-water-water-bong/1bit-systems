@@ -177,6 +177,32 @@ pub enum BackendError {
     /// log + count them differently without regex on the message.
     #[error("{0}")]
     CpuLaneStub(&'static str),
+    /// Operator selected `Backend::Xdna` against a ternary BitNet model.
+    /// FastFlowLM (the only Linux-on-STX-H NPU path that actually runs
+    /// LLMs today, `/usr/bin/flm`) is Q4NX-only — ternary weights don't
+    /// have a kernel. AMD has signalled a ternary→INT8 mapping is in
+    /// flight (see `project_lemonade_10_2_pivot.md`); until it ships,
+    /// this arm refuses gracefully so ops tooling can retry with
+    /// `HALO_BACKEND=hip`.
+    ///
+    /// Distinct from [`BackendError::NotYetWired`] because *this* path
+    /// won't get unblocked by our own build — it's an upstream feature
+    /// wait.
+    #[error("{0}")]
+    NpuTernaryUnsupported(&'static str),
+    /// FastFlowLM subprocess (`/usr/bin/flm`) couldn't be spawned — binary
+    /// missing, not executable, or crashed at startup. Surfaces the OS
+    /// error message verbatim so operators can diagnose from logs without
+    /// re-running the subprocess by hand.
+    ///
+    /// Owned `String` (not `&'static str`) because the payload is the
+    /// OS-specific spawn error, not a canned message. Distinct from
+    /// [`BackendError::NotYetWired`] because the NPU-prefill path *is*
+    /// wired in this build — the failure is environmental, not a code
+    /// gap, and ops tooling may want to retry after `sudo pacman -S
+    /// fastflowlm`.
+    #[error("flm subprocess: {0}")]
+    FlmSpawn(String),
     /// Anything else.
     #[error("router: {0}")]
     Other(String),
