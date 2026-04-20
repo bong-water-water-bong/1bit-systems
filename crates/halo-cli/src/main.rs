@@ -15,6 +15,7 @@ mod doctor;
 mod install;
 mod logs;
 mod memory;
+mod npu;
 mod power;
 mod ppl;
 mod restart;
@@ -129,6 +130,11 @@ enum Cmd {
         #[command(subcommand)]
         cmd: memory::MemoryCmd,
     },
+    /// XDNA 2 NPU diagnostics — xrt-smi wrapper + firmware / memlock probes.
+    Npu {
+        #[command(subcommand)]
+        cmd: npu::NpuCmd,
+    },
     /// Shadow-burnin log analyzer (byte-exact rate + drift patterns).
     ///
     /// With no subcommand prints a one-line summary and exits 0 if the
@@ -172,6 +178,7 @@ async fn main() -> Result<()> {
         Cmd::Power { profile, dry_run, list }            => power::run(profile, dry_run, list),
         Cmd::Skill { cmd }                               => skill::run(cmd),
         Cmd::Memory { cmd }                              => memory::run(cmd),
+        Cmd::Npu    { cmd }                              => npu::run(cmd),
         Cmd::Burnin { cmd }                              => burnin::run(cmd).await,
     }
 }

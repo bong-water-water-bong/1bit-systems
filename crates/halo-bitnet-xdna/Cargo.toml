@@ -1,0 +1,31 @@
+[package]
+name         = "halo-bitnet-xdna"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+authors.workspace      = true
+description  = "FFI bridge from Rust to AMD XDNA 2 NPU via XRT (libxrt_coreutil / libxrt_core). Loads AIE xclbins + dispatches kernels; feature-gated so CI hosts without XRT can build."
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+# Default: stub mode. No libxrt at build time, every public call returns
+# XdnaError::UnsupportedStub. Keeps CI green on hosts without XRT.
+default  = ["stub"]
+stub     = []
+# Enable real XRT linkage + C++ glue compile. Requires libxrt_coreutil +
+# libxrt_core on the host (Arch pkg: xrt). This is what ships on the
+# strixhalo box once Peano lands a real xclbin.
+real-xrt = []
+
+[dependencies]
+anyhow    = { workspace = true }
+thiserror = { workspace = true }
+tracing   = { workspace = true }
+
+[build-dependencies]
+# Only actually invoked when `real-xrt` is enabled (see build.rs).
+cc = "1.2"
