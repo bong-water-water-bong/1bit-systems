@@ -34,17 +34,45 @@
 <main id="top">
 
 <section id="hero" class="hero">
-  <p class="eyebrow">bare metal · c++ + rust only · no containers · no python at runtime</p>
-  <h1>1-bit ternary inference on Strix Halo.<br><span class="accent">Bare metal. No cloud.</span></h1>
-  <p class="lede">Native Rust orchestration over C++ HIP kernels, running BitNet-b1.58 on a $3k AMD Ryzen AI MAX+ 395 mini-PC. 128&nbsp;GB of LPDDR5 shared between CPU and iGPU. No Python, no containers, no datacenter-GPU tax.</p>
+  <p class="eyebrow">1-bit monster · Strix Halo unlocked · bare metal · zero cloud</p>
+  <h1>Wake the <span class="accent">1-bit monster</span><br>sleeping in your desktop.</h1>
+  <p class="lede">
+    AMD Ryzen AI MAX+ 395 is a <b>CPU + iGPU + NPU sharing 128&nbsp;GB LPDDR5 at 256&nbsp;GB/s</b>.
+    Most benchmark it like a laptop and miss what it is. We run <b>ternary BitNet-b1.58</b> on
+    native HIP kernels above our own C++ — 83&nbsp;tok/s decode today, <b>~280 tok/s on the roadmap</b>,
+    sub-second voice mouth-to-ear. No datacenter GPU. No subscription. One box, one drive, one mesh.
+  </p>
   <p class="hero-cta">
     <a class="btn" href="#install">Install in 60s</a>
     <a class="btn ghost" href="/docs/">Read the docs</a>
+    <a class="btn ghost" href="/join/">Join the beta</a>
   </p>
   <p class="aspirational">
     <b>Target ceiling:</b> ~280&nbsp;tok/s decode · NPU prefill crossover at 33-token prompts · 256&nbsp;GB/s LPDDR5 wall.
     <a href="/docs/peak-performance-projection.html">how we get there →</a>
   </p>
+</section>
+
+<section id="family" class="pillars">
+  <h2>featuring halo — and family</h2>
+  <p class="note">Fourteen crates, one monorepo, one job each. Rust above the HIP line, C++ below. No Python in the hot path. No container overhead. Everything runs as a user-systemd unit.</p>
+  <div class="pillar-grid">
+    <article class="pillar"><h3>halo-server</h3><p>OpenAI-compat HTTP. /v1/chat/completions with SSE. Bearer-gated via Caddy. 2.4&nbsp;MB binary.</p></article>
+    <article class="pillar"><h3>halo-router</h3><p>Backend dispatcher — iGPU / NPU / CPU. <code>HALO_BACKEND=xdna</code> future-wires prefill to XDNA 2.</p></article>
+    <article class="pillar"><h3>halo-bitnet-hip</h3><p>FFI into rocm-cpp HIP kernels. The 92%-LPDDR5-peak ternary GEMV lives on the other side of this door.</p></article>
+    <article class="pillar"><h3>halo-bitnet-xdna</h3><p>FFI into libxrt for NPU dispatch. Stub today; real path waits on Lemonade 10.2 ternary-INT8 or our own Peano kernel.</p></article>
+    <article class="pillar"><h3>halo-voice</h3><p>Sentence-boundary streaming TTS. Cuts mouth-to-ear from 1.5 s to ~1.2 s. 15 unit tests.</p></article>
+    <article class="pillar"><h3>halo-echo</h3><p>WebSocket voice server. Opus 20&nbsp;ms frames, audiopus + libopus. Browser + mobile friendly.</p></article>
+    <article class="pillar"><h3>halo-whisper</h3><p>STT via ggerganov/whisper.cpp. Streaming partials plan filed in docs. Base.en on gfx1151.</p></article>
+    <article class="pillar"><h3>halo-kokoro</h3><p>Single-sentence TTS, 24&nbsp;kHz mono WAV. onnxruntime. af_sky / am_michael / bf_emma / bm_george voices.</p></article>
+    <article class="pillar"><h3>halo-mcp</h3><p>Stdio JSON-RPC MCP bridge. 19 tools: 17 specialists + skill_manage + memory_manage. Speaks Hermes + Claude Code.</p></article>
+    <article class="pillar"><h3>halo-agents</h3><p>Typed specialist registry: anvil, carpenter, forge, herald, librarian, magistrate, muse, planner, sentinel, warden, … 17 total.</p></article>
+    <article class="pillar"><h3>halo-cli</h3><p><code>halo status · doctor · install · skill · memory · npu · burnin · power</code>. One command, whole stack.</p></article>
+    <article class="pillar"><h3>halo-landing</h3><p>Marketing + /metrics on :8190. Live probe showing what the box is doing right now.</p></article>
+    <article class="pillar"><h3>halo-lemonade</h3><p>OpenAI-compat gateway on :8200. Bridges external clients to halo-server with our token shape.</p></article>
+    <article class="pillar"><h3>halo-gaia</h3><p>Desktop TUI client. Scaffolded. Next-gen halo-gaia app will drive voice + code + music from one pane.</p></article>
+    <article class="pillar"><h3>halo-core</h3><p>Pure model + tokenizer parsers. mmap-only, no I/O beyond the file handle. The only crate with zero dependencies beyond std.</p></article>
+  </div>
 </section>
 
 <section class="os-warn" role="alert">
