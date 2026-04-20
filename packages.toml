@@ -8,14 +8,21 @@
 #   check       — optional HTTP healthcheck; 2xx = installed OK
 
 [component.core]
-description = "Rust inference core (halo CLI + halo-server + HIP kernels)"
+description = "halo-ai core — halo CLI + halo-server + halo-lemonade gateway + halo-gaia TUI + landing page"
 deps        = []
 build = [
-    ["cargo", "install", "--path", "crates/halo-cli",    "--force", "--quiet"],
-    ["cargo", "install", "--path", "crates/halo-server", "--force", "--quiet",
+    ["cargo", "install", "--path", "crates/halo-cli",      "--force", "--quiet"],
+    ["cargo", "install", "--path", "crates/halo-server",   "--force", "--quiet",
      "--features", "real-backend"],
+    ["cargo", "install", "--path", "crates/halo-lemonade", "--force", "--quiet"],
+    ["cargo", "install", "--path", "crates/halo-gaia",     "--force", "--quiet"],
+    ["cargo", "install", "--path", "crates/halo-landing",  "--force", "--quiet"],
 ]
-units = ["strix-server.service"]
+units = [
+    "strix-server.service",
+    "strix-lemonade.service",
+    "strix-landing.service",
+]
 check = "http://127.0.0.1:8180/v1/models"
 
 [component.agents]
@@ -49,13 +56,11 @@ units       = ["halo-lemonade.service"]
 check       = "http://127.0.0.1:8000/api/v0/models"
 
 [component.lemonade-rs]
-description = "halo-lemonade — Rust OpenAI-compat model gateway on :8200"
-deps        = []
-build = [
-    ["cargo", "install", "--path", "crates/halo-lemonade", "--force", "--quiet"],
-]
-units = ["strix-lemonade.service"]
-check = "http://127.0.0.1:8200/_health"
+description = "halo-lemonade — OpenAI + Lemonade-SDK compat gateway on :8200 (bundled in core)"
+deps        = ["core"]
+build       = []
+units       = []
+check       = "http://127.0.0.1:8200/_health"
 
 [component.bitnet-gen1]
 description = "Gen-1 C++ bitnet_decode server (legacy /v1/*)"
@@ -65,23 +70,18 @@ units       = ["halo-bitnet.service"]
 check       = "http://127.0.0.1:8080/v1/models"
 
 [component.landing]
-description = "halo-ai marketing landing page on :8190"
-deps        = []
-build = [
-    ["cargo", "install", "--path", "crates/halo-landing", "--force", "--quiet"],
-]
-# TODO(user): author strix-landing.service (systemd --user) before launch.
-units = ["strix-landing.service"]
-check = "http://127.0.0.1:8190/_health"
+description = "halo-ai landing page on :8190 (bundled in core — alias for back-compat)"
+deps        = ["core"]
+build       = []
+units       = []
+check       = "http://127.0.0.1:8190/_health"
 
 [component.gaia]
-description = "halo-gaia — terminal chat client against halo-server"
+description = "halo-gaia terminal chat client (bundled in core — alias for back-compat)"
 deps        = ["core"]
-build = [
-    ["cargo", "install", "--path", "crates/halo-gaia", "--force", "--quiet"],
-]
-units = []
-check = ""
+build       = []
+units       = []
+check       = ""
 
 [component.burnin]
 description = "Shadow-traffic burn-in: gen-1 :8080 vs gen-2 :8180, 72h parity log"
