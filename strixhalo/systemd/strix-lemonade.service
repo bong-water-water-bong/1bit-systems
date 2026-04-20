@@ -1,0 +1,15 @@
+[Unit]
+Description=strix-ai-rs halo-lemonade (OpenAI-compat model gateway on :8200)
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+ExecStart=/home/bcloud/.cargo/bin/halo-lemonade --bind 127.0.0.1:8200
+Restart=on-failure
+RestartSec=5
+Environment=RUST_LOG=halo_lemonade=info
+Nice=15
+
+[Install]
+WantedBy=default.target

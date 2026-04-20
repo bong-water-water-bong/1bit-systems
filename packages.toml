@@ -42,11 +42,20 @@ units       = ["halo-sd.service"]
 check       = "http://127.0.0.1:8081/health"
 
 [component.lemonade]
-description = "lemonade-server — OpenAI-compat frontend for assorted models"
+description = "lemonade-server — Python reference, OpenAI-compat frontend (legacy)"
 deps        = []
 build       = []
 units       = ["halo-lemonade.service"]
 check       = "http://127.0.0.1:8000/api/v0/models"
+
+[component.lemonade-rs]
+description = "halo-lemonade — Rust OpenAI-compat model gateway on :8200"
+deps        = []
+build = [
+    ["cargo", "install", "--path", "crates/halo-lemonade", "--force", "--quiet"],
+]
+units = ["strix-lemonade.service"]
+check = "http://127.0.0.1:8200/_health"
 
 [component.bitnet-gen1]
 description = "Gen-1 C++ bitnet_decode server (legacy /v1/*)"
