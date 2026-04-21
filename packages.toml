@@ -103,7 +103,7 @@ check       = ""
 description = "Whisper STT + Kokoro TTS (external repos, systemd only)"
 deps        = []
 build       = []
-units       = ["1bit-whisper.service", "halo-kokoro.service"]
+units       = ["halo-whisper.service", "halo-kokoro.service"]
 check       = "http://127.0.0.1:8083/health"
 
 [component.sd]
@@ -117,7 +117,7 @@ check       = "http://127.0.0.1:8081/health"
 description = "lemonade-server — Python reference, OpenAI-compat frontend (legacy)"
 deps        = []
 build       = []
-units       = ["1bit-lemonade.service"]
+units       = ["halo-lemonade.service"]
 check       = "http://127.0.0.1:8000/api/v0/models"
 
 [component.lemonade-rs]

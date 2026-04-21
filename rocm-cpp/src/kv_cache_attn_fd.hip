@@ -29,6 +29,7 @@
 
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
+#include <cfloat>
 #include <cstdint>
 #include <cmath>
 #include <mutex>
@@ -41,6 +42,13 @@ constexpr int BLOCK        = 128;
 constexpr int WARP         = 32;
 constexpr int MAX_HEAD_DIM = 256;
 constexpr int TILE         = 128;    // Flash-Decoding KV-tile size (compile-time)
+
+// Fast-math sentinel — see prim_kernels.hip. -FLT_MAX avoids the
+// -Wnan-infinity-disabled UB that -INFINITY triggers under -ffast-math.
+// The pass-2 reduce guards empty tiles with `if (tile_l == 0.0f) continue;`
+// so the sentinel's exact value never participates in arithmetic — it's
+// written at line 90 purely as a diagnostic marker.
+constexpr float NEG_SENTINEL = -FLT_MAX;
 
 // Pass 1: one block per (h, kv_tile). Computes online-softmax *over the tile*.
 // Writes [num_q_heads, num_kv_tiles, head_dim+2] scratch. Layout is:
@@ -75,7 +83,7 @@ void kv_cache_attn_decode_split_kernel(
     }
     __syncthreads();
 
-    float m = -INFINITY;
+    float m = NEG_SENTINEL;
     float l = 0.0f;
     const int elems_per_thread = (head_dim + BLOCK - 1) / BLOCK;
     float o_local[8] = {0};   // supports head_dim <= 8*BLOCK = 1024; we cap at 256.
@@ -87,7 +95,7 @@ void kv_cache_attn_decode_split_kernel(
     if (t_begin >= t_end) {
         if (tid == 0) {
             float* out_base = partials + ((size_t)h * num_kv_tiles + tile) * (head_dim + 2);
-            out_base[head_dim]     = -INFINITY;   // partial_m
+            out_base[head_dim]     = NEG_SENTINEL;   // partial_m
             out_base[head_dim + 1] = 0.0f;        // partial_l
         }
         for (int d = tid; d < head_dim; d += BLOCK) {
@@ -165,7 +173,7 @@ void kv_cache_attn_reduce_kernel(
 
     const int tid = threadIdx.x;
 
-    float m = -INFINITY;
+    float m = NEG_SENTINEL;
     float l = 0.0f;
     const int elems_per_thread = (head_dim + BLOCK - 1) / BLOCK;
     float o_local[8] = {0};
@@ -226,7 +234,13 @@ struct PartialsCache {
     float* acquire(size_t need_f) {
         std::lock_guard<std::mutex> g(mu);
         if (need_f <= cap_f) return ptr;
-        if (ptr) hipFree(ptr);
+        if (ptr) {
+            // Best-effort free. Growing on every decode step for a monotonic
+            // seq_len is the normal path; a failing hipFree here would leak
+            // device memory, but we can't meaningfully recover — log and move on.
+            hipError_t fst = hipFree(ptr);
+            (void)fst;  // [[nodiscard]] on hipError_t; ignored by design
+        }
         // Grow with a 1.5x factor to avoid thrashing as seq_len grows
         // monotonically during a decode stream.
         size_t new_cap = (cap_f == 0) ? need_f : cap_f;

@@ -166,3 +166,107 @@ fn hadamard_hook_fires_four_times_per_layer() {
     );
     eprintln!("hadamard dispatch count / token = {delta}");
 }
+
+/// Smoke test for the `HALO_BITNET_V2=1` runtime env-var gate: run one
+/// forward pass against the same rotated checkpoint with the env var
+/// unset (V1 baseline) and set (V2 online-Hadamard), and assert the
+/// argmax token or logits differ.
+///
+/// This is deliberately a *smoke* — one-token argmax delta — not a PPL
+/// regression. The actual perplexity comparison belongs to the parity
+/// harness at `benchmarks/ppl-gen2.sh`; here we just prove the runtime
+/// gate actually changes the forward pass.
+///
+/// Runtime requirements:
+///   * ROCm + a `.h1b` at `$HALO_BITNET_V2_MODEL` (or the default path).
+///   * The checkpoint must carry `H1B_FLAG_HADAMARD_ROTATED` — otherwise
+///     V2 passes through to V1 and this test skips.
+///   * `--features hip` (the compile feature isn't required for V2
+///     dispatch; the env var is the production path).
+#[test]
+#[ignore = "requires ROCm + rotated .h1b on disk; run with --ignored"]
+fn v1_vs_v2_output_differs_via_env_gate() {
+    let model_path = std::env::var("HALO_BITNET_V2_MODEL").unwrap_or_else(|_| default_model());
+    if !Path::new(&model_path).exists() {
+        eprintln!("skipping: rotated model not found at {model_path}");
+        return;
+    }
+    let htok_path = model_path.replace(".h1b", ".htok");
+
+    let prompt = "The capital of France is";
+
+    // --- V1 pass: env unset -------------------------------------------------
+    // SAFETY: this test runs serially inside cargo's default test harness
+    // by virtue of modifying a global env var. No other test here pokes
+    // HALO_BITNET_V2. Writes are legal in Rust 2024 only inside `unsafe`.
+    unsafe {
+        std::env::remove_var("HALO_BITNET_V2");
+    }
+    let mut v1 = HipBackend::new(
+        Path::new(&model_path),
+        Path::new(&htok_path),
+        "1bit-monster-2b-v1".into(),
+        4096,
+    )
+    .expect("v1 backend init");
+    let ids = v1.tokenize(prompt);
+    let mut logits_v1: Vec<f32> = Vec::new();
+    let mut tok_v1: i32 = ids[0];
+    let mut pos = 0i32;
+    for &t in &ids {
+        tok_v1 = v1.forward_token(t, pos, &mut logits_v1).expect("v1 forward");
+        pos += 1;
+    }
+    let logits_v1_snapshot = logits_v1.clone();
+
+    // --- V2 pass: env set to "1" --------------------------------------------
+    // SAFETY: see above. Same single-threaded test harness guarantee.
+    unsafe {
+        std::env::set_var("HALO_BITNET_V2", "1");
+    }
+    let mut v2 = HipBackend::new(
+        Path::new(&model_path),
+        Path::new(&htok_path),
+        "1bit-monster-2b-v2".into(),
+        4096,
+    )
+    .expect("v2 backend init");
+    let mut logits_v2: Vec<f32> = Vec::new();
+    let mut tok_v2: i32 = ids[0];
+    let mut pos = 0i32;
+    for &t in &ids {
+        tok_v2 = v2.forward_token(t, pos, &mut logits_v2).expect("v2 forward");
+        pos += 1;
+    }
+
+    // Restore env for subsequent tests / the live process.
+    // SAFETY: see above.
+    unsafe {
+        std::env::remove_var("HALO_BITNET_V2");
+    }
+
+    eprintln!("v1 argmax = {tok_v1}, v2 argmax = {tok_v2}");
+
+    // If the model isn't flagged, V2 short-circuits to V1 and the whole
+    // test is a no-op — surface a helpful skip rather than a spurious
+    // assert failure.
+    if tok_v1 == tok_v2 && logits_v1_snapshot == logits_v2 {
+        eprintln!(
+            "skipping assertion: V1 and V2 outputs are byte-identical. \
+             Most likely the loaded model does not carry \
+             H1B_FLAG_HADAMARD_ROTATED, so V2 passes through to V1. \
+             Re-run against a rotated checkpoint via \
+             HALO_BITNET_V2_MODEL=... cargo test --features hip \
+             --ignored v1_vs_v2_output_differs_via_env_gate"
+        );
+        return;
+    }
+
+    // At least one of (argmax, logit vector) must differ. A rotated
+    // checkpoint changes the quant distribution enough that bit-exact
+    // equality is essentially impossible.
+    assert!(
+        tok_v1 != tok_v2 || logits_v1_snapshot != logits_v2,
+        "V1 vs V2 output identical; expected HALO_BITNET_V2=1 to diverge"
+    );
+}

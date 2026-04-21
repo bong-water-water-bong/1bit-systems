@@ -55,18 +55,21 @@ void onebit_ternary_gemm_smallm_scalar_kernel(
     const int n = blockIdx.x * 64 + threadIdx.x;
     if (m >= M || n >= N) return;
 
-    const int k_blocks = (K + 15) / 16;
+    // Kernel precondition (shared with the tiled path): K is a multiple of 16.
+    // The packer in the test harness (pack_ternary) relies on this too.
+    const int k_blocks = K / 16;
     int32_t acc = 0;
 
     // Scalar K-loop. For each 16-k block at this n column, decode 16
     // ternary codes and multiply-accumulate with the x_i8 activations.
+    // Inner loop has no runtime-dependent break, so -Wpass-failed=transform
+    // is silent and the compiler fully unrolls.
     for (int kb = 0; kb < k_blocks; ++kb) {
         const uint32_t word = w_packed[(size_t)kb * (size_t)N + (size_t)n];
         const int k_base = kb * 16;
         #pragma unroll
         for (int j = 0; j < 16; ++j) {
             const int k = k_base + j;
-            if (k >= K) break;
             const uint32_t code = (word >> (j * 2)) & 0x3u;
             const int s = unpack_ternary_code(code);
             if (s != 0) {
@@ -91,6 +94,7 @@ void onebit_ternary_gemm_smallm_scalar_launch(
     hipStream_t stream)
 {
     if (M <= 0 || N <= 0 || K <= 0 || M > 16) return;
+    if (K % 16 != 0) return;  // packer + unrolled inner loop require this
     dim3 block(64, 1, 1);
     dim3 grid((N + 63) / 64, M, 1);
     onebit_ternary_gemm_smallm_scalar_kernel<<<grid, block, 0, stream>>>(

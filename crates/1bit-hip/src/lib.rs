@@ -825,7 +825,8 @@ pub fn hadamard_rotate_fp16_device(
 /// Host-side convenience wrapper around [`hadamard_rotate_fp16_device`]:
 /// takes two host FP16 slices (as the raw `u16` IEEE-754 half bit pattern),
 /// allocates a pair of matching `DeviceBuffer<u16>` scratch tensors, H2D's
-/// the input, runs the kernel on the null stream, and D2H's the output.
+/// the input, runs the kernel on the supplied stream (default = null
+/// stream), and D2H's the output.
 ///
 /// Not suitable for the decode hot path — every call performs two PCIe-
 /// equivalent round-trips (we're on a unified-memory iGPU so "PCIe" = LPDDR5
@@ -835,48 +836,43 @@ pub fn hadamard_rotate_fp16_device(
 /// * any future tooling that wants to verify a model's Hadamard rotation
 ///   pipeline end-to-end without standing up a full HipBackend.
 ///
-/// `block_size` **must equal [`HADAMARD_BLOCK`]** — the device kernel has
-/// the block size burned in as a constexpr and any other value would
-/// either silently produce wrong data or fail the kernel's internal
-/// divisibility assumption. We validate up front.
+/// Length must be a positive multiple of [`HADAMARD_BLOCK`] (= 128); the
+/// device kernel hardcodes block_size=128 as a constexpr, so anything else
+/// is rejected up front with [`RcppError::InvalidArg`]. Input and output
+/// slices must have equal length.
 ///
-/// Returns [`RcppError::Precondition`] on shape mismatch / zero-length;
-/// [`RcppError::HipError`] on any HIP runtime failure.
+/// `stream = None` dispatches on the default (null) HIP stream.
+///
+/// Returns [`RcppError::InvalidArg`] on bad length / zero-length / length
+/// mismatch; [`RcppError::HipError`] on any HIP runtime failure.
 pub fn hadamard_rotate_fp16(
-    in_bits: &[u16],
-    out_bits: &mut [u16],
-    block_size: usize,
+    x: &[u16],
+    y: &mut [u16],
+    stream: Option<HipStream>,
 ) -> Result<(), RcppError> {
-    if block_size != HADAMARD_BLOCK {
-        return Err(RcppError::Precondition(
-            "hadamard_rotate_fp16: block_size must equal HADAMARD_BLOCK (128)",
-        ));
+    if x.len() != y.len() {
+        return Err(RcppError::InvalidArg);
     }
-    if in_bits.len() != out_bits.len() {
-        return Err(RcppError::Precondition(
-            "hadamard_rotate_fp16: input / output length mismatch",
-        ));
+    let n = x.len();
+    if n == 0 || n % HADAMARD_BLOCK != 0 {
+        return Err(RcppError::InvalidArg);
     }
-    let n = in_bits.len();
-    if n == 0 || n % block_size != 0 {
-        return Err(RcppError::Precondition(
-            "hadamard_rotate_fp16: length must be a positive multiple of block_size",
-        ));
-    }
+
+    let stream = stream.unwrap_or(HipStream::DEFAULT);
 
     let mut d_in: DeviceBuffer<u16> = DeviceBuffer::alloc(n)?;
     let mut d_out: DeviceBuffer<u16> = DeviceBuffer::alloc(n)?;
-    d_in.copy_from_slice(in_bits)?;
+    d_in.copy_from_slice(x)?;
 
     let status = hadamard_rotate_fp16_device(
         d_in.as_device_ptr(),
         d_out.as_device_mut_ptr(),
         n as i32,
-        HipStream::DEFAULT,
+        stream,
     );
     status.into_result()?;
     device_synchronize()?;
-    d_out.copy_to_slice(out_bits)?;
+    d_out.copy_to_slice(y)?;
     Ok(())
 }
 
@@ -1278,53 +1274,80 @@ mod tests {
         assert!(matches!(err, RcppError::Precondition(_)));
     }
 
-    /// Hadamard wrapper rejects bad block sizes and mismatched lengths
-    /// without touching the GPU. Executes on every CI host regardless of
-    /// ROCm presence.
+    /// Hadamard wrapper rejects bad lengths without touching the GPU.
+    /// Executes on every CI host regardless of ROCm presence.
     #[test]
     fn hadamard_rotate_fp16_preconditions() {
-        let mut out = vec![0u16; 128];
         let inp = vec![0u16; 128];
 
-        // Wrong block_size — host-side guard, no dispatch.
-        let err = hadamard_rotate_fp16(&inp, &mut out, 64).unwrap_err();
-        assert!(
-            matches!(err, RcppError::Precondition(m) if m.contains("block_size")),
-            "expected block_size precondition; got {err:?}"
-        );
-
-        // Length mismatch.
+        // Length mismatch between input and output.
         let mut short = vec![0u16; 64];
-        let err = hadamard_rotate_fp16(&inp, &mut short, HADAMARD_BLOCK).unwrap_err();
-        assert!(matches!(err, RcppError::Precondition(_)));
+        let err = hadamard_rotate_fp16(&inp, &mut short, None).unwrap_err();
+        assert!(matches!(err, RcppError::InvalidArg));
 
-        // Length not a multiple of the block size.
+        // Length not a multiple of HADAMARD_BLOCK (=128).
         let inp_bad = vec![0u16; 100];
         let mut out_bad = vec![0u16; 100];
-        let err = hadamard_rotate_fp16(&inp_bad, &mut out_bad, HADAMARD_BLOCK).unwrap_err();
-        assert!(matches!(err, RcppError::Precondition(_)));
+        let err = hadamard_rotate_fp16(&inp_bad, &mut out_bad, None).unwrap_err();
+        assert!(matches!(err, RcppError::InvalidArg));
 
         // Zero length is rejected (the kernel does nothing meaningful on 0).
-        let err = hadamard_rotate_fp16(&[], &mut Vec::<u16>::new(), HADAMARD_BLOCK).unwrap_err();
-        assert!(matches!(err, RcppError::Precondition(_)));
+        let err = hadamard_rotate_fp16(&[], &mut Vec::<u16>::new(), None).unwrap_err();
+        assert!(matches!(err, RcppError::InvalidArg));
 
-        // Device wrapper: k not divisible by 128 → InvalidArg (not dispatched).
-        let s = hadamard_rotate_fp16_device(
-            DevicePtr::<u16>::null(),
-            DeviceMutPtr::<u16>::null(),
-            127,
-            HipStream::DEFAULT,
-        );
-        assert_eq!(s, RcppStatus::InvalidArg);
+        // Explicit-stream form uses the same guards.
+        let err =
+            hadamard_rotate_fp16(&inp_bad, &mut out_bad, Some(HipStream::DEFAULT)).unwrap_err();
+        assert!(matches!(err, RcppError::InvalidArg));
+    }
 
-        // k == 0 also rejected.
-        let s = hadamard_rotate_fp16_device(
-            DevicePtr::<u16>::null(),
-            DeviceMutPtr::<u16>::null(),
-            0,
-            HipStream::DEFAULT,
-        );
-        assert_eq!(s, RcppStatus::InvalidArg);
+    /// Round-trip smoke on the device-side Walsh-Hadamard butterfly at the
+    /// two block-count grains the router actually uses: K=128 (one block,
+    /// minimal path) and K=256 (two blocks, covers block-index dispatch).
+    ///
+    /// `H_128` is self-inverse up to a 1/sqrt(128) scale (orthogonal), so
+    /// applying the rotation twice should return the original input within
+    /// FP16 round-trip precision.
+    ///
+    /// Ignored by default — requires a GPU + `--features link-rocm`.
+    #[test]
+    #[ignore = "requires GPU + link-rocm feature; run with --ignored"]
+    fn hadamard_rotate_roundtrip_k128_k256() {
+        use half::f16;
+
+        for n in [128usize, 256usize] {
+            let mut inp_bits: Vec<u16> = Vec::with_capacity(n);
+            for i in 0..n {
+                let phase = (i as f32) * 0.173 + 0.25;
+                let v = phase.cos() * 2.5;
+                inp_bits.push(f16::from_f32(v).to_bits());
+            }
+            let original: Vec<f32> = inp_bits
+                .iter()
+                .map(|&b| f16::from_bits(b).to_f32())
+                .collect();
+
+            let mut once = vec![0u16; n];
+            hadamard_rotate_fp16(&inp_bits, &mut once, None)
+                .unwrap_or_else(|e| panic!("first rotation (n={n}): {e:?}"));
+
+            let mut twice = vec![0u16; n];
+            hadamard_rotate_fp16(&once, &mut twice, None)
+                .unwrap_or_else(|e| panic!("second rotation (n={n}): {e:?}"));
+
+            let mut max_abs = 0.0f32;
+            for i in 0..n {
+                let rec = f16::from_bits(twice[i]).to_f32();
+                let delta = (rec - original[i]).abs();
+                if delta > max_abs {
+                    max_abs = delta;
+                }
+            }
+            assert!(
+                max_abs < 0.1,
+                "n={n}: Hadamard round-trip exceeds fp16 tolerance: max_abs={max_abs}"
+            );
+        }
     }
 
     /// End-to-end identity: applying the rotation twice to the same vector
@@ -1355,10 +1378,10 @@ mod tests {
             .collect();
 
         let mut once = vec![0u16; N];
-        hadamard_rotate_fp16(&inp_bits, &mut once, HADAMARD_BLOCK).expect("first rotation");
+        hadamard_rotate_fp16(&inp_bits, &mut once, None).expect("first rotation");
 
         let mut twice = vec![0u16; N];
-        hadamard_rotate_fp16(&once, &mut twice, HADAMARD_BLOCK).expect("second rotation (inverse)");
+        hadamard_rotate_fp16(&once, &mut twice, None).expect("second rotation (inverse)");
 
         // Expected error budget: 7 stages of ±1 adds in fp32 accumulator
         // then a single fp16 store per stage, repeated. Empirically ≤

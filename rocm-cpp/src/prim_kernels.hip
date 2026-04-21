@@ -14,6 +14,7 @@
 
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
+#include <cfloat>
 #include <cstdint>
 #include <cmath>
 
@@ -23,6 +24,13 @@ namespace {
 
 constexpr int BLOCK = 256;
 constexpr int WARP  = 32;
+
+// Fast-math sentinel for "smallest representable float" in reductions.
+// Compiled with -ffast-math; plain `-INFINITY` is UB under that flag
+// (clang diagnostic -Wnan-infinity-disabled). -FLT_MAX is finite and
+// preserves the "less than any real input" property for argmax/softmax-max
+// seeds. expf(-FLT_MAX) flushes to 0 identically under fast-math.
+constexpr float NEG_SENTINEL = -FLT_MAX;
 
 // ============================================================================
 // 1. Activation quantization — FP16 [K] -> INT8 [K] + scalar scale
@@ -405,7 +413,7 @@ __global__ void top_k_fp32_kernel(
     const int wid  = tid / WARP;
 
     for (int iter = 0; iter < k; ++iter) {
-        float best_v = -INFINITY;
+        float best_v = NEG_SENTINEL;
         int   best_i = 0;
         for (int v = tid; v < V; v += BLOCK) {
             float x = logits[v];
@@ -420,7 +428,7 @@ __global__ void top_k_fp32_kernel(
         if (lane == 0) { s_val[wid] = best_v; s_idx[wid] = best_i; }
         __syncthreads();
         if (wid == 0) {
-            float v = (lane < BLOCK / WARP) ? s_val[lane] : -INFINITY;
+            float v = (lane < BLOCK / WARP) ? s_val[lane] : NEG_SENTINEL;
             int   i = (lane < BLOCK / WARP) ? s_idx[lane] : 0;
             #pragma unroll
             for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) {
@@ -431,14 +439,14 @@ __global__ void top_k_fp32_kernel(
             if (lane == 0) {
                 picked_idx[iter] = i;
                 picked_val[iter] = v;
-                logits[i] = -INFINITY;   // mask so next argmax skips it
+                logits[i] = NEG_SENTINEL;   // mask so next argmax skips it
             }
         }
         __syncthreads();
     }
 
     // Zero everything below top-k
-    for (int v = tid; v < V; v += BLOCK) logits[v] = -INFINITY;
+    for (int v = tid; v < V; v += BLOCK) logits[v] = NEG_SENTINEL;
     __syncthreads();
 
     // Restore top-k values
@@ -463,7 +471,7 @@ __global__ void softmax_fp32_kernel(
     const int wid  = tid / WARP;
 
     // 1) max reduction
-    float lmax = -INFINITY;
+    float lmax = NEG_SENTINEL;
     for (int v = tid; v < V; v += BLOCK) {
         float x = logits[v] * inv_T;
         if (x > lmax) lmax = x;
@@ -476,7 +484,7 @@ __global__ void softmax_fp32_kernel(
     if (lane == 0) s_val[wid] = lmax;
     __syncthreads();
     if (wid == 0) {
-        float v = (lane < BLOCK / WARP) ? s_val[lane] : -INFINITY;
+        float v = (lane < BLOCK / WARP) ? s_val[lane] : NEG_SENTINEL;
         #pragma unroll
         for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) {
             float ov = __shfl_xor(v, o);
@@ -551,7 +559,7 @@ __global__ void argmax_fp32_kernel(
     const int lane = tid & (WARP - 1);
     const int wid  = tid / WARP;
 
-    float best_v = -INFINITY;
+    float best_v = NEG_SENTINEL;
     int   best_i = 0;
     for (int v = tid; v < V; v += BLOCK) {
         float x = logits[v];
@@ -567,7 +575,7 @@ __global__ void argmax_fp32_kernel(
     __syncthreads();
 
     if (wid == 0) {
-        float v = (lane < BLOCK / WARP) ? s_val[lane] : -INFINITY;
+        float v = (lane < BLOCK / WARP) ? s_val[lane] : NEG_SENTINEL;
         int   i = (lane < BLOCK / WARP) ? s_idx[lane] : 0;
         #pragma unroll
         for (int o = (BLOCK / WARP) / 2; o > 0; o >>= 1) {

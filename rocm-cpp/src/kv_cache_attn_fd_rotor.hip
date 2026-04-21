@@ -24,6 +24,7 @@
 
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
+#include <cfloat>
 #include <cstdint>
 #include <cmath>
 #include <mutex>
@@ -37,6 +38,10 @@ constexpr int BLOCK        = 128;
 constexpr int WARP         = 32;
 constexpr int MAX_HEAD_DIM = 256;
 constexpr int TILE         = 128;
+
+// Fast-math sentinel — see prim_kernels.hip. -FLT_MAX avoids the
+// -Wnan-infinity-disabled UB that -INFINITY triggers under -ffast-math.
+constexpr float NEG_SENTINEL = -FLT_MAX;
 
 // splitmix32 — MUST match the generator in kernels/rotorquant_pack.hip byte
 // for byte. If these drift, the inverse rotation decodes to junk.
@@ -136,7 +141,7 @@ void kv_cache_attn_decode_split_pq3_kernel(
     }
     __syncthreads();
 
-    float m = -INFINITY;
+    float m = NEG_SENTINEL;
     float l = 0.0f;
     const int elems_per_thread = (head_dim + BLOCK - 1) / BLOCK;
     float o_local[8] = {0};
@@ -147,7 +152,7 @@ void kv_cache_attn_decode_split_pq3_kernel(
     if (t_begin >= t_end) {
         if (tid == 0) {
             float* out_base = partials + ((size_t)h * num_kv_tiles + tile) * (head_dim + 2);
-            out_base[head_dim]     = -INFINITY;
+            out_base[head_dim]     = NEG_SENTINEL;
             out_base[head_dim + 1] = 0.0f;
         }
         for (int d = tid; d < head_dim; d += BLOCK) {
@@ -287,7 +292,7 @@ void kv_cache_attn_reduce_pq3_kernel(
 
     const int tid = threadIdx.x;
 
-    float m = -INFINITY;
+    float m = NEG_SENTINEL;
     float l = 0.0f;
     const int elems_per_thread = (head_dim + BLOCK - 1) / BLOCK;
     float o_local[8] = {0};
@@ -346,7 +351,10 @@ struct PartialsCachePQ3 {
     float* acquire(size_t need_f) {
         std::lock_guard<std::mutex> g(mu);
         if (need_f <= cap_f) return ptr;
-        if (ptr) hipFree(ptr);
+        if (ptr) {
+            hipError_t fst = hipFree(ptr);
+            (void)fst;  // [[nodiscard]] on hipError_t; ignored by design
+        }
         size_t new_cap = (cap_f == 0) ? need_f : cap_f;
         while (new_cap < need_f) new_cap = new_cap + (new_cap >> 1) + 1;
         void* p = nullptr;

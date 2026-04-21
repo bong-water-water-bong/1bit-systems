@@ -14,6 +14,7 @@
 
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
+#include <cfloat>
 #include <cstdint>
 #include <cmath>
 
@@ -24,6 +25,11 @@ namespace {
 constexpr int BLOCK = 128;
 constexpr int WARP  = 32;
 constexpr int MAX_HEAD_DIM = 256;
+
+// Fast-math sentinel — see prim_kernels.hip for rationale.
+// Fast-math makes plain -INFINITY UB; -FLT_MAX is finite and equivalent
+// as the initial max for the online-softmax running maximum.
+constexpr float NEG_SENTINEL = -FLT_MAX;
 
 __global__ __launch_bounds__(BLOCK)
 void kv_cache_attn_decode_kernel(
@@ -52,7 +58,7 @@ void kv_cache_attn_decode_kernel(
 
     // Online softmax state: running max m, running exp-sum l, output accumulator o[d].
     // Output accumulator held in registers (head_dim up to 256 → each thread holds 2).
-    float m = -INFINITY;
+    float m = NEG_SENTINEL;
     float l = 0.0f;
     const int elems_per_thread = (head_dim + BLOCK - 1) / BLOCK;
     float o_local[8] = {0};  // supports up to head_dim = 256 / 128 threads * 2 = fine
@@ -173,7 +179,7 @@ void kv_cache_attn_prefill_kernel(
     }
     __syncthreads();
 
-    float m = -INFINITY;
+    float m = NEG_SENTINEL;
     float l = 0.0f;
     const int elems_per_thread = (head_dim + BLOCK - 1) / BLOCK;
     float o_local[8] = {0};

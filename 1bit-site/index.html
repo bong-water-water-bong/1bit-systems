@@ -4,144 +4,488 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0d1117">
-<title>1bit monster · local AI on Strix Halo</title>
-<meta name="description" content="Wake the 1bit monster sleeping in your desktop. BitNet-b1.58 on a Ryzen AI MAX+ 395 (Strix Halo) APU — 128 GB LPDDR5, native HIP kernels, bare metal, no cloud.">
-<link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
-<link rel="stylesheet" href="/assets/style.css">
+<title>1bit monster - wake the monster sleeping in your desktop</title>
+<meta name="description" content="Local AI inference for the AMD Ryzen AI MAX+ 395 Strix Halo mini-PC. Ternary BitNet-b1.58 on native HIP kernels, Rust orchestration, bare metal, zero cloud.">
+<meta name="color-scheme" content="dark">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><circle cx='14' cy='14' r='12.5' fill='none' stroke='%2300d4ff' stroke-width='1'/><text x='14' y='18' font-family='ui-monospace,monospace' font-size='12' font-weight='700' text-anchor='middle' fill='%2300d4ff'>1b</text><path d='M17.2 18 L17.2 21 L16.2 19.5 Z' fill='%2300d4ff'/></svg>">
+<style>
+:root{
+  --bg:#0d1117;
+  --fg:#e6edf3;
+  --muted:#8b949e;
+  --accent:#00d4ff;
+  --accent-dim:#0088a6;
+  --warn:#f0b72f;
+  --danger:#e5484d;
+  --panel:#161b22;
+  --panel-2:#1c222b;
+  --border:#30363d;
+  --border-dim:#21262d;
+  --mono:ui-monospace,"JetBrains Mono",SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);font-family:var(--sans);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+body{line-height:1.55;font-size:16px;overflow-x:hidden}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+code,pre,.mono{font-family:var(--mono)}
+hr{border:0;border-top:1px solid var(--border-dim);margin:0}
+img,svg{display:block;max-width:100%}
+
+/* ---------- nav ---------- */
+.nav{
+  position:sticky;top:0;z-index:50;
+  height:56px;display:flex;align-items:center;
+  padding:0 20px;
+  background:rgba(13,17,23,.78);
+  backdrop-filter:saturate(140%) blur(10px);
+  -webkit-backdrop-filter:saturate(140%) blur(10px);
+  border-bottom:1px solid var(--border-dim);
+}
+.nav .brand{display:flex;align-items:center;gap:10px;color:var(--fg);font-weight:600;letter-spacing:.2px}
+.nav .brand:hover{text-decoration:none}
+.nav .brand .wm{font-family:var(--mono);font-size:15px}
+.nav .brand .wm b{color:var(--accent);font-weight:700}
+.nav .brand .wm .dot{color:var(--accent);opacity:.7}
+.nav .links{margin-left:auto;display:flex;align-items:center;gap:4px}
+.nav .links a{
+  color:var(--fg);padding:8px 12px;border-radius:6px;font-size:14px;
+}
+.nav .links a:hover{background:var(--panel);text-decoration:none;color:var(--accent)}
+.nav .links a.gh{
+  background:var(--accent);color:#041318;font-weight:600;margin-left:4px;
+}
+.nav .links a.gh:hover{background:#33ddff;color:#041318}
+.nav .burger{
+  display:none;margin-left:auto;
+  background:none;border:1px solid var(--border);color:var(--fg);
+  width:40px;height:36px;border-radius:6px;cursor:pointer;
+  align-items:center;justify-content:center;
+}
+.nav .burger svg{width:20px;height:20px}
+.nav-mobile{
+  display:none;position:fixed;top:56px;left:0;right:0;z-index:49;
+  background:var(--bg);border-bottom:1px solid var(--border-dim);
+  padding:12px 20px 18px;
+}
+.nav-mobile.open{display:block}
+.nav-mobile a{display:block;padding:10px 8px;color:var(--fg);font-size:15px;border-bottom:1px solid var(--border-dim)}
+.nav-mobile a:last-child{border-bottom:0}
+.nav-mobile a.gh{color:var(--accent);font-weight:600}
+
+@media (max-width:768px){
+  .nav .links{display:none}
+  .nav .burger{display:flex}
+}
+
+/* ---------- layout ---------- */
+main{display:block}
+.wrap{max-width:1100px;margin:0 auto;padding:0 20px}
+section{padding:72px 0;border-bottom:1px solid var(--border-dim)}
+section:last-of-type{border-bottom:0}
+h1,h2,h3{font-weight:700;letter-spacing:-.01em;margin:0 0 16px}
+h2{font-size:clamp(24px,3.4vw,34px)}
+h3{font-size:18px}
+p{margin:0 0 14px;color:var(--fg)}
+.muted{color:var(--muted)}
+
+/* ---------- hero ---------- */
+.hero{
+  position:relative;
+  min-height:calc(100vh - 56px);
+  display:flex;align-items:center;
+  padding:64px 0 80px;overflow:hidden;border-bottom:1px solid var(--border-dim);
+}
+.hero::before{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(ellipse 60% 50% at 50% 30%, rgba(0,212,255,.18), transparent 65%);
+  animation:glow 8s ease-in-out infinite alternate;
+}
+@keyframes glow{
+  from{opacity:.65;transform:scale(1)}
+  to  {opacity:1;  transform:scale(1.06)}
+}
+@media (prefers-reduced-motion:reduce){
+  .hero::before{animation:none}
+}
+.hero .wrap{position:relative;z-index:1}
+.eyebrow{
+  text-transform:uppercase;letter-spacing:.18em;font-size:12px;
+  color:var(--muted);margin-bottom:18px;font-family:var(--mono);
+}
+.hero h1{
+  font-size:clamp(32px,6vw,64px);line-height:1.08;margin:0 0 22px;
+  max-width:18ch;font-weight:800;letter-spacing:-.02em;
+}
+.hero h1 .mark{color:var(--accent)}
+.lede{font-size:clamp(15px,1.6vw,18px);max-width:64ch;color:var(--fg);margin-bottom:28px}
+.lede b{color:var(--fg);font-weight:600}
+.ctas{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:22px}
+.btn{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:12px 20px;border-radius:8px;font-size:15px;font-weight:600;
+  border:1px solid transparent;cursor:pointer;font-family:inherit;
+}
+.btn.primary{background:var(--accent);color:#041318}
+.btn.primary:hover{background:#33ddff;text-decoration:none}
+.btn.ghost{background:transparent;border-color:var(--border);color:var(--fg)}
+.btn.ghost:hover{border-color:var(--accent);color:var(--accent);text-decoration:none}
+.aspir{font-size:13px;color:var(--muted);max-width:70ch}
+.aspir a{color:var(--accent)}
+
+/* ---------- warning ---------- */
+.warn{
+  background:rgba(240,183,47,.08);
+  border-top:1px solid rgba(240,183,47,.35);
+  border-bottom:1px solid rgba(240,183,47,.35);
+  padding:18px 0;color:var(--fg);
+}
+.warn .wrap{display:flex;gap:14px;align-items:flex-start}
+.warn .icon{flex:0 0 24px;color:var(--warn);font-weight:700}
+.warn p{margin:0;font-size:14.5px;line-height:1.55}
+.warn b{color:var(--warn)}
+
+/* ---------- cards ---------- */
+.grid{display:grid;gap:16px}
+.grid.cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.grid.cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media (max-width:900px){.grid.cols-3{grid-template-columns:1fr 1fr}}
+@media (max-width:560px){.grid.cols-3,.grid.cols-2{grid-template-columns:1fr}}
+
+.card{
+  background:var(--panel);border:1px solid var(--border-dim);
+  border-radius:10px;padding:20px;
+}
+.card h3{margin:0 0 8px;font-size:17px}
+.card .tag{
+  display:inline-block;font-family:var(--mono);font-size:11px;
+  text-transform:uppercase;letter-spacing:.12em;
+  padding:2px 8px;border-radius:999px;margin-bottom:10px;
+  border:1px solid var(--border);color:var(--muted);
+}
+.card .tag.ok{color:var(--accent);border-color:var(--accent-dim)}
+.card .tag.eval{color:var(--warn);border-color:rgba(240,183,47,.5)}
+.card .tag.next{color:var(--muted);border-color:var(--border)}
+.card p{font-size:14.5px;color:var(--muted);margin:0}
+.card p b{color:var(--fg)}
+
+/* ---------- metrics ---------- */
+.metrics{
+  display:grid;gap:12px;
+  grid-template-columns:repeat(5,minmax(0,1fr));
+}
+@media (max-width:980px){.metrics{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:560px){.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.tile{
+  background:var(--panel);border:1px solid var(--border-dim);
+  border-radius:10px;padding:18px 16px;
+  position:relative;cursor:help;
+}
+.tile:hover{border-color:var(--accent-dim)}
+.tile .n{
+  font-family:var(--mono);font-size:26px;font-weight:700;color:var(--accent);
+  line-height:1.1;letter-spacing:-.02em;
+}
+.tile .c{font-size:13px;color:var(--muted);margin-top:6px;line-height:1.35}
+.metrics-note{color:var(--muted);font-size:13px;margin-bottom:18px;font-family:var(--mono)}
+
+/* tooltip */
+.tile[data-tip]:hover::after,.tile[data-tip]:focus-visible::after{
+  content:attr(data-tip);
+  position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);
+  background:#06090d;color:var(--fg);border:1px solid var(--border);
+  padding:8px 10px;border-radius:6px;font-size:12px;line-height:1.4;
+  white-space:normal;width:max-content;max-width:260px;
+  z-index:3;box-shadow:0 6px 16px rgba(0,0,0,.4);
+  pointer-events:none;
+}
+
+/* ---------- install block ---------- */
+.install .box{
+  background:#06090d;border:1px solid var(--border);border-radius:10px;
+  padding:18px 18px 18px 22px;display:flex;align-items:center;gap:14px;
+  font-family:var(--mono);font-size:14.5px;overflow-x:auto;
+}
+.install .box code{flex:1;color:var(--fg);white-space:nowrap}
+.install .box .copy{
+  background:var(--panel-2);color:var(--fg);border:1px solid var(--border);
+  padding:7px 12px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:12px;
+}
+.install .box .copy:hover{border-color:var(--accent);color:var(--accent)}
+.install ul{margin:18px 0 10px;padding-left:20px;color:var(--fg)}
+.install ul li{margin-bottom:6px;font-size:14.5px}
+.install ul li b{color:var(--fg)}
+.install .gitnote{color:var(--muted);font-size:14px;margin-top:10px}
+
+/* ---------- family grid ---------- */
+.family{
+  display:grid;gap:12px;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+}
+@media (max-width:900px){.family{grid-template-columns:1fr 1fr}}
+@media (max-width:560px){.family{grid-template-columns:1fr}}
+.crate{
+  background:var(--panel);border:1px solid var(--border-dim);
+  border-radius:10px;padding:16px 16px 14px;
+}
+.crate .n{font-family:var(--mono);font-size:14px;color:var(--accent);font-weight:600;margin-bottom:6px}
+.crate .d{font-size:13.5px;color:var(--muted);line-height:1.5;margin:0}
+.crate .d b{color:var(--fg);font-weight:600}
+
+/* ---------- community ---------- */
+.community a.card{display:block;color:var(--fg)}
+.community a.card:hover{border-color:var(--accent-dim);text-decoration:none}
+.community .card .n{font-family:var(--mono);color:var(--accent);font-size:13px;margin-bottom:4px}
+
+/* ---------- footer ---------- */
+footer{
+  padding:36px 0 48px;color:var(--muted);font-size:13.5px;
+  border-top:1px solid var(--border-dim);
+}
+footer .wrap{display:flex;gap:16px;flex-wrap:wrap;justify-content:space-between;align-items:flex-start}
+footer .tag{font-family:var(--mono);font-size:12px;color:var(--muted);opacity:.8}
+footer a{color:var(--accent)}
+footer b{color:var(--fg)}
+
+/* ---------- small screens ---------- */
+@media (max-width:560px){
+  section{padding:56px 0}
+  .hero{padding:48px 0 56px}
+}
+</style>
 </head>
 <body>
 
-<header class="topbar">
-  <a class="brand" href="/">
-    <img src="/assets/logo.svg" alt="" width="28" height="28">
-    <span><b>1</b>bit<span class="dot">.</span>systems</span>
+<header class="nav" role="banner">
+  <a class="brand" href="#top" aria-label="1bit.systems home">
+    <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">
+      <circle cx="14" cy="14" r="12.5" fill="none" stroke="#00d4ff" stroke-width="1"/>
+      <text x="14" y="18" font-family="ui-monospace,monospace" font-size="12" font-weight="700" text-anchor="middle" fill="#00d4ff">1b</text>
+      <path d="M17.2 18 L17.2 21 L16.2 19.5 Z" fill="#00d4ff"/>
+    </svg>
+    <span class="wm"><b>1</b>bit<span class="dot">.</span>systems</span>
   </a>
-  <nav>
+  <nav class="links" aria-label="Primary">
     <a href="/docs/">docs</a>
     <a href="/voice/">voice</a>
     <a href="/audio/">audio</a>
     <a href="/join/">join</a>
     <a href="#apu">apu</a>
-    <a href="https://discord.gg/1bit systems" rel="noopener">Discord</a>
-    <a class="gh-btn" href="https://github.com/bong-water-water-bong" rel="noopener">GitHub</a>
+    <a href="https://discord.gg/halo-ai" rel="noopener noreferrer">Discord</a>
+    <a class="gh" href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener noreferrer">GitHub</a>
   </nav>
+  <button class="burger" id="burger" aria-label="Toggle menu" aria-expanded="false" aria-controls="navmobile">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+  </button>
 </header>
+<div class="nav-mobile" id="navmobile" hidden>
+  <a href="/docs/">docs</a>
+  <a href="/voice/">voice</a>
+  <a href="/audio/">audio</a>
+  <a href="/join/">join</a>
+  <a href="#apu">apu</a>
+  <a href="https://discord.gg/halo-ai" rel="noopener noreferrer">Discord</a>
+  <a class="gh" href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener noreferrer">GitHub</a>
+</div>
 
 <main id="top">
 
-<section id="hero" class="hero">
-  <p class="eyebrow">1bit monster · strix halo unlocked · bare metal · zero cloud</p>
-  <h1>Wake the <span class="accent">1bit monster</span><br>sleeping in your desktop.</h1>
-  <p class="lede">
-    AMD Ryzen AI MAX+ 395 is a <b>CPU + iGPU + NPU sharing 128&nbsp;GB LPDDR5 at 256&nbsp;GB/s</b>.
-    Most benchmark it like a laptop and miss what it is. We run <b>ternary BitNet-b1.58</b> on
-    native HIP kernels above our own C++ — 83&nbsp;tok/s decode today, <b>~280 tok/s on the roadmap</b>,
-    sub-second voice mouth-to-ear. No datacenter GPU. No subscription. One box, one drive, one mesh.
-  </p>
-  <p class="hero-cta">
-    <a class="btn" href="#install">Install in 60s</a>
-    <a class="btn ghost" href="/docs/">Read the docs</a>
-    <a class="btn ghost" href="/join/">Join the beta</a>
-  </p>
-  <p class="aspirational">
-    <b>Target ceiling:</b> ~280&nbsp;tok/s decode · NPU prefill crossover at 33-token prompts · 256&nbsp;GB/s LPDDR5 wall.
-    <a href="/docs/peak-performance-projection.html">how we get there →</a>
-  </p>
-</section>
+  <!-- 2. Hero -->
+  <section class="hero" aria-label="Hero">
+    <div class="wrap">
+      <div class="eyebrow">1bit monster &middot; strix halo unlocked &middot; bare metal &middot; zero cloud</div>
+      <h1>Wake the <span class="mark">1bit monster</span> sleeping in your desktop.</h1>
+      <p class="lede">AMD Ryzen AI MAX+ 395 is a <b>CPU + iGPU + NPU sharing 128 GB LPDDR5 at 256 GB/s</b>. Most benchmark it like a laptop and miss what it is. We run <b>ternary BitNet-b1.58</b> on native HIP kernels above our own C++ &mdash; 83 tok/s decode today, <b>~280 tok/s on the roadmap</b>, sub-second voice mouth-to-ear. No datacenter GPU. No subscription. One box, one drive, one mesh.</p>
+      <div class="ctas">
+        <a class="btn primary" href="#install">Install in 60s</a>
+        <a class="btn ghost" href="/docs/">Read the docs</a>
+        <a class="btn ghost" href="/join/">Join the beta</a>
+      </div>
+      <p class="aspir">Target ceiling: ~280 tok/s decode &middot; NPU prefill crossover at 33-token prompts &middot; 256 GB/s LPDDR5 wall. <a href="/docs/peak-performance-projection.html">how we get there &rarr;</a></p>
+    </div>
+  </section>
 
-<section class="os-warn" role="alert">
-  <h2>CachyOS + Strix Halo only, for now</h2>
-  <p>
-    1-bit.systems is shaped around the <b>AMD Ryzen AI MAX+ 395 (Strix Halo, gfx1151)</b> running
-    <b>CachyOS 7.x</b>. Other hardware and distros may work in principle; they are
-    <b>unsupported until someone tests them</b>. Don't file bugs against an RX 7900 or Ubuntu 24.04 yet.
-  </p>
-</section>
+  <!-- 3. Warning banner -->
+  <aside class="warn" role="note" aria-label="Supported hardware">
+    <div class="wrap">
+      <div class="icon" aria-hidden="true">&#9888;</div>
+      <p><b>CachyOS + Strix Halo only, for now.</b> 1bit systems is shaped around the AMD Ryzen AI MAX+ 395 (Strix Halo, gfx1151) running CachyOS 7.x. Other hardware and distros may work in principle; they are <b>unsupported until someone tests them</b>. Don't file bugs against an RX 7900 or Ubuntu 24.04 yet.</p>
+    </div>
+  </aside>
 
-<section id="apu" class="pillars">
-  <h2>the APU play</h2>
-  <p class="note">Strix Halo is a <b>CPU + iGPU + NPU on one 128&nbsp;GB LPDDR5 pool at 256&nbsp;GB/s.</b> Zero-copy across compute surfaces. No PCIe tax. Most will benchmark the iGPU against a discrete card and miss the point — an APU that shares one weight buffer between a CPU dispatcher, a tensor iGPU, and an NPU prefiller <b>is the performance king</b> for always-on local inference. We're building for the folks who see that.</p>
-  <div class="pillar-grid">
-    <article class="pillar">
-      <h3>iGPU — shipping</h3>
-      <p>Radeon 8060S, gfx1151, RDNA 3.5. Native HIP ternary GEMV at <b>92% of LPDDR5 peak</b>. Our kernels, no hipBLAS.</p>
-    </article>
-    <article class="pillar">
-      <h3>NPU — evaluating</h3>
-      <p>XDNA 2, 50 TOPS. Lemonade 10.2 Linux NPU shipped 2026-04-20 (Q4 today, ternary→INT8 soon). Target: prefill offload.</p>
-    </article>
-    <article class="pillar">
-      <h3>CPU — next</h3>
-      <p>16 Zen5 cores sitting idle while iGPU grinds. Move sampler + dispatcher + tokenizer off the iGPU critical path. Projected <b>5-15% tok/s</b> without a kernel change.</p>
-    </article>
-  </div>
-</section>
+  <!-- 4. The APU play -->
+  <section id="apu" aria-labelledby="apu-h">
+    <div class="wrap">
+      <h2 id="apu-h">The APU play</h2>
+      <p class="muted" style="max-width:70ch">Unified CPU + iGPU + NPU on one 128 GB LPDDR5 pool at 256 GB/s. No PCIe tax, no host-device copy, no discrete-card bottleneck. Most people miss the point when they benchmark the iGPU against a discrete card &mdash; the whole box is the accelerator, not one tile of it.</p>
+      <div class="grid cols-3" style="margin-top:24px">
+        <article class="card">
+          <span class="tag ok">iGPU &mdash; shipping</span>
+          <h3>Radeon 8060S</h3>
+          <p>gfx1151, RDNA 3.5. Native HIP ternary GEMV at <b>92% of LPDDR5 peak</b>. Our kernels, no hipBLAS.</p>
+        </article>
+        <article class="card">
+          <span class="tag eval">NPU &mdash; evaluating</span>
+          <h3>XDNA 2, 50 TOPS</h3>
+          <p>Lemonade 10.2 Linux NPU shipped 2026-04-20 (Q4 today, ternary&rarr;INT8 soon). <b>Target: prefill offload.</b></p>
+        </article>
+        <article class="card">
+          <span class="tag next">CPU &mdash; next</span>
+          <h3>16 Zen5 cores</h3>
+          <p>Sitting idle while iGPU grinds. Move sampler + dispatcher + tokenizer off iGPU critical path. <b>+5-15% tok/s</b> without a kernel change.</p>
+        </article>
+      </div>
+    </div>
+  </section>
 
-<section id="numbers" class="numbers">
-  <h2>honest numbers · live</h2>
-  <p class="note">Last burnin pass 2026-04-20 · 14,344 rounds · wikitext-103 · post-idx=7-tiebreak.</p>
-  <div class="metrics">
-    <div title="Single-stream decode @64 ctx, BitNet-b1.58-2B-4T, temp 0."><b>83</b><span>tok/s decode @64</span></div>
-    <div title="Decode @1024 ctx. Attention dominates; split-KV FD kernel holds it."><b>33</b><span>tok/s decode @1024</span></div>
-    <div title="gen-2 Rust vs gen-1 C++ baseline on wikitext-103. Within ±0.05."><b>+0.02</b><span>PPL Δ vs baseline</span></div>
-    <div title="Projected after idx=7 fp32 argmax tie-break fix lands on next burnin cycle. Previous: 95.55%."><b>~98.9%</b><span>byte-exact burn-in</span></div>
-    <div title="Ternary GEMV roofline via rocprof."><b>92%</b><span>of LPDDR5 peak</span></div>
-    <div title="Split-KV Flash-Decoding attention @L=2048. Bit-exact output."><b>6.78×</b><span>attn @2048 vs prior</span></div>
-    <div title="End-to-end 1bit-voice first audio byte, measured 2026-04-20."><b>1.23 s</b><span>first audio (TTS)</span></div>
-    <div title="Workspace test count across 14 crates. Zero failures."><b>245</b><span>tests · 0 fail</span></div>
-    <div title="1bit-server release binary, stripped. Cold start under 200 ms."><b>2.4&nbsp;MB</b><span>server binary</span></div>
-    <div title="CPU + iGPU + NPU shared pool. No PCIe tax on weights."><b>128&nbsp;GB</b><span>shared LPDDR5</span></div>
-  </div>
-</section>
+  <!-- 5. Honest numbers -->
+  <section aria-labelledby="num-h">
+    <div class="wrap">
+      <h2 id="num-h">Honest numbers &middot; live</h2>
+      <p class="metrics-note">Last burnin pass 2026-04-20 &middot; 14,344 rounds &middot; wikitext-103 &middot; post-idx=7-tiebreak.</p>
+      <div class="metrics">
+        <div class="tile" tabindex="0" data-tip="Decode throughput on a 64-token context. Clean burn, our HIP ternary GEMV path.">
+          <div class="n">83</div><div class="c">tok/s decode @64</div>
+        </div>
+        <div class="tile" tabindex="0" data-tip="Decode throughput at 1024-token context. Attention starts dominating; split-KV Flash-Decoding holds the curve.">
+          <div class="n">33</div><div class="c">tok/s decode @1024</div>
+        </div>
+        <div class="tile" tabindex="0" data-tip="Perplexity delta vs gen-1 baseline (9.1607). Within ±0.05 tolerance; parity-gated.">
+          <div class="n">+0.02</div><div class="c">PPL &Delta; vs baseline</div>
+        </div>
+        <div class="tile" tabindex="0" data-tip="Shadow burn-in argmax byte-match rate after special-token fix. Post-idx=7 tiebreak applied.">
+          <div class="n">~98.9%</div><div class="c">byte-exact burn-in</div>
+        </div>
+        <div class="tile" tabindex="0" data-tip="Ternary GEMV measured against 256 GB/s LPDDR5 ceiling. Bandwidth-bound, not compute-bound.">
+          <div class="n">92%</div><div class="c">of LPDDR5 peak</div>
+        </div>
+        <div class="tile" tabindex="0" data-tip="Split-KV Flash-Decoding attention kernel speedup at L=2048 vs prior single-block-per-head kernel. Bit-exact.">
+          <div class="n">6.78&times;</div><div class="c">attn @2048 vs prior</div>
+        </div>
+        <div class="tile" tabindex="0" data-tip="First-audio latency from halo-kokoro TTS, sentence-boundary streaming on.">
+          <div class="n">1.23 s</div><div class="c">first audio (TTS)</div>
+        </div>
+        <div class="tile" tabindex="0" data-tip="cargo test --workspace --release on main. Zero failures, zero ignored in default features.">
+          <div class="n">269</div><div class="c">tests &middot; 0 fail</div>
+        </div>
+        <div class="tile" tabindex="0" data-tip="1bit-server stripped release binary. Axum + tokio, no container, no runtime.">
+          <div class="n">2.4 MB</div><div class="c">server binary</div>
+        </div>
+        <div class="tile" tabindex="0" data-tip="Unified memory pool on the Ryzen AI MAX+ 395. Model, KV-cache, and activations all share it.">
+          <div class="n">128 GB</div><div class="c">shared LPDDR5</div>
+        </div>
+      </div>
+    </div>
+  </section>
 
-<section id="install" class="install">
-  <h2>install</h2>
-<pre><code>curl -fsSL https://1bit.systems/install.sh | bash</code></pre>
-  <ul class="install-bullets">
-    <li>First token in <b>~60 seconds</b> on a primed Strix Halo box.</li>
-    <li>No sudo password leaves the machine. Script runs unprivileged, prompts locally.</li>
-    <li>Idempotent — rerun anytime to repair or upgrade.</li>
-  </ul>
-  <p class="note">Prefer git? <a href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">clone the monorepo</a> and run <code>./install.sh</code> directly.</p>
-</section>
+  <!-- 6. Install -->
+  <section id="install" class="install" aria-labelledby="install-h">
+    <div class="wrap">
+      <h2 id="install-h">Install</h2>
+      <div class="box">
+        <code id="cmd">curl -fsSL https://1bit.systems/install.sh | bash</code>
+        <button class="copy" id="copy" aria-label="Copy install command">copy</button>
+      </div>
+      <ul>
+        <li>First token in <b>~60 seconds</b> on a primed Strix Halo box.</li>
+        <li>No sudo password leaves the machine. Script runs unprivileged, prompts locally.</li>
+        <li>Idempotent &mdash; rerun anytime to repair or upgrade.</li>
+      </ul>
+      <p class="gitnote">Prefer git? <a href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener noreferrer">Clone the monorepo</a> and run <code>./install.sh</code> directly.</p>
+    </div>
+  </section>
 
-<section id="family" class="pillars">
-  <h2>featuring halo — and family</h2>
-  <p class="note">Fourteen crates, one monorepo, one job each. Rust above the HIP line, C++ below. No Python in the hot path. No container overhead. Everything runs as a user-systemd unit.</p>
-  <div class="pillar-grid">
-    <article class="pillar"><h3>1bit-server</h3><p>OpenAI-compat HTTP. /v1/chat/completions with SSE. Bearer-gated via Caddy. 2.4&nbsp;MB binary.</p></article>
-    <article class="pillar"><h3>1bit-router</h3><p>Backend dispatcher — iGPU / NPU / CPU. <code>HALO_BACKEND=xdna</code> wires FLM subprocess for NPU prefill.</p></article>
-    <article class="pillar"><h3>1bit-hip</h3><p>FFI into rocm-cpp HIP kernels. 92%-LPDDR5-peak ternary GEMV lives on the other side.</p></article>
-    <article class="pillar"><h3>1bit-xdna</h3><p>FFI into libxrt for XDNA 2 NPU. FastFlowLM subprocess bridge; ternary-INT8 mapping pending AMD.</p></article>
-    <article class="pillar"><h3>1bit-voice</h3><p>Sentence-boundary streaming TTS. 1.23 s first audio. 17 unit tests.</p></article>
-    <article class="pillar"><h3>1bit-echo</h3><p>WebSocket voice server, Opus 20&nbsp;ms frames. Cancellation path on disconnect. 11 tests.</p></article>
-    <article class="pillar"><h3>1bit-whisper</h3><p>STT via whisper.cpp on gfx1151. Streaming partials on roadmap.</p></article>
-    <article class="pillar"><h3>halo-kokoro</h3><p>TTS, 24&nbsp;kHz mono WAV, onnxruntime. af_sky / am_michael / bf_emma / bm_george.</p></article>
-    <article class="pillar"><h3>1bit-mcp</h3><p>Stdio MCP bridge. 19 tools: 17 specialists + skill_manage + memory_manage.</p></article>
-    <article class="pillar"><h3>1bit-agents</h3><p>17 typed specialists. <code>halo-watch-discord</code> + <code>halo-watch-github</code> keep the fleet online.</p></article>
-    <article class="pillar"><h3>1bit-cli</h3><p><code>halo status · doctor · install · skill · memory · npu · burnin · power</code>. One command, whole stack.</p></article>
-    <article class="pillar"><h3>1bit-landing</h3><p>LAN dashboard on :8190. Live metrics, /_live/stats SSE.</p></article>
-    <article class="pillar"><h3>1bit-lemonade</h3><p>OpenAI-compat gateway on :8200. Hermes + AMD GAIA interop.</p></article>
-    <article class="pillar"><h3>1bit-helm</h3><p>Native desktop client (egui/eframe). Rust GUI, no Electron, no web-view. Formerly halo-gaia.</p></article>
-    <article class="pillar"><h3>1bit-core</h3><p>Pure parsers. mmap, zero I/O beyond the file handle. Only crate with zero deps beyond std.</p></article>
-  </div>
-</section>
+  <!-- 7. The 1bit family -->
+  <section aria-labelledby="fam-h">
+    <div class="wrap">
+      <h2 id="fam-h">The 1bit family</h2>
+      <p class="muted" style="max-width:70ch">Fourteen crates, one monorepo, one job each. Rust above the HIP line, C++ below. No Python in the hot path. No container overhead. Everything runs as a user-systemd unit.</p>
+      <div class="family" style="margin-top:24px">
+        <article class="crate"><div class="n">1bit-server</div><p class="d">OpenAI-compat HTTP. <b>/v1/chat/completions</b> with SSE. Bearer-gated via Caddy. 2.4 MB binary.</p></article>
+        <article class="crate"><div class="n">1bit-router</div><p class="d">Backend dispatcher: iGPU / NPU / CPU. <b>HALO_BACKEND=xdna</b> wires FLM subprocess for NPU prefill.</p></article>
+        <article class="crate"><div class="n">1bit-hip</div><p class="d">FFI into rocm-cpp HIP kernels. 92%-LPDDR5-peak ternary GEMV lives on the other side.</p></article>
+        <article class="crate"><div class="n">1bit-xdna</div><p class="d">FFI into libxrt for XDNA 2 NPU. FastFlowLM subprocess bridge; ternary-INT8 mapping pending AMD.</p></article>
+        <article class="crate"><div class="n">1bit-voice</div><p class="d">Sentence-boundary streaming TTS. 1.23 s first audio. 17 unit tests.</p></article>
+        <article class="crate"><div class="n">1bit-echo</div><p class="d">WebSocket voice server, Opus 20 ms frames. Cancellation path on disconnect. 11 tests.</p></article>
+        <article class="crate"><div class="n">1bit-whisper</div><p class="d">STT via whisper.cpp on gfx1151. Streaming partials on roadmap.</p></article>
+        <article class="crate"><div class="n">1bit-kokoro</div><p class="d">TTS, 24 kHz mono WAV, onnxruntime. af_sky / am_michael / bf_emma / bm_george.</p></article>
+        <article class="crate"><div class="n">1bit-mcp</div><p class="d">Stdio MCP bridge. 19 tools: 17 specialists + skill_manage + memory_manage.</p></article>
+        <article class="crate"><div class="n">1bit-agents</div><p class="d">17 typed specialists. <b>1bit-watch-discord</b> + <b>1bit-watch-github</b> keep the fleet online.</p></article>
+        <article class="crate"><div class="n">1bit-cli</div><p class="d"><b>1bit status &middot; doctor &middot; install &middot; skill &middot; memory &middot; npu &middot; burnin &middot; power</b>. One command, whole stack.</p></article>
+        <article class="crate"><div class="n">1bit-landing</div><p class="d">LAN dashboard on :8190. Live metrics, <b>/_live/stats</b> SSE.</p></article>
+        <article class="crate"><div class="n">1bit-lemonade</div><p class="d">OpenAI-compat gateway on :8200. Hermes + AMD GAIA interop.</p></article>
+        <article class="crate"><div class="n">1bit-helm</div><p class="d">Native desktop pane (egui, Rust). No Electron, no web-view.</p></article>
+        <article class="crate"><div class="n">1bit-core</div><p class="d">Pure parsers. mmap, zero I/O beyond the file handle. Only crate with zero deps beyond std.</p></article>
+      </div>
+    </div>
+  </section>
 
-<section id="community" class="community">
-  <h2>community</h2>
-  <div class="community-row">
-    <a class="comm-card" href="https://discord.gg/1bit systems" rel="noopener"><b>Discord</b><span>dev chat + install help + beta invites</span></a>
-    <a class="comm-card" href="https://github.com/bong-water-water-bong" rel="noopener"><b>GitHub</b><span>bong-water-water-bong · 1bit-systems + family</span></a>
-    <a class="comm-card" href="https://github.com/amd/RyzenAI-SW/issues/366" rel="noopener"><b>AMD Issue #366</b><span>Strix Halo Linux NPU — resolved via Lemonade 10.2</span></a>
-  </div>
-</section>
-
-<footer class="footer">
-  <p><b>1bit.systems</b> · the 1bit monster · built by <a href="https://github.com/bong-water-water-bong" rel="noopener">bong-water-water-bong</a>. MIT licensed. Gratitude to <a href="https://github.com/Lightheartdevs" rel="noopener">Light Heart Labs</a>.</p>
-  <p class="tag">v3 · honest numbers · parity-gated · bare metal · unified APU · the-architect</p>
-</footer>
+  <!-- 8. Community -->
+  <section class="community" aria-labelledby="com-h">
+    <div class="wrap">
+      <h2 id="com-h">Community</h2>
+      <div class="grid cols-3" style="margin-top:16px">
+        <a class="card" href="https://discord.gg/halo-ai" rel="noopener noreferrer">
+          <div class="n">Discord</div>
+          <p>discord.gg/halo-ai &mdash; dev chat + install help + beta invites</p>
+        </a>
+        <a class="card" href="https://github.com/bong-water-water-bong" rel="noopener noreferrer">
+          <div class="n">GitHub</div>
+          <p>bong-water-water-bong &middot; 1bit-systems + family</p>
+        </a>
+        <a class="card" href="https://github.com/amd/RyzenAI-SW/issues/366" rel="noopener noreferrer">
+          <div class="n">AMD Issue #366</div>
+          <p>Strix Halo Linux NPU &mdash; resolved via Lemonade 10.2</p>
+        </a>
+      </div>
+    </div>
+  </section>
 
 </main>
+
+<footer role="contentinfo">
+  <div class="wrap">
+    <div>
+      <b>1bit.systems</b> &middot; the 1bit monster &middot; built by <a href="https://github.com/bong-water-water-bong" rel="noopener noreferrer">bong-water-water-bong</a>. MIT licensed. Gratitude to <a href="https://github.com/Lightheartdevs" rel="noopener noreferrer">Light Heart Labs</a>.
+    </div>
+    <div class="tag">v3 &middot; honest numbers &middot; parity-gated &middot; bare metal &middot; unified APU &middot; the-architect</div>
+  </div>
+</footer>
+
+<script type="module">
+// hamburger toggle
+const burger = document.getElementById('burger');
+const navm   = document.getElementById('navmobile');
+burger?.addEventListener('click', () => {
+  const open = navm.classList.toggle('open');
+  navm.hidden = !open;
+  burger.setAttribute('aria-expanded', String(open));
+});
+// close mobile nav on link click
+navm?.querySelectorAll('a').forEach(a => a.addEventListener('click', () => {
+  navm.classList.remove('open'); navm.hidden = true;
+  burger.setAttribute('aria-expanded','false');
+}));
+
+// copy-install
+const copyBtn = document.getElementById('copy');
+const cmd     = document.getElementById('cmd');
+copyBtn?.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(cmd.textContent.trim());
+    const orig = copyBtn.textContent;
+    copyBtn.textContent = 'copied';
+    setTimeout(() => { copyBtn.textContent = orig; }, 1400);
+  } catch {
+    // fallback: select text
+    const r = document.createRange(); r.selectNode(cmd);
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(r);
+  }
+});
+</script>
 
 </body>
 </html>

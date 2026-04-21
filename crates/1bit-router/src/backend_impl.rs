@@ -464,31 +464,54 @@ impl HipBackend {
         })
     }
 
-    /// Centralise the bitnet-v2 feature × model-flag decision so tests can
-    /// exercise the matrix without standing up a full HipBackend.
+    /// Centralise the BitNet-v2 gate decision so tests can exercise the
+    /// matrix without standing up a full `HipBackend`.
+    ///
+    /// The gate is the logical AND of:
+    ///   * **`HALO_BITNET_V2=1` in the process environment** — runtime
+    ///     switch, not a compile feature. We need V1 to stay available for
+    ///     shadow-burnin parity, so flipping V2 must never require a
+    ///     rebuild. Any value other than `"1"` (including unset, `"0"`, or
+    ///     anything else) keeps the gate off.
+    ///   * **Model flag `H1B_FLAG_HADAMARD_ROTATED`** — set by the offline
+    ///     requantizer on checkpoints trained under W' = W · H^T. Enabling
+    ///     V2 against an unrotated checkpoint would produce garbage logits,
+    ///     so we refuse at load time even if the env says yes.
+    ///
+    /// The historical `bitnet-v2` cargo feature is retained as a compile-
+    /// time override (treated as if `HALO_BITNET_V2=1` were set) so the
+    /// feature-gated integration tests still function. The env var alone
+    /// is sufficient in production.
     fn resolve_hadamard_gate(cfg: &H1bConfig) -> bool {
-        #[cfg(feature = "bitnet-v2")]
-        {
-            if cfg.is_hadamard_rotated() {
-                tracing::info!(
-                    "bitnet-v2: online Hadamard rotation ENABLED \
-                     (feature flag + model H1B_FLAG_HADAMARD_ROTATED both set)"
-                );
-                true
-            } else {
-                tracing::warn!(
-                    "bitnet-v2 feature built in, but loaded model does NOT have \
-                     H1B_FLAG_HADAMARD_ROTATED set — passing through unrotated. \
-                     Rotate the checkpoint offline (see \
-                     docs/wiki/BitNet-v2-Hadamard-Plan.md §4) to enable."
-                );
-                false
-            }
-        }
-        #[cfg(not(feature = "bitnet-v2"))]
-        {
-            // Unused when the feature is off — silence the field-read warning.
+        let env_on = std::env::var("HALO_BITNET_V2")
+            .map(|v| v == "1")
+            .unwrap_or(false);
+        let feature_on = cfg!(feature = "bitnet-v2");
+        let gate_requested = env_on || feature_on;
+
+        if !gate_requested {
+            // Silence the field-read warning under `cfg(not(feature = ...))`.
             let _ = cfg.is_hadamard_rotated();
+            return false;
+        }
+
+        if cfg.is_hadamard_rotated() {
+            tracing::info!(
+                env = env_on,
+                feature = feature_on,
+                "bitnet-v2: online Hadamard rotation ENABLED \
+                 (gate requested + model H1B_FLAG_HADAMARD_ROTATED set)"
+            );
+            true
+        } else {
+            tracing::warn!(
+                env = env_on,
+                feature = feature_on,
+                "bitnet-v2 requested (env or feature), but loaded model does \
+                 NOT have H1B_FLAG_HADAMARD_ROTATED set — passing through \
+                 unrotated. Rotate the checkpoint offline (see \
+                 docs/wiki/BitNet-v2-Hadamard-Plan.md §4) to enable."
+            );
             false
         }
     }
@@ -1453,27 +1476,65 @@ mod format_sniff_tests {
 
 #[cfg(test)]
 mod bitnet_v2_hadamard_tests {
-    //! GPU-free tests for the BitNet v2 online-Hadamard feature gate.
+    //! GPU-free tests for the BitNet v2 online-Hadamard gate.
     //!
     //! The live kernel dispatch requires a GPU + a real checkpoint, so it
     //! ships as an `#[ignore]` integration test (see
-    //! `tests/smoke_hip.rs`). The policy matrix — feature flag ×
+    //! `tests/smoke_hip.rs`). The policy matrix — `HALO_BITNET_V2` env ×
     //! `H1B_FLAG_HADAMARD_ROTATED` bit — is covered here because it's
     //! pure Rust and directly guards whether the hot path dispatches the
     //! rotation at all.
     //!
-    //! Three cases, matching the plan doc §6:
-    //!   * feature OFF                 → never rotate (byte-identical to
-    //!                                    today's forward pass).
-    //!   * feature ON  + model flag ON → rotate at every site.
-    //!   * feature ON  + model flag OFF→ pass-through, warn-once.
+    //! Cases (runtime env, no rebuild required):
+    //!   * env unset / "0"            → never rotate, even on flagged models.
+    //!   * env "1" + model flag ON    → rotate at every site.
+    //!   * env "1" + model flag OFF   → pass-through, warn-once.
     //!
-    //! All three exercise `HipBackend::resolve_hadamard_gate` (the single
-    //! source of truth the constructor consults), so they match the
-    //! behaviour of the live forward pass one-for-one.
+    //! The historical `bitnet-v2` compile feature still acts as an
+    //! equivalent-to-env override. These tests access process env, so we
+    //! serialize them behind a `Mutex` to avoid parallel cargo threads
+    //! stomping on one another's `HALO_BITNET_V2` writes.
     use super::*;
     use onebit_core::H1B_FLAG_HADAMARD_ROTATED;
     use onebit_core::types::{DEFAULT_RMS_NORM_EPS, DEFAULT_ROPE_THETA};
+    use std::sync::Mutex;
+
+    /// Serializes every test in this module. `std::env::set_var` is
+    /// process-global; cargo runs tests in parallel threads, so without
+    /// this lock a concurrent reader/writer race would make the gate
+    /// non-deterministic.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    /// RAII guard: remembers the pre-test `HALO_BITNET_V2` value and
+    /// restores (or clears) it on drop so that later tests and the live
+    /// process start from the expected state.
+    struct EnvGuard {
+        prev: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn set(val: Option<&str>) -> Self {
+            let prev = std::env::var("HALO_BITNET_V2").ok();
+            match val {
+                // SAFETY: we hold `ENV_LOCK` for the full scope of every
+                // caller. No other thread in this test module will read or
+                // write HALO_BITNET_V2 while the guard is live.
+                Some(v) => unsafe { std::env::set_var("HALO_BITNET_V2", v) },
+                None => unsafe { std::env::remove_var("HALO_BITNET_V2") },
+            }
+            Self { prev }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            // SAFETY: same as EnvGuard::set — callers hold ENV_LOCK.
+            match &self.prev {
+                Some(v) => unsafe { std::env::set_var("HALO_BITNET_V2", v) },
+                None => unsafe { std::env::remove_var("HALO_BITNET_V2") },
+            }
+        }
+    }
 
     fn cfg_with_reserved(reserved: i32) -> H1bConfig {
         H1bConfig {
@@ -1492,46 +1553,72 @@ mod bitnet_v2_hadamard_tests {
         }
     }
 
-    /// Feature flag off → gate always resolves to false regardless of
-    /// model flag. This is the default-build behaviour every CI host
-    /// observes.
+    /// Env unset → gate always off, regardless of the model flag, as long
+    /// as the compile-feature override is also off. This is the default
+    /// behaviour every CI host and every shipping build observes.
     #[test]
     #[cfg(not(feature = "bitnet-v2"))]
-    fn gate_is_always_off_when_feature_disabled() {
+    fn gate_is_off_when_env_unset() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let _env = EnvGuard::set(None);
+
         let not_rotated = cfg_with_reserved(0);
         let rotated = cfg_with_reserved(H1B_FLAG_HADAMARD_ROTATED);
         assert!(
             !HipBackend::resolve_hadamard_gate(&not_rotated),
-            "feature off + flag off → off (expected default)"
+            "env unset + flag off → off (expected default)"
         );
         assert!(
             !HipBackend::resolve_hadamard_gate(&rotated),
-            "feature off + flag ON → STILL off (feature gate is the outer switch)"
+            "env unset + flag ON → STILL off (env is the outer switch)"
         );
     }
 
-    /// Feature on + model flag on → gate resolves to true. Decode will
-    /// dispatch `hadamard_rotate_fp16_device` at every pre-GEMV site.
+    /// Env explicitly "0" (or anything other than "1") also keeps the gate
+    /// off. Guards against operators typing the wrong value.
     #[test]
-    #[cfg(feature = "bitnet-v2")]
-    fn gate_fires_when_feature_on_and_model_flagged() {
+    #[cfg(not(feature = "bitnet-v2"))]
+    fn gate_is_off_for_non_one_env_values() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let rotated = cfg_with_reserved(H1B_FLAG_HADAMARD_ROTATED);
+
+        for bad in ["", "0", "true", "yes", "on", "2", "01"] {
+            let _env = EnvGuard::set(Some(bad));
+            assert!(
+                !HipBackend::resolve_hadamard_gate(&rotated),
+                "HALO_BITNET_V2={bad:?} must not enable the gate"
+            );
+        }
+    }
+
+    /// Env "1" + model flag ON → gate resolves to true. Decode will
+    /// dispatch `hadamard_rotate_fp16_device` at every pre-GEMV site.
+    /// Runs regardless of compile feature because the env-var path is the
+    /// supported production entry point.
+    #[test]
+    fn gate_fires_when_env_on_and_model_flagged() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let _env = EnvGuard::set(Some("1"));
+
         let rotated = cfg_with_reserved(H1B_FLAG_HADAMARD_ROTATED);
         assert!(
             HipBackend::resolve_hadamard_gate(&rotated),
-            "feature on + flag ON → must enable the rotation hook"
+            "HALO_BITNET_V2=1 + flag ON → must enable the rotation hook"
         );
     }
 
-    /// Feature on + model flag off → gate resolves to false (pass-through
-    /// + warn-once). Dev-build safety against double-quantizing a stock
-    /// model.
+    /// Env "1" + model flag OFF → gate resolves to false (pass-through +
+    /// warn-once). Guards against double-quantizing a stock checkpoint
+    /// whose weights were not trained under Hadamard.
     #[test]
-    #[cfg(feature = "bitnet-v2")]
-    fn gate_is_passthrough_when_feature_on_but_model_not_flagged() {
+    fn gate_is_passthrough_when_env_on_but_model_not_flagged() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let _env = EnvGuard::set(Some("1"));
+
         let not_rotated = cfg_with_reserved(0);
         assert!(
             !HipBackend::resolve_hadamard_gate(&not_rotated),
-            "feature on + flag off → must NOT rotate (model wasn't trained for it)"
+            "env on + flag off → must NOT rotate (model wasn't trained for it)"
         );
         // Bit-0 is the only bit the accessor reads — other reserved bits
         // don't accidentally flip the gate either.
@@ -1539,6 +1626,21 @@ mod bitnet_v2_hadamard_tests {
         assert!(
             !HipBackend::resolve_hadamard_gate(&unrelated),
             "unrelated reserved bits must not enable the hook"
+        );
+    }
+
+    /// Compile feature on + model flag on → gate fires even when the env
+    /// isn't set. Preserves the pre-env feature-gated test path.
+    #[test]
+    #[cfg(feature = "bitnet-v2")]
+    fn gate_fires_when_feature_on_and_model_flagged() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let _env = EnvGuard::set(None);
+
+        let rotated = cfg_with_reserved(H1B_FLAG_HADAMARD_ROTATED);
+        assert!(
+            HipBackend::resolve_hadamard_gate(&rotated),
+            "feature on + flag ON → must enable the rotation hook"
         );
     }
 }

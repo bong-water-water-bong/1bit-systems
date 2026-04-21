@@ -1,26 +1,24 @@
-# Cloudflare Pages headers — see https://developers.cloudflare.com/pages/configuration/headers/
+/*
+  Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline'
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: interest-cohort=(), geolocation=(), microphone=(self), camera=()
 
 /assets/*
-  Cache-Control: public, max-age=3600
+  Cache-Control: public, max-age=31536000, immutable
 
-/voice/voice.css
-  Cache-Control: public, max-age=3600
-/voice/app.js
-  Cache-Control: public, max-age=3600
+/*.css
+  Cache-Control: public, max-age=31536000, immutable
 
-/join/qrcode.min.js
-  Cache-Control: public, max-age=3600
+/*.js
+  Cache-Control: public, max-age=31536000, immutable
 
-/docs/*.html
-  Cache-Control: public, max-age=3600
-
-/*
-  X-Content-Type-Options: nosniff
-  Referrer-Policy: strict-origin-when-cross-origin
-  Permissions-Policy: microphone=(self), camera=()
-
-/index.html
-  Cache-Control: no-cache
+/*.svg
+  Cache-Control: public, max-age=31536000, immutable
 
 /
-  Cache-Control: no-cache
+  Cache-Control: public, max-age=300, must-revalidate
+
+/index.html
+  Cache-Control: public, max-age=300, must-revalidate
