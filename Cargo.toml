@@ -10,6 +10,7 @@ members = [
     "crates/1bit-hip",
     "crates/1bit-cpu",
     "crates/1bit-mlx",
+    "crates/1bit-onnx",
     "crates/1bit-lemonade",
     "crates/1bit-helm",
     "crates/1bit-pkg",
@@ -18,9 +19,15 @@ members = [
     "crates/1bit-echo",
     "crates/1bit-whisper",
     "crates/1bit-power",
+    "crates/1bit-mcp-clients",
+    "crates/1bit-mcp-discord",
+    "crates/1bit-mcp-linuxgsm",
     "tools/h1b-sherry",
     "tools/gguf-to-h1b",
     "tools/bitnet-to-tq2",
+]
+exclude = [
+    "crates/1bit-agents-legacy",  # folded historical snapshot (halo-agents@ed7825b, 2026-04-21); not built
 ]
 
 [workspace.package]
@@ -28,8 +35,8 @@ version      = "0.1.0"
 edition      = "2024"
 rust-version = "1.86"
 license      = "MIT"
-repository   = "https://github.com/strix-ai-rs/halo-workspace"
-authors      = ["strix-ai-rs contributors"]
+repository   = "https://github.com/bong-water-water-bong/1bit-systems"
+authors      = ["1bit-systems contributors"]
 
 [workspace.dependencies]
 # Runtime primitives
