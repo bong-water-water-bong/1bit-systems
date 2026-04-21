@@ -42,6 +42,7 @@
 //! gate at the kernel level.
 
 pub mod heads;
+pub mod loader;
 pub mod verify;
 
 use std::path::{Path, PathBuf};
@@ -165,10 +166,11 @@ impl MedusaState {
     ///    return `Err(PathNotConfigured)`.
     /// 3. If the gate is on and the path does not exist on disk,
     ///    return `Err(WeightsNotFound { path })`.
-    /// 4. If the gate is on and the file exists, return `Ok(Enabled)`
-    ///    with an empty-but-well-formed [`MedusaHeads`]. The
-    ///    retrained-weights pass replaces the empty heads with
-    ///    mmapped weight spans.
+    /// 4. If the gate is on and the file exists, call
+    ///    [`MedusaHeads::load`] which mmaps the file and parses the
+    ///    `.h1b-medusa` header + per-head tensor offsets. The GPU
+    ///    upload path lands in a follow-up pass; the parsed handle
+    ///    lives CPU-side only.
     pub fn from_config(cfg: &MedusaConfig) -> Result<Self, MedusaError> {
         if !MedusaConfig::gate_enabled() {
             return Ok(MedusaState::Disabled);
@@ -180,7 +182,7 @@ impl MedusaState {
         if !Path::new(&path).exists() {
             return Err(MedusaError::WeightsNotFound { path });
         }
-        let heads = MedusaHeads::load_stub(&path)?;
+        let heads = MedusaHeads::load(&path, cfg)?;
         let verifier = TreeVerifier::new();
         Ok(MedusaState::Enabled { heads, verifier })
     }

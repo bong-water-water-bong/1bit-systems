@@ -66,6 +66,16 @@ rayon     = "1"
 # (~200 LOC, no transitive fanout beyond spin + pin-project-lite, both
 # already in the graph via axum/tokio).
 flume     = "0.11"
+# mmap-backed read of the `.h1b-medusa` speculative-head file. Workspace dep
+# (already used by `1bit-core` for the main `.h1b` loader). Same safety story:
+# read-only map, model files are treated as immutable by contract.
+memmap2   = { workspace = true }
+# Zero-copy `&[u8]` → `&[u16]` cast for the fp16 tensor views inside
+# `src/medusa/loader.rs`. `bytemuck::cast_slice` is the canonical safe
+# reinterpret that checks alignment + length at runtime. Small crate
+# (~1 KLOC, zero transitive deps). Only the `1` feature-set is needed — no
+# derive, no zeroable-maybeuninit.
+bytemuck  = "1"
 
 onebit-core        = { workspace = true }
 onebit-hip  = { path = "../1bit-hip", default-features = false }
@@ -79,3 +89,7 @@ onebit-xdna = { path = "../1bit-xdna", default-features = false, features = ["st
 # logit vectors. `fastrand` is already a workspace dep (onebit-core uses
 # it for the sampler RNG), so listing it here doesn't grow the build graph.
 fastrand = { workspace = true }
+# `src/medusa/loader.rs` synthesizes a `.h1b-medusa` file in a tempdir to
+# exercise the parser end-to-end. Every other crate in the workspace that
+# needs a temp path uses `tempfile = "3"`, so we match the pin.
+tempfile = "3"

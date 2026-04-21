@@ -3,3 +3,4 @@
 **/*.rs.bk
 rocm-cpp/build/
 .wrangler/
+crates/1bit-whisper/cpp/build/

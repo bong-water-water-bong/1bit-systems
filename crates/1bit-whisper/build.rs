@@ -23,6 +23,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=cpp/shim.cpp");
     println!("cargo:rerun-if-changed=cpp/shim.h");
+    println!("cargo:rerun-if-changed=cpp/segment_ring.hpp");
     println!("cargo:rerun-if-env-changed=CARGO_FEATURE_REAL_WHISPER");
 
     let real_whisper = env::var_os("CARGO_FEATURE_REAL_WHISPER").is_some();

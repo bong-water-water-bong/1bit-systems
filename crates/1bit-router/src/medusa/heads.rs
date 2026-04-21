@@ -30,8 +30,11 @@
 //! dispatch lands in the follow-up pass.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
+use super::MedusaConfig;
 use super::MedusaError;
+use super::loader::MedusaHeadsFile;
 
 /// Number of speculative heads we plan to load. Pinned by the
 /// `MedusaBitNet-2B-4T` artifact; changing this without also
@@ -72,39 +75,80 @@ pub struct MedusaHead {
 /// the router's hot-path can iterate in head-index order without a
 /// hashmap lookup. Fixed-size [`NUM_MEDUSA_HEADS`] so the borrow
 /// checker catches a missing head at compile time.
+///
+/// After the real-loader pass, `file` holds the mmapped
+/// [`MedusaHeadsFile`] wrapped in an `Arc` so the router can share one
+/// parse across its backends without re-mmapping. The `#[cfg(test)]`
+/// [`MedusaHeads::load_stub`] constructor leaves `file` as `None` for
+/// the existing scaffold tests that only exercise path-bookkeeping.
 #[derive(Debug, Clone)]
 pub struct MedusaHeads {
-    /// One slot per head. Scaffold form: each head carries only its
-    /// metadata. The retrained-weights pass fills in weight buffers.
+    /// One slot per head. Metadata only — tensor data lives inside
+    /// `file` if the real loader produced this handle.
     pub heads: [MedusaHead; NUM_MEDUSA_HEADS],
     /// Path the heads were loaded from. Kept for error messages and
     /// `/metrics` reporting.
     pub source_path: PathBuf,
+    /// The mmapped source file, if the real loader produced it.
+    /// `None` only for the `#[cfg(test)]` path-bookkeeping stub.
+    /// `Arc` so the router can share one parse across backends and
+    /// `MedusaHeads` keeps its `Clone` impl.
+    pub file: Option<Arc<MedusaHeadsFile>>,
 }
 
+/// Per-head acceptance rates from the `MedusaBitNet-2B-4T` model card
+/// (Alpaca 52K training set). Ops dashboards compare live measurements
+/// against these; a retrain may overwrite them.
+const EXPECTED_ACCEPTANCE: [f32; NUM_MEDUSA_HEADS] = [0.630, 0.290, 0.111, 0.046];
+
 impl MedusaHeads {
-    /// Scaffold loader. Today this only records the path; the
-    /// retrained-weights pass will mmap + parse + upload. Expected
-    /// acceptance rates come from `project_medusa_plan.md` + the
-    /// upstream model card.
+    /// Real loader: mmap + parse a `.h1b-medusa` file, validate its
+    /// header against the scaffold's pinned constants, and return a
+    /// handle whose per-head tensor views are borrowed directly from
+    /// the mmap (zero-copy).
+    ///
+    /// Config is accepted today but unused beyond shape validation —
+    /// the [`MedusaConfig`] struct only carries the path, which is
+    /// passed separately. The parameter is here so a future revision
+    /// that adds shape overrides (e.g. a retrained-vocab field) can
+    /// thread them in without changing every call site.
     ///
     /// Returns:
-    /// * `Ok(Self)` with all four heads pinned at `path`.
-    /// * `Err(WeightsNotFound { path })` if `path` does not exist.
-    ///   We re-check the path here even though [`super::MedusaState::from_config`]
-    ///   has already verified it — the second check costs one stat and
-    ///   keeps this loader safe to call from other code paths.
+    /// * `Ok(Self)` with all four heads + an owning
+    ///   [`Arc<MedusaHeadsFile>`] so the router can share this parse
+    ///   across backends.
+    /// * `Err(WeightsNotFound { path })` if `path` doesn't exist.
+    /// * `Err(LoaderError(..))` for bad magic, version mismatch,
+    ///   shape mismatch, file-size mismatch. See [`MedusaHeadsFile::open`].
+    pub fn load(path: &Path, _config: &MedusaConfig) -> Result<Self, MedusaError> {
+        let file = MedusaHeadsFile::open(path)?;
+        let heads = std::array::from_fn(|i| MedusaHead {
+            index: i,
+            weights_path: path.to_path_buf(),
+            expected_acceptance: EXPECTED_ACCEPTANCE[i],
+        });
+        Ok(Self {
+            heads,
+            source_path: path.to_path_buf(),
+            file: Some(Arc::new(file)),
+        })
+    }
+
+    /// Scaffold loader — path-bookkeeping only, no mmap, no parse.
+    /// Kept behind `#[cfg(test)]` for parity with the pre-loader
+    /// scaffold. Real callers must use [`Self::load`]; the main
+    /// `mod.rs::tests` suite goes through [`super::MedusaState::from_config`]
+    /// which dispatches to `load`. `allow(dead_code)` because the
+    /// retained-but-internal-only form keeps the scaffold's shape on
+    /// record without triggering a warn-on-warnings CI gate.
+    #[cfg(test)]
+    #[allow(dead_code)]
     pub fn load_stub(path: &Path) -> Result<Self, MedusaError> {
         if !path.exists() {
             return Err(MedusaError::WeightsNotFound {
                 path: path.to_path_buf(),
             });
         }
-        // Acceptance rates from the MedusaBitNet-2B-4T model card (Alpaca
-        // 52K training set). Ops dashboards compare live measurements
-        // against these; the follow-up pass may retrain and overwrite.
-        const EXPECTED_ACCEPTANCE: [f32; NUM_MEDUSA_HEADS] = [0.630, 0.290, 0.111, 0.046];
-
         let heads = std::array::from_fn(|i| MedusaHead {
             index: i,
             weights_path: path.to_path_buf(),
@@ -114,6 +158,7 @@ impl MedusaHeads {
         Ok(Self {
             heads,
             source_path: path.to_path_buf(),
+            file: None,
         })
     }
 
