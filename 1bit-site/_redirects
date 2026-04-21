@@ -1,2 +1,19 @@
-# Cloudflare Pages redirects — none today.
+# Cloudflare Pages — redirect rules
 # Format: <from> <to> <status>
+
+# Canonicalize the preview domain to production when it eventually flips.
+# Off by default; uncomment after hard-push.
+# https://*.1bit-systems.pages.dev/*  https://1bit.systems/:splat  301
+
+# Short permalinks
+/discord      https://discord.gg/halo-ai           302
+/gh           https://github.com/bong-water-water-bong/1bit-systems   302
+/github       https://github.com/bong-water-water-bong/1bit-systems   302
+/install      /#install                            302
+
+# Tolerate trailing-slash variance on the PWA and docs
+/voice        /voice/                              301
+/audio        /audio/                              301
+/join         /join/                               301
+/docs         /docs/                               301
+/mobile/onboard /mobile/onboard/                   301

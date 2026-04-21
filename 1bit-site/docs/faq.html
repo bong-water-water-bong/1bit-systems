@@ -4,158 +4,92 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0d1117">
-<title>FAQ · 1bit.systems docs</title>
+<title>FAQ — 1bit systems docs</title>
+<meta name="description" content="Ten questions Strix Halo owners actually ask about 1bit systems.">
 <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
-<link rel="stylesheet" href="/assets/style.css">
+<link rel="stylesheet" href="/assets/docs.css">
 </head>
 <body>
+
 <header class="topbar">
-  <a class="brand" href="/"><img src="/assets/logo.svg" alt="" width="28" height="28"><span><b>1</b>bit<span class="dot">.</span>systems</span></a>
+  <a class="brand" href="/"><svg width="24" height="24" viewBox="0 0 28 28"><circle cx="14" cy="14" r="12.5" fill="none" stroke="#00d4ff" stroke-width="1"/><text x="14" y="18" font-family="ui-monospace,monospace" font-size="12" font-weight="700" text-anchor="middle" fill="#00d4ff">1b</text></svg><span><b>1</b>bit<span class="dot">.</span>systems</span></a>
   <nav>
-    <a href="/docs/">docs</a>
-    <a href="/voice/">voice</a>
-    <a href="/audio/">audio</a>
-    <a href="/join/">join</a>
-    <a href="https://github.com/bong-water-water-bong" rel="noopener" class="gh-btn">GitHub</a>
+    <a href="/">home</a>
+    <a href="/docs/" class="active">docs</a>
+    <a href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">GitHub</a>
+    <a href="/join/" class="gh-btn">Join beta</a>
   </nav>
 </header>
-<div class="docs-shell">
+
+<div class="docs-page">
+<div class="docs-wrap">
+
 <aside class="docs-side">
-<h4>decisions</h4>
-<a href="/docs/why-ternary.html">Why Ternary</a>
-<a href="/docs/why-rust.html">Why Rust</a>
-<a href="/docs/why-strix-halo.html">Why Strix Halo</a>
-<a href="/docs/why-shadow-burnin.html">Why Shadow-Burnin</a>
-<a href="/docs/why-h1b-format.html">Why H1b Format</a>
-<a href="/docs/why-caddy-systemd.html">Why Caddy + Systemd</a>
-<a href="/docs/why-1bit-agents.html">Why 1bit-agents</a>
-<a href="/docs/why-no-python.html">Why No Python</a>
-<a href="/docs/why-parity-gates.html">Why Parity Gates</a>
-<a href="/docs/why-no-npu-yet.html">Why No NPU Yet</a>
-<a href="/docs/why-halo-power.html">Why halo-power</a>
-<a href="/docs/why-this-way-how.html">Why This Way + How</a>
-<h4>integrations</h4>
-<a href="/docs/hermes-integration.html">Hermes</a>
-<a href="/docs/amd-gaia-integration.html">AMD GAIA</a>
-<a href="/docs/medusa-integration-plan.html">Medusa plan</a>
-<a href="/docs/rotorquant-default-decision.html">Rotorquant</a>
-<a href="/docs/1bit-whisper-streaming-plan.html">Whisper streaming</a>
-<a href="/docs/npu-kernel-design.html">NPU kernel</a>
-<a href="/docs/ternary-on-aie-pack-plan.html">Ternary on AIE</a>
-<a href="/docs/peak-performance-projection.html">Peak projection</a>
-<a href="/docs/cpu-lane-plan.html">CPU lane</a>
-<a href="/docs/cloudflare-tunnel-setup.html">Cloudflare tunnel</a>
-<a href="/docs/vpn-only-api.html">VPN-only API</a>
-<a href="/docs/beta-10-day-ttl.html">Beta 10-day TTL</a>
-<a href="/docs/sdd-workflow.html">SDD workflow</a>
-<h4>crates</h4>
-<a href="/docs/crate-1bit-echo.html">1bit-echo</a>
-<a href="/docs/crate-1bit-helm.html">1bit-helm</a>
-<a href="/docs/crate-1bit-landing.html">1bit-landing</a>
-<a href="/docs/crate-1bit-lemonade.html">1bit-lemonade</a>
-<a href="/docs/crate-1bit-agents-watch.html">1bit-agents-watch</a>
-<h4>amd scans</h4>
-<a href="/docs/amd-ai-ml-tools-scan.html">AI/ML tools</a>
-<a href="/docs/amd-compilers-analyzers-scan.html">Compilers</a>
-<a href="/docs/amd-manageability-scan.html">Manageability</a>
-<a href="/docs/amd-platform-driver-scan.html">Platform driver</a>
-<a href="/docs/amd-rocm-ai-hub-scan.html">ROCm AI hub</a>
-<h4>reference</h4>
-<a href="/docs/home.html">Home</a>
-<a href="/docs/faq.html">FAQ</a>
-<a href="/docs/benchmarks.html">Benchmarks</a>
-
+  <h4>Get running</h4>
+  <a href="/docs/install.html">Install</a>
+  <a href="/docs/quickstart.html">Quickstart</a>
+  <a href="/docs/troubleshooting.html">Troubleshooting</a>
+  <a href="/docs/faq.html" class="active">FAQ</a>
+  <h4>Architecture</h4>
+  <a href="/docs/architecture.html">Architecture</a>
+  <a href="/docs/models.html">Models</a>
+  <a href="/docs/api.html">HTTP API</a>
+  <a href="/docs/voice.html">Voice</a>
+  <a href="/docs/desktop.html">Desktop</a>
+  <h4>Meta</h4>
+  <a href="/docs/contributing.html">Contributing</a>
+  <a href="/docs/changelog.html">Changelog</a>
 </aside>
-<main class="docs-body">
+
+<article class="docs-body">
+
 <h1>FAQ</h1>
-<h2 id="what-is-1bit-systems">What is 1bit systems?</h2>
-<p>The 1-bit inference engine. A Rust orchestration stack running Microsoft's BitNet-b1.58-2B-4T on an AMD Strix Halo mini-PC with native HIP kernels. OpenAI-compatible API, MCP server, 17 specialist agents, live landing page. Bring any OpenAI-compat client, plug it in, the agents keep the stack running while you work.</p>
-<h2 id="what-does-it-run-on">What does it run on?</h2>
-<p>AMD Ryzen AI MAX+ 395 (Strix Halo) mini-PC, $2-3k. 128 GB LPDDR5 unified memory, Radeon 8060S iGPU (gfx1151, RDNA 3.5), 256 GB/s bandwidth, &lt;150 W under load. CachyOS for the kernel-7 NPU driver support.</p>
-<h2 id="how-fast">How fast?</h2>
-<ul>
-<li>83 tok/s at 64-token generation</li>
-<li>68 tok/s at 1024-token generation</li>
-<li>Perplexity 9.18 on wikitext-103 (matches Microsoft paper's 9.1607 within ±0.05)</li>
-<li>96.66% byte-identical output vs the reference C++ server after ~10 000 side-by-side rounds</li>
-</ul>
-<h2 id="how-do-i-install-it">How do I install it?</h2>
-<pre><code>git clone git@github.com:bong-water-water-bong/1bit systems-core.git
-cd 1bit systems-core
-./install-strixhalo.sh
-</code></pre>
-<p>One script, ~5 minutes on a fresh CachyOS box. After: <code>halo doctor</code>, <code>halo chat</code>, <code>halo say &quot;hello&quot;</code>.</p>
-<h2 id="what-clients-work-with-it">What clients work with it?</h2>
-<p>Anything that accepts an OpenAI-compatible <code>base_url</code>:</p>
-<ul>
-<li><strong>Open WebUI</strong> — polished desktop-style chat, full RAG + MCP</li>
-<li><strong>LibreChat</strong> — yaml-configured OpenAI alternative</li>
-<li><strong>DSPy</strong> (Stanford) — compile declarative LM programs against 1bit-server</li>
-<li><strong>Claude Code</strong> — 1bit-mcp registers as MCP server; 17 specialists appear as tools</li>
-<li><strong>1bit-helm</strong> — our own native-Rust egui desktop client (renamed from halo-gaia 2026-04-20)</li>
-<li><strong>lemonade-python-sdk</strong> via the Lemonade-compat shim on <code>:8200</code></li>
-</ul>
-<h2 id="why-1-58-bit-and-not-1-bit">Why 1.58-bit and not 1-bit?</h2>
-<p>See <a href="why-ternary.html"><code>Why-Ternary.md</code></a>. Summary: ternary has a load-bearing zero that maps to activation sparsity, hardware efficiency, and 10× memory reduction with near-zero accuracy loss.</p>
-<h2 id="why-rust-and-not-python">Why Rust and not Python?</h2>
-<p>See <a href="why-no-python.html"><code>Why-No-Python.md</code></a>. Summary: 200 ms cold-start vs 10 seconds, 15 MB binary vs 1.2 GB venv, <code>Result&lt;T, E&gt;</code> vs <code>KeyError</code> at line unknown.</p>
-<h2 id="is-it-ready">Is it ready?</h2>
-<p>For private-beta testers, yes. PPL parity proven, shadow-burnin at 96.66% byte-exact, CI green, tester-installable. Public launch (reddit post, Steam-community-style rollout) after the 72-hour burnin gate clears. See <a href="../../cutover.html"><code>../../CUTOVER.md</code></a>.</p>
-<h2 id="can-i-run-it-on-apple-silicon">Can I run it on Apple Silicon?</h2>
-<p>Yes. The workspace is feature-gated — <code>cargo build --workspace --features mlx-apple</code> pulls in <code>bitnet-mlx-rs</code> and targets M-series via MLX. Same code, different kernel backend. AMD is the performance target; Apple is supported but not optimized.</p>
-<h2 id="can-i-run-it-on-nvidia">Can I run it on NVIDIA?</h2>
-<p>Not today. Our kernels are HIP. A future CUDA port is technically doable (HIP → CUDA is mostly mechanical) but not planned. A Windows/NVIDIA build would need a new maintainer.</p>
-<h2 id="can-i-use-my-own-model">Can I use my own model?</h2>
-<p>Partially:</p>
-<ul>
-<li>Any BitNet GGUF with IQ2_S weights should load through our <code>1bit-core::gguf</code> path (commit <code>2d1ec89</code>). Currently parse-only; the IQ2_S → <code>.h1b</code> bit-unpack lands next sprint.</li>
-<li>Microsoft's <code>bitnet-b1.58-2B-4T</code> works today via our <code>.h1b</code> format + requantizer.</li>
-<li>Non-BitNet architectures (Llama, Mistral, Qwen) don't run on the ternary kernels. Those models use their own non-1.58-bit formats.</li>
-</ul>
-<h2 id="what-s-1bit-agents">What's 1bit-agents?</h2>
-<p>17 specialist agents running in the background — anvil rebuilds kernels on commit, librarian keeps the changelog, quartermaster triages issues, magistrate scans PRs for secrets + commit-msg compliance. See the <code>1bit-agents</code> crate. Exposed via MCP so Claude Code and DSPy can call them as tools.</p>
-<h2 id="what-s-shadow-burnin">What's shadow-burnin?</h2>
-<p>See <a href="why-shadow-burnin.html"><code>Why-Shadow-Burnin.md</code></a>. Continuous parity check between the gen-1 C++ server and gen-2 Rust server so we can cut over with evidence, not faith.</p>
-<h2 id="why-not-just-use-ollama-lm-studio-vllm">Why not just use Ollama / LM Studio / vLLM?</h2>
-<ul>
-<li><strong>Ollama</strong> — CPU-first, runs BitNet via llama.cpp's ternary kernels, no native gfx1151 optimization. We're ~5× faster on the same box.</li>
-<li><strong>LM Studio</strong> — GUI-only, closed-source. Can't drive it from automation.</li>
-<li><strong>vLLM</strong> — NVIDIA-first, CUDA-only. No AMD iGPU path today.</li>
-</ul>
-<p>Also: none of them ship an MCP server, self-maintaining agents, Lemonade-compat gateway, or a recording-ready landing page. 1bit systems is the batteries-included bundle, not just the kernel.</p>
-<h2 id="is-it-open-source">Is it open source?</h2>
-<ul>
-<li>Kernels (<code>bong-water-water-bong/rocm-cpp</code>) — MIT, public.</li>
-<li>Rust monorepo (<code>1bit-systems</code>) — private until launch. Collaborator invites available.</li>
-<li>Everything we fork or borrow is credited in <a href="../../contributing.html"><code>../../CONTRIBUTING.md</code></a>.</li>
-</ul>
-<h2 id="who-s-behind-it">Who's behind it?</h2>
-<p>One operator, one box, one Claude Code session that won't quit. See <a href="../../contributing.html"><code>../../CONTRIBUTING.md</code></a> for acknowledgements — huge thanks to Light Heart Labs, Microsoft's BitNet team, the llama.cpp/ggml maintainers, and everyone whose shoulders we're standing on.</p>
+<p class="muted">Ten questions asked often enough in Discord that they deserve a link.</p>
 
-</main>
-<aside class="docs-toc">
-<h4>on this page</h4>
-<a href="#what-is-1bit-systems">What is 1bit systems?</a>
-<a href="#what-does-it-run-on">What does it run on?</a>
-<a href="#how-fast">How fast?</a>
-<a href="#how-do-i-install-it">How do I install it?</a>
-<a href="#what-clients-work-with-it">What clients work with it?</a>
-<a href="#why-1-58-bit-and-not-1-bit">Why 1.58-bit and not 1-bit?</a>
-<a href="#why-rust-and-not-python">Why Rust and not Python?</a>
-<a href="#is-it-ready">Is it ready?</a>
-<a href="#can-i-run-it-on-apple-silicon">Can I run it on Apple Silicon?</a>
-<a href="#can-i-run-it-on-nvidia">Can I run it on NVIDIA?</a>
-<a href="#can-i-use-my-own-model">Can I use my own model?</a>
-<a href="#what-s-1bit-agents">What's 1bit-agents?</a>
-<a href="#what-s-shadow-burnin">What's shadow-burnin?</a>
-<a href="#why-not-just-use-ollama-lm-studio-vllm">Why not just use Ollama / LM Studio / vLLM?</a>
-<a href="#is-it-open-source">Is it open source?</a>
-<a href="#who-s-behind-it">Who's behind it?</a>
+<h3 id="q1">1. Does this work on my RX 7900 / 9070 / 4090?</h3>
+<p>No. Today's kernels are written for gfx1151 specifically. Other AMD cards <i>might</i> compile but LDS tiling is tuned for Strix Halo's L1 &mdash; you'll probably get the code running and then be very disappointed by the numbers. NVIDIA needs a CUDA port we haven't written. We'll expand hardware support once the Strix Halo path is solid and shipping.</p>
 
-</aside>
+<h3 id="q2">2. Do I need CachyOS, or will Ubuntu / Arch / Fedora work?</h3>
+<p>We develop on CachyOS 7.x because it's what the target owner runs. Arch should work identically (CachyOS is Arch-derived). Ubuntu + Fedora <i>might</i> &mdash; the install script does Arch/pacman things. Ports are welcome; we just won't own the bug.</p>
+
+<h3 id="q3">3. How much RAM do I need?</h3>
+<p>128&thinsp;GB LPDDR5 is the Strix Halo configuration we target. 32&thinsp;GB and 64&thinsp;GB SKUs will run the stack but you'll feel it at long context. KV cache at L=2048 is ~320&thinsp;MB per session.</p>
+
+<h3 id="q4">4. Is my data leaving the box?</h3>
+<p>No. The installer doesn't phone home. <code>1bit-server</code> runs on localhost by default; mesh access is opt-in via Headscale. There are no analytics pixels on this website. We don't ship a telemetry agent.</p>
+
+<h3 id="q5">5. Can I use it with Claude Code / Open WebUI / Hermes?</h3>
+<p>Yes &mdash; anything OpenAI-compat works. Point the base URL at <code>https://&lt;your-box&gt;/v1</code> and the bearer from <code>/etc/caddy/Caddyfile</code>. Open WebUI is the one we test against most. Hermes integration is tracked in <a href="/docs/hermes-integration.html">Hermes integration</a>.</p>
+
+<h3 id="q6">6. How does the NPU story actually look?</h3>
+<p>Honestly: the XDNA 2 tile is there, Lemonade 10.2 shipped Linux NPU 2026-04-20, and the primary lane for us is ONNX Runtime + VitisAI EP (AMD's official path). The VitisAI EP shim for Strix Halo is currently login-gated inside the RyzenAI 1.7.1 bundle; we're working on extracting it. Ballpark: prefill offload for prompts &ge; 33 tokens. Not shipping today. See <a href="/docs/why-no-npu-yet.html">Why no NPU yet</a>.</p>
+
+<h3 id="q7">7. What's the long context story?</h3>
+<p>fd-attn (split-KV Flash-Decoding) holds the tok/s curve reasonably well out to L=4096. Beyond that we rely on the rope-tuning fix from 2026-04-19 that drops PPL from ~520 to ~12 on wikitext &mdash; but it's not magic. Context past L=8192 needs more work.</p>
+
+<h3 id="q8">8. Do I need to be online to install?</h3>
+<p>The first install needs internet for pacman deps + model downloads. After that, <code>1bit-server</code> runs fully offline. You can rsync the model cache from another box and skip the download step &mdash; see <a href="/docs/install.html#path-2">Path 2</a>.</p>
+
+<h3 id="q9">9. Is this a fork of bitnet.cpp?</h3>
+<p>No. We run Microsoft's BitNet b1.58 2B-4T checkpoint, but the inference stack (HIP kernels, Rust orchestrator, HTTP server, voice lane, everything above) is ours. Microsoft's bitnet.cpp is CPU + CUDA; we're gfx1151 first with CPU and NPU lanes joining the aggregator.</p>
+
+<h3 id="q10">10. Why is it called 1bit when the weights are 1.58 bits?</h3>
+<p>"1.58 systems" reads badly. The class of models is widely called "1-bit LLMs" (Microsoft's phrasing). We match the common name for the model class. If this offends your information theory, we sympathize &mdash; log(3)/log(2) &asymp; 1.585 and we know.</p>
+
+<nav class="pagination">
+  <a class="prev" href="/docs/troubleshooting.html"><span class="dir">&larr; prev</span>Troubleshooting</a>
+  <a class="next" href="/docs/contributing.html"><span class="dir">next &rarr;</span>Contributing</a>
+</nav>
+
+</article>
+
 </div>
+</div>
+
 <footer class="footer">
-  <p><b>1bit.systems</b> · the 1bit monster · <a href="/">home</a></p>
+  <p><b>1bit systems</b> &middot; <a href="/">home</a> &middot; <a href="/docs/">docs</a> &middot; MIT licensed</p>
+  <p class="tag">docs/faq &middot; 2026-04-21</p>
 </footer>
+
 </body>
 </html>

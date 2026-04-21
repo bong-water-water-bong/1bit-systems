@@ -38,9 +38,9 @@
 <main>
 
 <section class="hero">
-  <p class="eyebrow">halo-kokoro · 24 khz mono wav · onnxruntime · local</p>
-  <h1>hear the <span class="accent">1bit monster</span> talk.</h1>
-  <p class="lede">Type a line, pick a voice, hit synthesize. The audio comes from <b>your</b> halo box over same-origin <code>/kokoro/v1/audio/speech</code>. No cloud. No telemetry. One GET, one WAV back.</p>
+  <p class="eyebrow">1bit-kokoro &middot; 24 khz mono wav &middot; onnxruntime &middot; local</p>
+  <h1>Hear it <span class="accent">talk.</span></h1>
+  <p class="lede">Type a line, pick a voice, hit synthesize. The audio comes from <b>your</b> Strix Halo box over same-origin <code>/v1/audio/speech</code>. No cloud. No telemetry. One POST, one WAV back.</p>
 </section>
 
 <section class="audio-panel">
@@ -61,7 +61,7 @@
     <audio id="player" controls></audio>
   </div>
 
-  <div class="audio-log" id="log">ready · same-origin POST /kokoro/v1/audio/speech</div>
+  <div class="audio-log" id="log">ready &middot; same-origin POST /v1/audio/speech</div>
 </section>
 
 <section class="note" style="margin-top:2rem">
@@ -71,7 +71,7 @@
 </main>
 
 <footer class="footer">
-  <p><b>1bit.systems</b> · the 1bit monster · <a href="/">home</a></p>
+  <p><b>1bit systems</b> &middot; <a href="/">home</a> &middot; <a href="/docs/voice.html">voice docs</a></p>
 </footer>
 
 <script>
@@ -98,7 +98,7 @@
     go.disabled = true; dl.disabled = true;
     const t0 = performance.now();
     try {
-      const r = await fetch('/kokoro/v1/audio/speech', {
+      const r = await fetch('/v1/audio/speech', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ model: 'kokoro', input: txt, voice: selected, format: 'wav' }),

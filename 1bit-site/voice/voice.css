@@ -36,3 +36,13 @@
 .voice-orb.rec{animation:orb-pulse 1.2s ease-in-out infinite}
 @keyframes orb-pulse{0%,100%{box-shadow:0 0 0 8px rgba(0,212,255,.18),0 0 32px rgba(0,212,255,.45)}50%{box-shadow:0 0 0 14px rgba(0,212,255,.08),0 0 44px rgba(0,212,255,.65)}}
 .voice-hint{color:var(--muted);font-size:.8rem;margin:0;text-align:center}
+
+/* first-visit setup dialog */
+.voice-setup{background:var(--card);color:var(--fg);border:1px solid var(--border);border-radius:12px;padding:1.4rem 1.4rem 1.2rem;max-width:420px;width:calc(100% - 2rem);box-shadow:0 12px 40px rgba(0,0,0,.5)}
+.voice-setup::backdrop{background:rgba(6,9,13,.72);backdrop-filter:blur(6px)}
+.voice-setup h2{margin:0 0 6px;font-size:1.3rem;letter-spacing:-.01em;color:var(--fg)}
+.voice-setup a{color:var(--accent)}
+.voice-setup label{display:block;color:var(--muted);font-family:var(--mono);font-size:.75rem;letter-spacing:.1em;text-transform:uppercase;margin:12px 0 4px}
+.voice-setup input,.voice-setup select{width:100%;background:#0a0e14;color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:.55rem .7rem;font-family:var(--mono);font-size:.92rem}
+.voice-setup input:focus,.voice-setup select:focus{outline:none;border-color:var(--accent)}
+.voice-setup-actions{margin-top:16px;display:flex;justify-content:flex-end}
