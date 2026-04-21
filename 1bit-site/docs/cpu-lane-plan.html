@@ -123,50 +123,56 @@
 <li>Three unit tests in <code>cpu_lane::tests</code> — constructor doesn't panic,</li>
 </ul>
 <p>argmax at <code>temp=0</code> is deterministic on a 32k-element vector, <code>HALO_CPU_THREADS=4</code> is respected. Env-var test takes a module-local mutex so it can't race with the <code>HALO_BACKEND</code> test in <code>backend_config_tests</code>.</p>
-<p>What we did <strong>not</strong> do today, on purpose:</p>
+<h2 id="2026-04-20-measurement-decision">2026-04-20 measurement + decision</h2>
+<p><strong>Measurement harness</strong> — <code>crates/1bit-server/benches/sampler.rs</code> (plain-<code>main</code> <code>harness = false</code>, stable Rust, no new deps) plus an <code>#[ignore]</code>-gated <code>tests/sampler_cost_probe.rs</code> shim for sandboxed runs. 500 timed iters × 50 warm-up, vocab = 128,256, median reported.</p>
+<p>Numbers on strixhalo (Zen5 × 16) at release opt-level, 2026-04-20:</p>
+<table>
+<thead><tr><th>path</th><th>median</th><th>% of 15 ms fwd</th><th>% of 30 ms fwd</th></tr></thead>
+<tbody>
+<tr><td>inline greedy (temp = 0)</td><td><strong>83 µs</strong></td><td>0.55%</td><td>0.28%</td></tr>
+<tr><td>inline multinomial (T = 1, k = 0, p = 1)</td><td><strong>402 µs</strong></td><td>2.68%</td><td>1.34%</td></tr>
+<tr><td>inline full (T = 0.7, k = 50, p = 0.95)</td><td><strong>710 µs</strong></td><td>4.73%</td><td>2.37%</td></tr>
+<tr><td>parallel argmax (rayon × 1)</td><td>65 µs</td><td>0.43%</td><td>0.22%</td></tr>
+<tr><td>parallel argmax (rayon × 4)</td><td>23 µs</td><td>0.15%</td><td>0.08%</td></tr>
+<tr><td>parallel argmax (rayon × 8)</td><td>16 µs</td><td>0.11%</td><td>0.05%</td></tr>
+<tr><td>parallel argmax (rayon × 14)</td><td>16 µs</td><td>0.11%</td><td>0.05%</td></tr>
+</tbody></table>
+<p><strong>Decision — defer pipelining, land env-gated offload.</strong></p>
+<p>The full sampler path sits at 4.73% of a 15 ms forward step — right at the &quot;pipelining is worth plumbing&quot; threshold we set pre-measurement (≥5%), and in the common <code>temp = 0</code> case the GPU already returns argmax so the host sampler is skipped entirely (<code>generate_blocking</code> short-circuits when <code>req.sampler.temperature &lt;= 0.0</code>). A pipelined next-forward-over-previous-sampler implementation needs double-buffered logits scratch + an async handoff between the HIP stream and the sampler task; we don't spend that complexity for a 4.7% ceiling that only applies to the non-default sampler config.</p>
+<p><strong>What shipped instead.</strong> <code>HALO_SAMPLER=inline|parallel</code> env var, read once at router construction (<code>cpu_lane::SAMPLER_MODE_ENV</code>, <code>cpu_lane::sampler_mode_from_env</code>). Wired through <code>onebit_router::RouterConfig::sampler_mode</code> into <code>generate_blocking</code>. Default is <code>Inline</code> (today's behaviour, bit-identical). <code>Parallel</code> routes <code>Sampler::sample</code> through <code>CpuLane::sample</code> → <code>rayon_pool.install()</code>. Semantics are bit-identical — the lane's threads reserve cores for tokio + the HIP stream callback and get named <code>halo-cpu-&lt;idx&gt;</code>, so <code>rocprof</code> / <code>perf top</code> attribute sampler cycles cleanly. Operators can flip the switch to measure under real load without a rebuild.</p>
+<p>Three parity tests land in <code>cpu_lane::tests</code>: <code>inline_and_parallel_agree_at_temp_zero</code>, <code>inline_and_parallel_agree_on_topk_topp_path</code>, <code>sampler_mode_env_override_is_respected</code>.</p>
+<h2 id="where-the-real-cpu-lane-win-lives">Where the real CPU-lane win lives</h2>
+<p>Sampler hotspot analysis ruled <em>this</em> target out. The remaining CPU lane candidates, in falling priority order:</p>
+<ol>
+<li><strong>Tokenizer / detokenizer offload.</strong> <code>generate_blocking</code> calls</li>
+</ol>
+<p><code>inner.backend.detokenize(&amp;generated_ids)</code> every step and walks the <em>whole</em> generated_ids vector on each call — quadratic in generation length. Moving the byte-level-BPE decode onto the CPU lane (and restructuring to emit only the new-bytes delta) is an actual Amdahl win on long generations.</p>
+<ol>
+<li><strong>Stop-string match.</strong> Currently a linear scan over every stop</li>
+</ol>
+<p>string against <code>full_text</code> on every step. Small constant factor today, but it grows with <code>stop</code> array length.</p>
+<ol>
+<li><strong>Sherry 1.25-bit weight decompression.</strong> When the 3:4 sparsity</li>
+</ol>
+<p>spike ships (see <code>project_sherry_spike.md</code>), the on-the-fly ternary-from-packed decode is a parallel reduction — fits rayon.</p>
+<h2 id="what-we-did-not-do-today-on-purpose">What we did <strong>not</strong> do today, on purpose</h2>
 <ul>
-<li>Wire <code>CpuLane</code> into 1bit-server's SSE handler. The hotspot analysis</li>
+<li>Wire a pipelined sampler (next forward runs during prior sampler).</li>
 </ul>
-<p>comes first — see step (a) below.</p>
+<p>The measurement above put the sampler at the edge of &quot;worth it&quot; — below our pre-declared 5% threshold. Punted honestly; no fake win.</p>
 <ul>
-<li>Replace the existing <code>onebit_core::sampler::Sampler</code> (full top-k + top-p</li>
-<li>temperature + repetition penalty). <code>parallel_sample</code> today is</li>
+<li>Replace the existing <code>onebit_core::sampler::Sampler</code>.</li>
 </ul>
-<p>scaffolding — it proves the rayon pattern, not a drop-in replacement.</p>
+<p><code>CpuLane::sample</code> now wraps it bit-identically so we ship identical tokens regardless of the env knob.</p>
 <ul>
 <li>Add any C++ deps. Rule A + the 2026-04-20 &quot;bare-metal first&quot; lock-in</li>
 </ul>
 <p>keeps orchestration in Rust; kernels stay in rocm-cpp.</p>
-<h2 id="what-s-next-three-concrete-steps">What's next (three concrete steps)</h2>
-<h3 id="a-wire-cpulane-parallel-sample-into-1bit-server-s-sse-handler">(a) Wire <code>CpuLane::parallel_sample</code> into 1bit-server's SSE handler</h3>
-<p><code>1bit-server</code> runs the sampler inline on the main axum task today. The wire-up:</p>
-<ol>
-<li>Construct a process-global <code>CpuLane</code> in <code>1bit-server</code>'s <code>main</code> via</li>
-</ol>
-<p><code>onebit_router::cpu_lane::global_lane()</code>.</p>
-<ol>
-<li>In the <code>/v1/chat/completions</code> streaming handler, replace</li>
-</ol>
-<p><code>sampler.sample(logits, history)</code> with a dispatch that routes to <code>lane.parallel_sample(logits, top_k, top_p, temp)</code> when the CPU lane is selected. Keep the single-threaded path behind a <code>HALO_CPU_LANE=off</code> escape hatch.</p>
-<ol>
-<li>Ensure the SSE delta emission stays on the tokio task — rayon runs</li>
-</ol>
-<p>the scan, tokio owns the socket.</p>
-<h3 id="b-microbenchmark-single-threaded-vs-rayon-parallel-sampler">(b) Microbenchmark single-threaded vs rayon-parallel sampler</h3>
-<p>Not wired = no measurement. Target: <code>criterion</code> bench in <code>crates/1bit-router/benches/cpu_lane.rs</code>:</p>
-<ul>
-<li>Input: a synthetic 32k-element logit vector (BitNet's vocab size,</li>
-</ul>
-<p>128256 rounded down for easier chunking).</p>
-<ul>
-<li>Harness: compare <code>onebit_core::sampler::Sampler::sample</code> (single-threaded)</li>
-</ul>
-<p>against <code>CpuLane::parallel_sample</code> at pool sizes 1, 4, 8, 14.</p>
-<ul>
-<li>Pass criterion: rayon-parallel faster at ≥ 4 threads by enough that</li>
-</ul>
-<p>the iGPU overlap (~200 µs per token measured on a clean burn) wouldn't be dwarfed by rayon's per-task overhead.</p>
-<p>If rayon loses: step (c) becomes rank #1 — a flat <code>for</code> loop on the tokio task beats rayon for a single 128 KB scan, and we'd need BLAS-level machinery to make the CPU lane pull its weight.</p>
+<h2 id="what-s-next">What's next</h2>
+<h3 id="a-wire-cpulane-parallel-sample-into-1bit-server-s-sse-handler-done-2026-04-20">(a) Wire <code>CpuLane::parallel_sample</code> into 1bit-server's SSE handler — <strong>DONE (2026-04-20)</strong></h3>
+<p>Shipped as an env-gated path after the measurement above showed the pipelined version wasn't worth the plumbing. The sampler is now dispatched through <code>CpuLane::sample</code> when <code>HALO_SAMPLER=parallel</code>; the default (<code>inline</code>) is unchanged. See the &quot;What shipped instead&quot; block above.</p>
+<h3 id="b-microbenchmark-single-threaded-vs-rayon-parallel-sampler-done-2026-04-20">(b) Microbenchmark single-threaded vs rayon-parallel sampler — <strong>DONE (2026-04-20)</strong></h3>
+<p>Harness at <code>crates/1bit-server/benches/sampler.rs</code> (plain-<code>main</code>, <code>harness = false</code>, stable Rust — no criterion dep added). Run with <code>cargo bench -p onebit-server --bench sampler</code>. Numbers are in the table above.</p>
 <h3 id="c-decide-whether-zendnn-ffi-is-worth-the-dep-weight">(c) Decide whether ZenDNN FFI is worth the dep weight</h3>
 <p>AMD-AI-ML-Tools-Scan.md flagged ZenDNN 5.2 as having an official llama.cpp backend. It's AMD's Zen-tuned math library — MLP / GEMM / reduction kernels AVX-512-VNNI-tuned for Zen4+. Two questions to answer before we pull it in:</p>
 <ol>
@@ -198,9 +204,12 @@
 <a href="#what-the-lane-is">What the lane is</a>
 <a href="#why-cpu-is-a-peer-lane-not-a-fallback">Why CPU is a peer lane, not a fallback</a>
 <a href="#what-we-scaffolded-today">What we scaffolded today</a>
-<a href="#what-s-next-three-concrete-steps">What's next (three concrete steps)</a>
-<a href="#a-wire-cpulane-parallel-sample-into-1bit-server-s-sse-handler" style="padding-left:.8rem">(a) Wire `CpuLane::parallel_sample` into 1bit-server's SSE handler</a>
-<a href="#b-microbenchmark-single-threaded-vs-rayon-parallel-sampler" style="padding-left:.8rem">(b) Microbenchmark single-threaded vs rayon-parallel sampler</a>
+<a href="#2026-04-20-measurement-decision">2026-04-20 measurement + decision</a>
+<a href="#where-the-real-cpu-lane-win-lives">Where the real CPU-lane win lives</a>
+<a href="#what-we-did-not-do-today-on-purpose">What we did **not** do today, on purpose</a>
+<a href="#what-s-next">What's next</a>
+<a href="#a-wire-cpulane-parallel-sample-into-1bit-server-s-sse-handler-done-2026-04-20" style="padding-left:.8rem">(a) Wire `CpuLane::parallel_sample` into 1bit-server's SSE handler — **DONE (2026-04-20)**</a>
+<a href="#b-microbenchmark-single-threaded-vs-rayon-parallel-sampler-done-2026-04-20" style="padding-left:.8rem">(b) Microbenchmark single-threaded vs rayon-parallel sampler — **DONE (2026-04-20)**</a>
 <a href="#c-decide-whether-zendnn-ffi-is-worth-the-dep-weight" style="padding-left:.8rem">(c) Decide whether ZenDNN FFI is worth the dep weight</a>
 <a href="#cross-references">Cross-references</a>
 

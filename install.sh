@@ -122,10 +122,11 @@ fi
 ### XDNA 2 NPU userspace (optional)
 #
 # XRT + amdxdna driver + memlock limits. Required to drive the AIE
-# tiles from `1bit-xdna`. Skipped silently on boxes without an
-# NPU device (lspci/accel0 probe). Package install intent only — we
-# don't actually run pacman here; the operator runs install.sh with
-# sudo or answers the one pacman prompt.
+# tiles from the NPU lane (ONNX Runtime + VitisAI Execution Provider,
+# 2026-04-21 pivot — see project_npu_path_onnx.md). Skipped silently
+# on boxes without an NPU device (lspci/accel0 probe). Package install
+# intent only — we don't actually run pacman here; the operator runs
+# install.sh with sudo or answers the one pacman prompt.
 step "XDNA 2 NPU userspace (optional)"
 NPU_PRESENT=0
 if [[ -e /dev/accel/accel0 ]]; then

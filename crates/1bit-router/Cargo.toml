@@ -15,24 +15,8 @@ path = "src/lib.rs"
 [features]
 # Default: the router compiles without linking any GPU kernels (CI / check
 # friendly). Turn on `hip` to link 1bit-hip's rocm-cpp kernels.
-#
-# `real-xdna` flips 1bit-xdna out of stub mode into real libxrt
-# linkage. Off by default so `cargo build --workspace` stays green on
-# hosts without libxrt installed. Turn it on once Peano lands a working
-# xclbin — the Xdna backend arm in forward() will start actually dispatching
-# rather than returning the NotYetWired stub error.
-#
-# `flm-subprocess` flips the `xdna_flm` module from a compile-time stub
-# (always returns `NotYetWired`) into a real `/usr/bin/flm` spawner. ON
-# by default because the CachyOS `fastflowlm` pkg ships the binary and
-# every strixhalo box has it; CI hosts without it disable the feature so
-# the cargo build stays green (the dispatch arm falls back to the
-# canonical `NotYetWired` stub). Rule A: FLM is a subprocess, not a
-# Python runtime — clean.
-default         = ["flm-subprocess"]
+default         = []
 hip             = ["onebit-hip/link-rocm"]
-real-xdna       = ["onebit-xdna/real-xrt"]
-flm-subprocess  = []
 # BitNet v2 H-BitLinear — online Walsh-Hadamard rotation on the pre-quant
 # activation stream at every ternary GEMV site. Off by default because
 # (a) rotated weights (`W' = W @ H^T`) have to be baked offline by the
@@ -79,10 +63,6 @@ bytemuck  = "1"
 
 onebit-core        = { workspace = true }
 onebit-hip  = { path = "../1bit-hip", default-features = false }
-# XDNA 2 NPU FFI crate. Default-features off + explicit stub so CI hosts
-# without libxrt still build. Flipping 1bit-router's own `real-xdna`
-# feature on propagates to onebit-xdna/real-xrt.
-onebit-xdna = { path = "../1bit-xdna", default-features = false, features = ["stub"] }
 
 [dev-dependencies]
 # Used by `cpu_lane::tests` parity tests to build deterministic 32k-element

@@ -41,7 +41,7 @@ use crate::registry::ModelRegistry;
 pub struct AppState {
     pub registry: Arc<ModelRegistry>,
     /// Runtime dispatch target. Object-safe trait object so we can swap
-    /// 1bit-server for lemond / flm / a test mock without touching any
+    /// 1bit-server for lemond / ort / a test mock without touching any
     /// handler code. Invariant 3.
     pub upstream: Arc<dyn Upstream>,
     /// Process-wide Prometheus metrics. One per AppState, cloned by `Arc`.

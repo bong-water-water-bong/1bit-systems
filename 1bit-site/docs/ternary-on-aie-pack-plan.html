@@ -128,7 +128,7 @@ aie::vector&lt;int8, 32&gt; unpack_ternary(uint64_t packed) {
 <li>Shim DMA bindings: 4 A-lanes (broadcast across rows), 8 B-lanes (broadcast across cols), 8 C-drain.</li>
 <li>Alternating shim placement on NPU2 (8 cols).</li>
 <li>Host-side: quantise bf16 activations → int8 + scale on iGPU, drain int32 → dequantise to bf16.</li>
-<li>xclbin produced by Peano, loaded via <code>1bit-xdna::XdnaDevice::load_xclbin</code>.</li>
+<li>xclbin produced by Peano, loaded at the ORT C++ session layer (post-2026-04-21 pivot: NPU lane is ONNX Runtime + VitisAI EP — the standalone <code>1bit-xdna</code> FFI crate is retired, see <code>project_npu_path_onnx.md</code>).</li>
 <li>Test: bit-exact match against the iGPU HIP reference kernel on a fixed prompt.</li>
 </ol>
 <h2 id="sources">Sources</h2>

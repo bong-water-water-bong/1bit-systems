@@ -1,5 +1,20 @@
 # Why no NPU yet?
 
+## 2026-04-21 PIVOT — NPU lane = ONNX Runtime + VitisAI EP
+
+User directive 2026-04-21: **full ONNX.** FastFlowLM (Q4-only subprocess
+bridge) is retired. The `crates/1bit-xdna` FFI crate and `HALO_BACKEND=xdna`
+router variant were deleted. NPU path going forward is ONNX Runtime's C++
+API with AMD's VitisAI Execution Provider — `.onnx` model → graph
+partitioner → AIE ops via VitisAI, CPU-EP fallback for anything VitisAI
+doesn't accelerate. Rule A clean (ORT has a C++ API — Python is
+optional-only). See `project_npu_path_onnx.md` for the full rationale.
+
+Custom AIE kernels remain on the Peano + libxrt + aie-rt path described
+below, for ops VitisAI doesn't accelerate — we just don't need a
+separate `1bit-xdna` Rust crate to reach them, because ORT handles the
+dispatch side.
+
 ## 2026-04-20 RULE A CONSTRAINT — no Python in NPU path
 
 User directive 2026-04-20: **zero Python, build-time or runtime.** That rules IRON *as an authoring path* (it's Python+C++). IRON stays as a **reference-only read** — we crib its MLIR tile layouts + DMA descriptors, then reimplement the kernel in straight C++ against Peano.
@@ -12,7 +27,7 @@ Production path when we start:
 | Build orchestration | CMake + Peano | not IRON's Python `build.py` |
 | Runtime dispatch | [libxrt](https://github.com/Xilinx/XRT) C++ (`xrt::kernel`, `xrt::bo`) | loads xclbin, manages DMA, no Python |
 | Kernel driver | [amdxdna](https://github.com/amd/xdna-driver) | upstreamed Linux 6.10+, already works |
-| Rust FFI | new `1bit-xdna` crate | mirrors `1bit-hip` shape |
+| Rust FFI | (retired — see 2026-04-21 pivot below) | — |
 
 Same discipline as `rocm-cpp` today: C++ kernels, Rust above, no interpreters anywhere. The IRON examples at `programming_examples/basic/matrix_multiplication/` and `ml/bert/` are maps, not tools.
 
@@ -42,7 +57,7 @@ Evidence from IRON issue tracker (searched 2026-04-20):
 - **No Rust bindings today.** Plan is: offline IRON → xclbin build step (Python is OK at build time, Rule A), runtime load via `libxrt` C API from a new `crates/halo-bitnet-npu` shim. Decode stays on iGPU; only prefill layers route to NPU.
 - If the kill criteria trip (see memory), we re-defer to passive monitoring and the rest of this doc stands unchanged.
 
-**Honest framing**: this is a fifth evaluation track, not a green light to ship NPU. We are thanking AMD for the pointer and spending one week to confirm the reproducibility of issue #55's 2.75 TFLOPS number on our box. Everything below remains correct for the Ryzen AI SDK / FastFlowLM / IREE / ONNX paths.
+**Honest framing**: this is a fifth evaluation track, not a green light to ship NPU. We are thanking AMD for the pointer and spending one week to confirm the reproducibility of issue #55's 2.75 TFLOPS number on our box. Content below documents the prior evaluations for context; the 2026-04-21 pivot (top of file) supersedes the FastFlowLM and plain-ONNX tracks — the live path is ORT + VitisAI EP.
 
 ---
 
@@ -104,7 +119,7 @@ Research concluded — see `project_npu_path_analysis.md` memory. **Defer until 
 
 1. Ryzen AI SDK ≥ 1.8 adds **STX-H (Strix Halo)** to its Linux-supported SKU list. Today's 1.7.1 (April 2026) lists only STX + KRK.
 2. `microsoft/BitNet` ships an XDNA backend. [Issue #408](https://github.com/microsoft/BitNet/issues/408) — "Intel & AMD NPU support?" — has been open since Feb 2026 with zero Microsoft replies.
-3. **FastFlowLM** open-sources its NPU kernels (currently closed-source, non-redistributable under their EULA) or adds a 1.58-bit model family.
+3. *(Superseded 2026-04-21 by ONNX-Runtime + VitisAI EP pivot — FastFlowLM lane retired.)*
 4. Our iGPU path saturates the 212 GB/s LPDDR5 ceiling. Today we run at ~15% utilization — plenty of Sherry / activation-sparsity / KV-compression runway.
 5. A third party publishes a working BitNet → AIE kernel in public.
 
@@ -155,6 +170,6 @@ That's a nice-to-have, not a cutover gate. And it still requires the AMD Linux S
 
 - **Today**: iGPU-only, 83 tok/s decode, production-green.
 - **NPU research**: concluded. Deferred.
-- **Monitoring**: quarterly — check Ryzen AI SDK release notes + microsoft/BitNet#408 + FastFlowLM model catalog.
+- **Monitoring**: quarterly — check Ryzen AI SDK release notes, microsoft/BitNet#408, and VitisAI EP op-coverage updates.
 
 Memory pointer: `project_npu_path_analysis.md` has the full comparison table, citations, and defer-until conditions.

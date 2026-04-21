@@ -14,7 +14,6 @@ members = [
     "crates/1bit-landing",
     "crates/1bit-voice",
     "crates/1bit-echo",
-    "crates/1bit-xdna",
     "crates/1bit-whisper",
     "tools/h1b-sherry",
     "tools/gguf-to-h1b",

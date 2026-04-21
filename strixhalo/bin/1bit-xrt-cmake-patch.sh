@@ -8,9 +8,9 @@
 # XRT::*_static, XRT::xilinxopencl, XRT::pyxrt targets whose libraries
 # aren't in the package. cmake's find_package(XRT) then hard-errors
 # because the imported targets reference nonexistent files. Downstream
-# projects (mlir-aie, hsa-runtime, our 1bit-xdna when used with
-# find_package) break. This patch is the temporary fix until the
-# CachyOS package is corrected upstream.
+# projects (mlir-aie, hsa-runtime, any downstream find_package(XRT)
+# consumer — including ONNX Runtime + VitisAI EP) break. This patch is
+# the temporary fix until the CachyOS package is corrected upstream.
 
 set -euo pipefail
 

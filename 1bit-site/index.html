@@ -328,7 +328,7 @@ footer b{color:var(--fg)}
         <article class="card">
           <span class="tag eval">NPU &mdash; evaluating</span>
           <h3>XDNA 2, 50 TOPS</h3>
-          <p>Lemonade 10.2 Linux NPU shipped 2026-04-20 (Q4 today, ternary&rarr;INT8 soon). <b>Target: prefill offload.</b></p>
+          <p>ONNX Runtime + VitisAI Execution Provider (AMD official, XDNA2). <b>Target: prefill offload.</b></p>
         </article>
         <article class="card">
           <span class="tag next">CPU &mdash; next</span>
@@ -403,9 +403,8 @@ footer b{color:var(--fg)}
       <p class="muted" style="max-width:70ch">Fourteen crates, one monorepo, one job each. Rust above the HIP line, C++ below. No Python in the hot path. No container overhead. Everything runs as a user-systemd unit.</p>
       <div class="family" style="margin-top:24px">
         <article class="crate"><div class="n">1bit-server</div><p class="d">OpenAI-compat HTTP. <b>/v1/chat/completions</b> with SSE. Bearer-gated via Caddy. 2.4 MB binary.</p></article>
-        <article class="crate"><div class="n">1bit-router</div><p class="d">Backend dispatcher: iGPU / NPU / CPU. <b>HALO_BACKEND=xdna</b> wires FLM subprocess for NPU prefill.</p></article>
+        <article class="crate"><div class="n">1bit-router</div><p class="d">Backend dispatcher: iGPU / CPU. <b>HALO_BACKEND=hip</b> is the default. NPU lane is ONNX Runtime + VitisAI EP (plugs in at the ORT session layer).</p></article>
         <article class="crate"><div class="n">1bit-hip</div><p class="d">FFI into rocm-cpp HIP kernels. 92%-LPDDR5-peak ternary GEMV lives on the other side.</p></article>
-        <article class="crate"><div class="n">1bit-xdna</div><p class="d">FFI into libxrt for XDNA 2 NPU. FastFlowLM subprocess bridge; ternary-INT8 mapping pending AMD.</p></article>
         <article class="crate"><div class="n">1bit-voice</div><p class="d">Sentence-boundary streaming TTS. 1.23 s first audio. 17 unit tests.</p></article>
         <article class="crate"><div class="n">1bit-echo</div><p class="d">WebSocket voice server, Opus 20 ms frames. Cancellation path on disconnect. 11 tests.</p></article>
         <article class="crate"><div class="n">1bit-whisper</div><p class="d">STT via whisper.cpp on gfx1151. Streaming partials on roadmap.</p></article>
@@ -436,7 +435,7 @@ footer b{color:var(--fg)}
         </a>
         <a class="card" href="https://github.com/amd/RyzenAI-SW/issues/366" rel="noopener noreferrer">
           <div class="n">AMD Issue #366</div>
-          <p>Strix Halo Linux NPU &mdash; resolved via Lemonade 10.2</p>
+          <p>Strix Halo Linux NPU &mdash; ORT + VitisAI EP lane</p>
         </a>
       </div>
     </div>

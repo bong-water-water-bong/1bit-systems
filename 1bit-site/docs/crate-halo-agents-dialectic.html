@@ -68,7 +68,7 @@
 </aside>
 <main class="docs-body">
 <h1>Crate: 1bit-agents / dialectic</h1>
-<p><strong>Phase:</strong> analysis <strong>Status:</strong> scaffold landed 2026-04-20, LLM derivation pass TODO <strong>Upstream reference:</strong> [plastic-labs/honcho][honcho] (MIT, Python + Postgres)</p>
+<p><strong>Phase:</strong> solutioning <strong>Status:</strong> scaffold + LLM derivation + embedding-ish ranker landed 2026-04-20 <strong>Upstream reference:</strong> [plastic-labs/honcho][honcho] (MIT, Python + Postgres)</p>
 <p>Rust reimplementation of Honcho's dialectic user-modeling surface as a module in <code>1bit-agents</code>. No Python FFI, no Postgres — SQLite via the <code>rusqlite</code> (<code>bundled</code>) dep we already pull in for <code>sessions</code>.</p>
 <p>[honcho]: https://github.com/plastic-labs/honcho</p>
 <h2 id="what-is-dialectic-user-modeling">What is dialectic user modeling</h2>
@@ -77,6 +77,8 @@
 <pre><code>crates/1bit-agents/src/dialectic/
     mod.rs        — public types + observe() / infer() functions + tests
     store.rs      — DialecticStore trait + SqliteDialecticStore impl + DDL
+    derive.rs     — LLM-backed claim distillation (feature: llm-derive)
+    rank.rs       — 128-dim hash embedding + cosine ranker
 </code></pre>
 <p>Re-exports live at <code>onebit_agents::{UserModel, Observation, Inference, ObservationKind, DialecticStore, SqliteDialecticStore, observe, infer}</code>.</p>
 <h2 id="sql-schema-sqlite-1bit-agents-dialectic">SQL schema (SQLite, 1bit-agents/dialectic)</h2>
@@ -114,9 +116,9 @@ CREATE TABLE dialectic_supports (
 <tr><td><code>Workspace</code> multi-tenant</td><td>Single-tenant (dropped)</td><td>One operator, one box; revisit if 1bit-server ever hosts 3rd parties.</td></tr>
 <tr><td><code>Peer</code> row with config/metadata</td><td>Peer referenced by string id</td><td>Peer registry is <code>1bit-agents::sessions::sessions.user_id</code>; no need to dup.</td></tr>
 <tr><td><code>Messages</code> at session scope</td><td><code>dialectic_observations</code></td><td>Separation lets FTS5 session search keep its own row layout.</td></tr>
-<tr><td>LLM &quot;derivation task&quot; distills claims</td><td>Scaffold: claim := observation text verbatim</td><td>Prompt templates + hooks land after routing is wired end-to-end.</td></tr>
-<tr><td>LLM &quot;dialectic chat&quot; synthesizes answers</td><td>Case-insensitive keyword overlap ranker</td><td>Drop-in ranker swap once the specialist prompt lands (Librarian).</td></tr>
-<tr><td>pgvector cosine similarity over embeddings</td><td>(deferred)</td><td>Wait for 1bit-core embedder; keyword ranker is fine for the scaffold.</td></tr>
+<tr><td>LLM &quot;derivation task&quot; distills claims</td><td>POST /v1/chat/completions (feature: llm-derive) with verbatim fallback</td><td>Landed 2026-04-20. Prompt template below; feature off by default so tests don't need a live halo-server.</td></tr>
+<tr><td>LLM &quot;dialectic chat&quot; synthesizes answers</td><td>Two-stage: word-substring gate → hash-embedding cosine rerank</td><td>Landed 2026-04-20. Upgrade path still open once 1bit-server exposes /v1/embeddings.</td></tr>
+<tr><td>pgvector cosine similarity over embeddings</td><td>128-dim FNV-1a hash embeddings + L2 + cosine (with /v1/embeddings probe)</td><td>Hash ranker is always on. Probe switches to remote embeddings automatically when halo-server starts serving them.</td></tr>
 <tr><td><code>Document.level</code> (explicit / derived / …)</td><td><code>ObservationKind::{Explicit, Derived}</code></td><td>Enum present, only <code>Explicit</code> produced today. <code>Derived</code> reserved for LLM pass.</td></tr>
 <tr><td>Async task queue (<code>queue</code>, <code>dream</code>, reconciler)</td><td>— (not in scaffold)</td><td>Derivation is synchronous today. Revisit when LLM pass lands.</td></tr>
 <tr><td>Webhooks</td><td>—</td><td>Not needed for local single-operator deploy.</td></tr>
@@ -145,25 +147,51 @@ let claims = infer(&amp;store, &quot;alice&quot;, &quot;bob&quot;, &quot;CLI sty
 <li><code>GET  /dialectic/observation/{id}</code> → <code>get_observation()</code></li>
 </ul>
 <p>Route shape mirrors Honcho's <code>POST /peers/{peer_id}/chat</code> + <code>GET /peers/.../representation</code> but scoped at the <code>(observer, observed)</code> pair level, which maps more cleanly to our multi-agent specialist mesh than Honcho's implicit &quot;assistant = current user&quot; assumption.</p>
+<h2 id="derivation-prompt">Derivation prompt</h2>
+<p>The single source of truth lives in <code>crates/1bit-agents/src/dialectic/derive.rs::derivation_prompt</code>. Rendered:</p>
+<pre><code>You are a careful observer. Extract 1-3 short claims about {observed_peer}
+from the following utterance. Return ONLY a JSON array of strings, no prose.
+
+Utterance: {observation}
+</code></pre>
+<p>Transport: <code>POST http://127.0.0.1:8180/v1/chat/completions</code>, model <code>bitnet-b1.58-2B-4T</code>, <code>temperature: 0.2</code>, <code>max_tokens: 256</code>, <code>stream: false</code>. Parses <code>choices[0].message.content</code> as a JSON array; also strips <code></code><code></code> <code></code><code>json ... </code><code></code> <code></code><code></code> fences. Any error (HTTP, parse, empty array) → falls back to <code>[observation_verbatim]</code>.</p>
 <h2 id="tests">Tests</h2>
-<p>Five in-crate unit tests under <code>dialectic::tests</code>:</p>
+<p>Sixteen in-crate unit tests under <code>dialectic::tests</code> + <code>dialectic::derive::tests</code> + <code>dialectic::rank::tests</code>:</p>
+<p><strong>Module (<code>dialectic::tests</code>) — 6 tests:</strong></p>
 <ol>
 <li><code>empty_store_infer_returns_empty</code> — fresh store, no panic.</li>
 <li><code>two_observations_same_topic_both_cited</code> — ranking + citation.</li>
 <li><code>observations_do_not_cross_contaminate_peers</code> — observed-peer scoping.</li>
 <li><code>observers_do_not_cross_contaminate</code> — observer-peer scoping.</li>
 <li><code>empty_query_returns_all_newest_first</code> — default full-representation.</li>
+<li><code>observe_infer_ranked_by_hash_embedding</code> — end-to-end with new ranker.</li>
 </ol>
-<p>Total crate tests after port: <strong>67 unit + 1 integration</strong> (was 62 + 1).</p>
+<p><strong>Derive (<code>dialectic::derive::tests</code>) — 6 tests:</strong></p>
+<ol>
+<li><code>parse_claims_accepts_valid_json_array</code> — pure-parse happy path.</li>
+<li><code>parse_claims_falls_back_on_prose</code> — pure-parse fallback.</li>
+<li><code>parse_claims_strips_code_fence</code> — tolerates <code></code><code></code> <code></code><code>json ... </code><code></code> <code></code><code></code> wraps.</li>
+<li><code>derive_claims_against_mock_parses_json_array</code> — full reqwest → TCP mock.</li>
+<li><code>derive_claims_against_mock_falls_back_on_prose</code> — full reqwest, prose body.</li>
+<li><code>derive_claims_http_error_falls_back</code> — connection refused → fallback.</li>
+</ol>
+<p><strong>Rank (<code>dialectic::rank::tests</code>) — 4 tests:</strong></p>
+<ol>
+<li><code>hash_embed_self_similarity_is_one</code> — L2 normalization sanity.</li>
+<li><code>hash_embed_overlap_beats_disjoint</code> — shared-vocab &gt; disjoint-vocab.</li>
+<li><code>rank_orders_by_descending_similarity</code> — ordering contract.</li>
+<li><code>rank_empty_query_returns_all_without_panic</code> — zero-vector safety.</li>
+</ol>
+<p>Total crate tests after port: <strong>78 unit + 1 integration</strong> (was 67 + 1).</p>
 <h2 id="open-work-in-order">Open work (in order)</h2>
 <ol>
-<li><strong>LLM derivation task.</strong> Replace the verbatim-claim scaffold in</li>
+<li>~~<strong>LLM derivation task.</strong>~~ <strong>Done 2026-04-20.</strong> <code>derive_claims</code> +</li>
 </ol>
-<p><code>observe()</code> with a prompt-backed distillation step. Target specialist: <code>Librarian</code> (it already owns memory synthesis).</p>
+<p><code>observe_with_llm</code> behind <code>llm-derive</code> feature flag. Default off so offline / CI paths stay hermetic.</p>
 <ol>
-<li><strong>Embedding-based ranker.</strong> Swap keyword overlap for cosine similarity</li>
+<li>~~<strong>Embedding-based ranker.</strong>~~ <strong>Done 2026-04-20.</strong> 128-dim FNV-1a</li>
 </ol>
-<p>once <code>1bit-core</code> ships an embedder. DDL already reserves the <code>claim</code> column layout; only <code>list_inferences</code> query changes.</p>
+<p>hash embedding + L2 + cosine with two-stage gate against hash collisions. Probe for <code>/v1/embeddings</code> lives behind <code>rank::probe_embeddings_endpoint</code> so the switch to real embeddings is a one-call upgrade once 1bit-core ships one.</p>
 <ol>
 <li><strong>1bit-mcp surface.</strong> Expose the four endpoints above through the MCP</li>
 </ol>
@@ -172,6 +200,10 @@ let claims = infer(&amp;store, &quot;alice&quot;, &quot;bob&quot;, &quot;CLI sty
 <li><strong>1bit-server HTTP surface.</strong> Route to <code>/v1/dialectic/*</code> behind the</li>
 </ol>
 <p>same bearer guard the rest of 1bit-server uses.</p>
+<ol>
+<li><strong>Remote embeddings upgrade.</strong> When halo-server starts serving</li>
+</ol>
+<p><code>/v1/embeddings</code>, swap <code>rank_by_hash_embedding</code> for a remote call with the hash embedding as its fallback. Probe + cache already in place.</p>
 
 </main>
 <aside class="docs-toc">
@@ -182,6 +214,7 @@ let claims = infer(&amp;store, &quot;alice&quot;, &quot;bob&quot;, &quot;CLI sty
 <a href="#deviation-from-honcho-upstream">Deviation from Honcho upstream</a>
 <a href="#top-level-api-rust">Top-level API (Rust)</a>
 <a href="#endpoints-we-d-need-to-mirror-future-not-wired-today">Endpoints we'd need to mirror (future; not wired today)</a>
+<a href="#derivation-prompt">Derivation prompt</a>
 <a href="#tests">Tests</a>
 <a href="#open-work-in-order">Open work (in order)</a>
 

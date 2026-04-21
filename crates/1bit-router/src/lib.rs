@@ -37,16 +37,6 @@ pub mod detect;
 pub mod medusa;
 pub mod sampler;
 pub mod tokenizer;
-pub mod xdna_flm;
-
-// The XDNA 2 FFI crate is a compile-time dep so flipping 1bit-router's
-// `real-xdna` feature propagates to `1bit-xdna/real-xrt`. We don't
-// call into it yet — see `Router::generate`'s routing guard — but keeping
-// the `use` here ensures any future NPU wiring has a live import path,
-// and that `cargo` doesn't garbage-collect the dep when link-time pruning
-// kicks in.
-#[allow(unused_imports)]
-use onebit_xdna as _xdna;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -68,33 +58,27 @@ pub use sampler::{SAMPLER_MODE_ENV, SamplerMode, sampler_mode_from_env};
 /// Caller-selectable forward-pass backend.
 ///
 /// Distinct from [`BackendKind`], which is the *detected* hardware family —
-/// [`Backend`] is the *requested* dispatch surface. The two coincide today
-/// (both default to HIP on gfx1151), but they diverge once the NPU lands:
-/// `Backend::Xdna` is chosen explicitly via `HALO_BACKEND=xdna` or
-/// [`RouterConfig::backend`] and routes long-prompt prefills to the XDNA 2
-/// NPU through [`onebit_xdna`] while decode stays on the iGPU.
+/// [`Backend`] is the *requested* dispatch surface.
 ///
 /// Variants:
 ///
 /// * [`Backend::Hip`] — AMD gfx1151 iGPU via `1bit-hip`. Default.
-/// * [`Backend::Xdna`] — XDNA 2 NPU via `1bit-xdna`. Prefill-only,
-///   crossover at prompt length ≥ 33. Stub today; real dispatch wires on
-///   once Peano lands a working xclbin (see
-///   `docs/wiki/NPU-Kernel-Design.md`).
 /// * [`Backend::Cpu`] — host CPU lane. 7th aspirational surface from
 ///   `docs/wiki/Peak-Performance-Projection.md`. Scaffolded today in
 ///   [`cpu_lane::CpuLane`] but not on the critical path yet; selecting
 ///   it returns [`BackendError::CpuLaneStub`] (see
 ///   `docs/wiki/CPU-Lane-Plan.md` for the three-step wire-up plan).
+///
+/// **NPU note (2026-04-21 pivot):** the former `Backend::Xdna` variant
+/// (FastFlowLM subprocess bridge) is retired. The NPU path going forward
+/// is ONNX Runtime + VitisAI Execution Provider, which plugs in at the
+/// ORT session layer rather than as a router backend variant. See
+/// `project_npu_path_onnx.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Backend {
     /// gfx1151 iGPU path via `1bit-hip` (the production path).
     #[default]
     Hip,
-    /// XDNA 2 NPU path via `1bit-xdna`. Prefill only, feature-gated
-    /// behind `real-xdna`; in default builds forward() returns
-    /// [`BackendError::NotYetWired`] for prompts ≥ 33 tokens.
-    Xdna,
     /// Host CPU lane — sampler + tokenizer + dispatcher on Zen5 cores
     /// via [`cpu_lane::CpuLane`]. Scaffolded today but not on the
     /// critical path; dispatch surfaces [`BackendError::CpuLaneStub`].
@@ -103,16 +87,15 @@ pub enum Backend {
 
 impl Backend {
     /// Parse a `HALO_BACKEND=...` value. Case-insensitive. Accepted
-    /// spellings: `hip`, `xdna`, `cpu`. Any other value returns an error
-    /// that names all three accepted spellings so operators see the valid
+    /// spellings: `hip`, `cpu`. Any other value returns an error
+    /// that names both accepted spellings so operators see the valid
     /// set without having to `grep` the source.
     pub fn parse_env(raw: &str) -> Result<Self, BackendError> {
         match raw.trim().to_ascii_lowercase().as_str() {
             "hip" => Ok(Backend::Hip),
-            "xdna" => Ok(Backend::Xdna),
             "cpu" => Ok(Backend::Cpu),
             other => Err(BackendError::Other(format!(
-                "HALO_BACKEND: unknown value {other:?}; accepted: hip | xdna | cpu"
+                "HALO_BACKEND: unknown value {other:?}; accepted: hip | cpu"
             ))),
         }
     }
@@ -121,19 +104,10 @@ impl Backend {
     pub fn label(self) -> &'static str {
         match self {
             Backend::Hip => "hip",
-            Backend::Xdna => "xdna",
             Backend::Cpu => "cpu",
         }
     }
 }
-
-/// Prompt-length threshold above which [`Backend::Xdna`] claims the prefill
-/// pass. Below this the HIP path handles the whole forward (NPU kernel
-/// launch overhead dominates for short prompts).
-///
-/// Aspirational target from
-/// `docs/wiki/Peak-Performance-Projection.md`; tune once the xclbin lands.
-pub const XDNA_PREFILL_MIN_TOKENS: usize = 33;
 
 /// Router configuration — which forward-pass backend to dispatch on.
 ///
@@ -141,7 +115,7 @@ pub const XDNA_PREFILL_MIN_TOKENS: usize = 33;
 /// [`RouterConfig::from_env`], which reads `HALO_BACKEND` and falls back to
 /// [`Backend::Hip`] when unset. Separate struct (rather than a bare enum
 /// argument on `Router::new_with`) so we have a natural place to grow
-/// knobs like a prefill-threshold override or an XDNA kernel-cache path
+/// knobs like a prefill-threshold override or a sampler dispatch path
 /// without churning call sites.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RouterConfig {
@@ -282,8 +256,7 @@ impl Router {
     /// `.htok`.
     ///
     /// Dispatch backend is taken from the `HALO_BACKEND` env var (via
-    /// [`RouterConfig::from_env`]); set to `hip` (default), `xdna`, or
-    /// `cpu`.
+    /// [`RouterConfig::from_env`]); set to `hip` (default) or `cpu`.
     ///
     /// Fails if no supported backend is available on this host.
     pub fn new(h1b_path: impl AsRef<Path>) -> Result<Self, BackendError> {
@@ -314,10 +287,8 @@ impl Router {
 
     /// Full constructor with an explicit [`RouterConfig`]. This is the
     /// call site that actually reads `cfg.backend` and pins it onto the
-    /// returned router. The weight-load path is still HIP-only: even
-    /// under `Backend::Xdna`, weights upload to the iGPU today because
-    /// the NPU's weight surface isn't defined yet. The dispatch decision
-    /// happens inside [`Router::generate`] — see the routing guard there.
+    /// returned router. The dispatch decision happens inside
+    /// [`Router::generate`] — see the routing guard there.
     pub fn new_with_config(
         h1b_path: &Path,
         htok_path: &Path,
@@ -735,25 +706,14 @@ fn generate_blocking(
 
     // ---- Routing guard ----
     //
-    // Today the whole XDNA 2 integration lives here. The ternary-aware
-    // router fans out like this:
     //   * Backend::Hip → always proceed (the happy path).
-    //   * Backend::Xdna + long prompt + ternary weights → refuse with
-    //     `NpuTernaryUnsupported` (AMD hasn't shipped ternary→INT8 yet).
-    //   * Backend::Xdna + long prompt + non-ternary weights → spawn
-    //     FastFlowLM via `xdna_flm::flm_prefill`. See that module's
-    //     docstring for the subprocess shape.
-    //   * Backend::Xdna + short prompt → fall through to HIP (NPU launch
-    //     overhead isn't worth it for prompts < 33 tokens).
     //   * Backend::Cpu → `CpuLaneStub`.
     //
-    // `HipBackend::new` currently refuses to load anything other than
-    // HaloV2 ternary weights (see `backend_impl.rs:308`), so the live
-    // router is always ternary. Passing `is_ternary = true` hardcodes
-    // that invariant — when the GGUF Q4 loader lands and HipBackend
-    // grows a `model_format` accessor, this call site should consult it
-    // instead.
-    prefill_routing_decision_with_model(backend, prompt_ids.len(), /* is_ternary */ true)?;
+    // NPU lane (formerly `Backend::Xdna` + FastFlowLM) was retired
+    // 2026-04-21; the replacement is ONNX Runtime + VitisAI EP, which
+    // plugs in at the ORT session layer rather than as a router backend.
+    // See `project_npu_path_onnx.md`.
+    prefill_routing_decision(backend, prompt_ids.len())?;
 
     let prompt_tokens = prompt_ids.len() as u32;
     let max_new = req.max_new_tokens.max(1) as usize;
@@ -1125,17 +1085,11 @@ fn default_model_id(h1b_path: &Path) -> String {
 // the `From<HaloError>` / `From<RcppError>` impls the `?` operator needs.)
 
 /// Standalone routing-policy function. `Ok(())` = safe to dispatch on the
-/// current HIP path. `Err(BackendError::NotYetWired(...))` = the caller
-/// selected a backend whose real dispatch is not compiled / loaded yet.
+/// current HIP path.
 ///
 /// Rules:
 ///
 /// * [`Backend::Hip`] → always OK.
-/// * [`Backend::Xdna`] with `prompt_tokens >= `[`XDNA_PREFILL_MIN_TOKENS`]
-///   → `NotYetWired("NPU prefill backend not loaded — build xclbin via
-///   Peano first, see docs/wiki/NPU-Kernel-Design.md")`.
-/// * [`Backend::Xdna`] with a shorter prompt → OK (we fall through to HIP
-///   decode; the NPU isn't worth its launch overhead on tiny prompts).
 /// * [`Backend::Cpu`] → always [`BackendError::CpuLaneStub`]. The lane
 ///   itself (thread pool, parallel sampler primitive) is scaffolded in
 ///   [`cpu_lane`], but it's not on the critical path yet; operators who
@@ -1146,82 +1100,17 @@ fn default_model_id(h1b_path: &Path) -> String {
 /// this implementation, so asserting against this function also validates
 /// the live `generate` path byte-for-byte.
 ///
-/// **Ternary-unaware.** This function predates the FLM bridge; it treats
-/// every Xdna prompt the same way regardless of weight format. New code
-/// should prefer [`prefill_routing_decision_with_model`] which routes
-/// non-ternary Xdna prompts into the FastFlowLM subprocess bridge and
-/// surfaces the ternary-on-NPU gap as a distinct error variant. This
-/// function is kept as a thin wrapper over the model-aware version with
-/// `is_ternary = true` (the status quo: every model 1bit-router ships
-/// with today is ternary).
+/// **NPU note:** the former `Backend::Xdna` arm (FastFlowLM subprocess
+/// bridge, ternary-unsupported gate) was retired 2026-04-21. The NPU
+/// lane is now ONNX Runtime + VitisAI EP, which plugs in at the ORT
+/// session layer rather than here. See `project_npu_path_onnx.md`.
 pub fn prefill_routing_decision(
     backend: Backend,
     prompt_tokens: usize,
 ) -> Result<(), BackendError> {
-    prefill_routing_decision_with_model(backend, prompt_tokens, /* is_ternary */ true)
-}
-
-/// Model-aware routing-policy function. Supersedes
-/// [`prefill_routing_decision`] for callers that know the loaded model's
-/// weight format.
-///
-/// Extends the rule set with the FastFlowLM bridge:
-///
-/// * [`Backend::Xdna`] + `prompt_tokens >= XDNA_PREFILL_MIN_TOKENS` +
-///   `is_ternary == true` → [`BackendError::NpuTernaryUnsupported`].
-///   The message points at `project_lemonade_10_2_pivot.md` so ops knows
-///   this is an upstream AMD feature wait, not a 1bit-router bug. Retry
-///   with `HALO_BACKEND=hip`.
-/// * [`Backend::Xdna`] + `prompt_tokens >= XDNA_PREFILL_MIN_TOKENS` +
-///   `is_ternary == false` → dispatches through
-///   [`xdna_flm::flm_prefill`]. In practice this returns either
-///   [`BackendError::FlmSpawn`] (binary missing) or
-///   [`BackendError::NotYetWired`] (FLM alive but KV handoff pending —
-///   see `xdna_flm` module docstring).
-/// * Everything else mirrors [`prefill_routing_decision`] exactly.
-///
-/// The caller passes `is_ternary` as a bare bool instead of a model
-/// handle so this crate doesn't grow a `1bit-core` model-format
-/// dependency just for the policy check — the router's constructors
-/// already know whether they loaded a ternary `.h1b` or a Q4 GGUF, they
-/// can pass the flag through.
-pub fn prefill_routing_decision_with_model(
-    backend: Backend,
-    prompt_tokens: usize,
-    is_ternary: bool,
-) -> Result<(), BackendError> {
+    let _ = prompt_tokens;
     match backend {
         Backend::Hip => Ok(()),
-        Backend::Xdna if prompt_tokens >= XDNA_PREFILL_MIN_TOKENS => {
-            if is_ternary {
-                // AMD ternary→INT8 path hasn't shipped; FLM is Q4NX-only.
-                // Distinct error variant so ops dashboards can count it
-                // separately from "backend not built".
-                Err(BackendError::NpuTernaryUnsupported(
-                    "ternary BitNet weights cannot run on XDNA 2 today — FastFlowLM is Q4NX-only, \
-                     AMD's ternary→INT8 mapping is pending (see project_lemonade_10_2_pivot.md). \
-                     Retry with HALO_BACKEND=hip.",
-                ))
-            } else {
-                // Non-ternary (Q4 GGUF etc.) — drive FLM. The subprocess
-                // path handles its own feature-flag + binary-missing
-                // diagnostics; we just forward whatever it returns.
-                // Model id is the caller's concern; we pass a FLM-shaped
-                // placeholder here because this is the policy checker,
-                // not the actual dispatch. The live `generate` path
-                // passes the router's `model_id` through in
-                // `generate_blocking`.
-                let _ = xdna_flm::flm_prefill(
-                    "",
-                    &xdna_flm::default_flm_model_id(),
-                    /* is_ternary */ false,
-                )?;
-                // Unreachable on current FLM: flm_prefill always returns
-                // Err until KV handoff lands. Kept for the day it does.
-                Ok(())
-            }
-        }
-        Backend::Xdna => Ok(()),
         Backend::Cpu => Err(BackendError::CpuLaneStub(
             "CPU sampler lane scaffolded, not yet on critical path; see docs/wiki/CPU-Lane-Plan.md",
         )),
@@ -1298,10 +1187,10 @@ mod ppl_math_tests {
 #[cfg(test)]
 mod backend_config_tests {
     //! Tests for the `Backend` enum + `RouterConfig` env-var plumbing +
-    //! the prefill-routing guard that gates XDNA 2 NPU dispatch.
+    //! the prefill-routing guard.
     //!
     //! These are GPU-free: they exercise parsing and policy, never the
-    //! forward pass. The "forward returns NotYetWired" test goes through
+    //! forward pass. The routing guard tests go through
     //! [`prefill_routing_decision`], which is the same function
     //! [`generate_blocking`] calls — so a pass here means the live
     //! `Router::generate` path would surface the identical error.
@@ -1324,32 +1213,32 @@ mod backend_config_tests {
         assert_eq!(RouterConfig::default().backend, Backend::Hip);
     }
 
-    /// `HALO_BACKEND=xdna` must parse to `Backend::Xdna` and land on the
+    /// `HALO_BACKEND=cpu` must parse to `Backend::Cpu` and land on the
     /// RouterConfig. Case-insensitive + whitespace-tolerant.
     #[test]
-    fn halo_backend_env_parses_xdna() {
+    fn halo_backend_env_parses() {
         let _g = ENV_LOCK.lock().unwrap();
         // SAFETY: edition-2024 moved env mutation behind unsafe. We're
         // single-threaded inside the lock.
         unsafe {
-            std::env::set_var("HALO_BACKEND", "xdna");
+            std::env::set_var("HALO_BACKEND", "cpu");
         }
         let cfg = RouterConfig::from_env().expect("parse");
-        assert_eq!(cfg.backend, Backend::Xdna);
+        assert_eq!(cfg.backend, Backend::Cpu);
 
         // Whitespace / case tolerance — ops tooling isn't always tidy.
         unsafe {
-            std::env::set_var("HALO_BACKEND", "  XDNA\n");
+            std::env::set_var("HALO_BACKEND", "  CPU\n");
         }
         let cfg2 = RouterConfig::from_env().expect("parse");
-        assert_eq!(cfg2.backend, Backend::Xdna);
+        assert_eq!(cfg2.backend, Backend::Cpu);
 
-        // cpu round-trip too — keeps the three-way discriminator honest.
+        // hip round-trip too.
         unsafe {
-            std::env::set_var("HALO_BACKEND", "cpu");
+            std::env::set_var("HALO_BACKEND", "hip");
         }
         let cfg3 = RouterConfig::from_env().expect("parse");
-        assert_eq!(cfg3.backend, Backend::Cpu);
+        assert_eq!(cfg3.backend, Backend::Hip);
 
         unsafe {
             std::env::remove_var("HALO_BACKEND");
@@ -1368,7 +1257,7 @@ mod backend_config_tests {
         let err = RouterConfig::from_env().expect_err("should reject");
         let msg = format!("{err}");
         assert!(
-            msg.contains("hip") && msg.contains("xdna") && msg.contains("cpu"),
+            msg.contains("hip") && msg.contains("cpu"),
             "error should list accepted spellings; got: {msg}"
         );
         unsafe {
@@ -1376,190 +1265,27 @@ mod backend_config_tests {
         }
     }
 
-    /// The NPU crossover threshold is literally 33 tokens. After the
-    /// FLM bridge landed (2026-04-20), the ternary-implicit legacy
-    /// [`prefill_routing_decision`] re-routes to the ternary-unsupported
-    /// arm rather than `NotYetWired`. The message must point ops at
-    /// `project_lemonade_10_2_pivot.md` so they see this is an upstream
-    /// AMD wait, not a build-time gap. This is the exact arm the live
-    /// `generate_blocking` takes — same function, same string.
+    /// Routing policy: Hip is always OK, Cpu always returns the scaffold
+    /// stub. (NPU path retired 2026-04-21 — see `project_npu_path_onnx.md`.)
     #[test]
-    fn xdna_long_prompt_returns_npu_ternary_unsupported() {
-        // Boundary: 33 tokens is at threshold → refuse.
-        let err = prefill_routing_decision(Backend::Xdna, XDNA_PREFILL_MIN_TOKENS)
-            .expect_err("xdna @ threshold must refuse");
-        match err {
-            BackendError::NpuTernaryUnsupported(msg) => {
-                assert!(
-                    msg.contains("ternary") && msg.contains("Q4NX"),
-                    "error must name ternary + Q4NX so ops understands the gap; got: {msg}"
-                );
-                assert!(
-                    msg.contains("HALO_BACKEND=hip"),
-                    "error must tell ops how to retry; got: {msg}"
-                );
-            }
-            other => panic!("expected NpuTernaryUnsupported, got {other:?}"),
-        }
-
-        // Comfortably over threshold — same arm.
-        let err =
-            prefill_routing_decision(Backend::Xdna, 256).expect_err("long xdna prompt must refuse");
-        assert!(matches!(err, BackendError::NpuTernaryUnsupported(_)));
-
-        // Short prompt on Xdna: falls through (the NPU launch overhead
-        // isn't worth it for tiny prefills, so HIP handles it).
-        assert!(prefill_routing_decision(Backend::Xdna, 32).is_ok());
-        assert!(prefill_routing_decision(Backend::Xdna, 1).is_ok());
-
-        // Hip is always fine; Cpu always refuses with the scaffold stub.
+    fn prefill_routing_hip_and_cpu() {
+        // Hip is always fine regardless of prompt length.
+        assert!(prefill_routing_decision(Backend::Hip, 1).is_ok());
         assert!(prefill_routing_decision(Backend::Hip, 4096).is_ok());
-        let cpu_err = prefill_routing_decision(Backend::Cpu, 1).unwrap_err();
-        match cpu_err {
-            BackendError::CpuLaneStub(msg) => {
-                assert_eq!(
-                    msg,
-                    "CPU sampler lane scaffolded, not yet on critical path; see docs/wiki/CPU-Lane-Plan.md",
-                    "cpu stub message drifted — update memory + docs together"
-                );
-            }
-            other => panic!("expected CpuLaneStub, got {other:?}"),
-        }
-    }
 
-    /// Model-aware routing: ternary model on Xdna must surface
-    /// [`BackendError::NpuTernaryUnsupported`] with the AMD-upstream-wait
-    /// message. Backend::Cpu + any model is unchanged — still
-    /// `CpuLaneStub`. Backend::Hip is always OK regardless of model.
-    #[test]
-    fn prefill_routing_with_model_gates_ternary_on_xdna() {
-        // Ternary + Xdna @ threshold → NpuTernaryUnsupported, pointing
-        // ops at the memory note and the HIP fallback.
-        let err = prefill_routing_decision_with_model(
-            Backend::Xdna,
-            XDNA_PREFILL_MIN_TOKENS,
-            /* is_ternary */ true,
-        )
-        .expect_err("ternary on xdna must refuse");
-        match err {
-            BackendError::NpuTernaryUnsupported(msg) => {
-                assert!(msg.contains("ternary"));
-                assert!(msg.contains("project_lemonade_10_2_pivot.md"));
-                assert!(msg.contains("HALO_BACKEND=hip"));
-            }
-            other => panic!("expected NpuTernaryUnsupported, got {other:?}"),
-        }
-
-        // Ternary + Hip → always OK regardless of prompt length.
-        assert!(
-            prefill_routing_decision_with_model(Backend::Hip, 4096, /* is_ternary */ true).is_ok(),
-            "Hip + ternary must pass — we're supposed to run on the iGPU"
-        );
-        assert!(
-            prefill_routing_decision_with_model(Backend::Hip, 1, /* is_ternary */ false).is_ok(),
-            "Hip + non-ternary must also pass — Hip is backend-agnostic here"
-        );
-
-        // Backend::Cpu is unchanged: always CpuLaneStub, ignores
-        // `is_ternary`. Regression guard: nobody accidentally re-routed
-        // the CPU lane through FLM.
-        for is_t in [true, false] {
-            let err = prefill_routing_decision_with_model(Backend::Cpu, 1, is_t)
+        // Cpu always refuses with the scaffold stub.
+        for tokens in [0usize, 1, 32, 256, 4096] {
+            let cpu_err = prefill_routing_decision(Backend::Cpu, tokens)
                 .expect_err("cpu always stubs");
-            assert!(
-                matches!(err, BackendError::CpuLaneStub(_)),
-                "Cpu + is_ternary={is_t} must stay CpuLaneStub, got {err:?}"
-            );
-        }
-
-        // Short prompt on Xdna falls through regardless of model kind —
-        // the HIP path picks it up.
-        assert!(
-            prefill_routing_decision_with_model(
-                Backend::Xdna,
-                XDNA_PREFILL_MIN_TOKENS - 1,
-                /* is_ternary */ true,
-            )
-            .is_ok(),
-            "short prompt must fall through to HIP even for ternary"
-        );
-        assert!(
-            prefill_routing_decision_with_model(
-                Backend::Xdna,
-                XDNA_PREFILL_MIN_TOKENS - 1,
-                /* is_ternary */ false,
-            )
-            .is_ok()
-        );
-    }
-
-    /// Non-ternary + Xdna + long prompt → attempts FLM dispatch. Because
-    /// `/usr/bin/flm` may or may not be present on the test host, we
-    /// accept either (a) the feature-off stub `NotYetWired`, or (b) a
-    /// live FLM outcome surfacing as `FlmSpawn` / `NotYetWired` from the
-    /// `xdna_flm` path. The failure mode we explicitly reject is a
-    /// panic or an `NpuTernaryUnsupported` — that would mean the
-    /// ternary gate fired on a non-ternary input.
-    #[test]
-    fn prefill_routing_non_ternary_xdna_dispatches_to_flm() {
-        // Point the FLM bridge at a definitely-nonexistent binary so
-        // this test is deterministic regardless of whether
-        // `/usr/bin/flm` is installed on the CI / dev host. Uses the
-        // same env-var the module exposes for tests + ops dry-runs.
-        let _g = ENV_LOCK.lock().unwrap();
-        unsafe {
-            std::env::set_var(xdna_flm::FLM_BINARY_ENV, "/nonexistent/flm-routing-test");
-        }
-
-        let err = prefill_routing_decision_with_model(
-            Backend::Xdna,
-            XDNA_PREFILL_MIN_TOKENS,
-            /* is_ternary */ false,
-        )
-        .expect_err("flm bridge must surface an error today (KV handoff pending)");
-
-        // Acceptable outcomes, by feature-flag state:
-        //   feature ON  → FlmSpawn (binary missing at the override path)
-        //   feature OFF → NotYetWired (compile-time stub)
-        match &err {
-            BackendError::FlmSpawn(_) | BackendError::NotYetWired(_) => {
-                // good — subprocess path engaged, regardless of outcome
-            }
-            BackendError::NpuTernaryUnsupported(msg) => {
-                panic!("ternary gate fired on is_ternary=false — bug! msg: {msg}");
-            }
-            other => panic!("unexpected error from non-ternary flm bridge: {other:?}"),
-        }
-
-        unsafe {
-            std::env::remove_var(xdna_flm::FLM_BINARY_ENV);
-        }
-    }
-
-    /// Regression guard: [`Backend::Cpu`] policy must be untouched by
-    /// the FLM bridge changes. No routing, no subprocess, no flag
-    /// sensitivity — always `CpuLaneStub` with the canonical message.
-    #[test]
-    fn cpu_backend_unchanged_by_flm_bridge() {
-        // Every prompt length + both model kinds + both signatures
-        // (legacy + model-aware) must return CpuLaneStub.
-        for tokens in [0usize, 1, 32, XDNA_PREFILL_MIN_TOKENS, 4096] {
-            let err = prefill_routing_decision(Backend::Cpu, tokens)
-                .expect_err("legacy cpu always stubs");
-            assert!(matches!(err, BackendError::CpuLaneStub(_)));
-
-            for is_t in [true, false] {
-                let err2 = prefill_routing_decision_with_model(Backend::Cpu, tokens, is_t)
-                    .expect_err("model-aware cpu always stubs");
-                match err2 {
-                    BackendError::CpuLaneStub(msg) => {
-                        assert!(
-                            msg.contains("CPU sampler lane"),
-                            "cpu stub message must remain stable; got: {msg}"
-                        );
-                    }
-                    other => panic!("Cpu must stay CpuLaneStub, got {other:?}"),
+            match cpu_err {
+                BackendError::CpuLaneStub(msg) => {
+                    assert_eq!(
+                        msg,
+                        "CPU sampler lane scaffolded, not yet on critical path; see docs/wiki/CPU-Lane-Plan.md",
+                        "cpu stub message drifted — update memory + docs together"
+                    );
                 }
+                other => panic!("expected CpuLaneStub, got {other:?}"),
             }
         }
     }
@@ -1569,14 +1295,10 @@ mod backend_config_tests {
     #[test]
     fn backend_labels_are_unique() {
         let hip = Backend::Hip.label();
-        let xdna = Backend::Xdna.label();
         let cpu = Backend::Cpu.label();
-        assert_ne!(hip, xdna);
-        assert_ne!(xdna, cpu);
         assert_ne!(hip, cpu);
         // And parse-env round-trips through the canonical lowercase label.
         assert_eq!(Backend::parse_env(hip).unwrap(), Backend::Hip);
-        assert_eq!(Backend::parse_env(xdna).unwrap(), Backend::Xdna);
         assert_eq!(Backend::parse_env(cpu).unwrap(), Backend::Cpu);
     }
 }

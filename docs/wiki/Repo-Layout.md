@@ -18,7 +18,6 @@ Canonical URL: `https://github.com/bong-water-water-bong/1bit-systems` (renamed 
 │   ├── 1bit-core/          model + tokenizer parsers (mmap, zero deps)
 │   ├── 1bit-cli/           operator CLI — `1bit status / doctor / …`
 │   ├── 1bit-hip/           FFI into rocm-cpp HIP kernels
-│   ├── 1bit-xdna/          FFI into libxrt for XDNA 2 NPU
 │   ├── 1bit-mlx/           Apple Silicon backend (feature-gated)
 │   ├── 1bit-voice/         sentence-boundary TTS streaming orchestrator
 │   ├── 1bit-echo/          WebSocket voice server (Opus 20 ms frames)

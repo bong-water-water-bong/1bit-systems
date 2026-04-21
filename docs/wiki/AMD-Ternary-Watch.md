@@ -46,11 +46,11 @@ Any **one** of these lands -> act immediately:
 
 Triggered by any trip-wire above:
 
-1. **Hour 0-1**: pull the diff. Identify the endpoint (HTTP port, gRPC, XRT ioctl) Lemonade/FFLM exposes for the ternary path. Copy the weight-layout doc into `docs/wiki/AMD-Ternary-Shim.md`.
-2. **Hour 1-4**: in `halo-router`, add `Backend::Xdna` variant pointing at that endpoint (default `http://localhost:13305/xdna` if Lemonade; else whatever FFLM exposes). Gate behind `halo-router --backend xdna` flag; do not change default routing.
-3. **Hour 4-24**: run `bitnet_decode --ppl` through the new backend against wikitext-103. Bit-exactness target: delta PPL < 0.02 vs our gfx1151 split-KV baseline (1.04 rep / ~12 wikitext).
+1. **Hour 0-1**: pull the diff. Identify the op mapping (VitisAI EP op coverage, custom-op hook, or an ORT execution-provider change) the upstream path exposes for ternary. Copy the weight-layout doc into `docs/wiki/AMD-Ternary-Shim.md`.
+2. **Hour 1-4**: wire the ternary op through our ORT C++ session (NPU lane is ORT + VitisAI EP since 2026-04-21 pivot — see `project_npu_path_onnx.md`). Gate behind a `HALO_NPU=1` flag on the server side; do not change default routing.
+3. **Hour 4-24**: run `bitnet_decode --ppl` through the NPU-enabled ORT session against wikitext-103. Bit-exactness target: delta PPL < 0.02 vs our gfx1151 split-KV baseline (1.04 rep / ~12 wikitext).
 4. **Day 2**: bench decode + prefill tok/s. Publish numbers to `/home/bcloud/claude output/xdna-vs-igpu-<date>.json`. Update `Why-No-NPU-Yet.md` -> `Why-NPU-Now.md` if prefill beats iGPU.
-5. **Day 3-7**: if wins are real, promote XDNA backend to default for prefill only (iGPU keeps decode — bandwidth math unchanged for decode even with native int8). Keep iGPU behind `--backend rocm` for rollback.
+5. **Day 3-7**: if wins are real, promote the ORT VitisAI lane to default for prefill only (iGPU keeps decode — bandwidth math unchanged for decode even with native int8). Keep iGPU as the fallback for rollback.
 6. **Do not** rewrite the ternary GEMV on XDNA ourselves ahead of an upstream path. Our Sherry 1.25-bit / split-KV work stays iGPU-only until AMD ships the mapping.
 
 ## Weekly re-check procedure

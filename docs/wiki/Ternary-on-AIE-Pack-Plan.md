@@ -72,7 +72,7 @@ Both run on the iGPU (HIP), not the NPU. Overhead: ~0.3 ms per layer at 2B. Abso
 4. Shim DMA bindings: 4 A-lanes (broadcast across rows), 8 B-lanes (broadcast across cols), 8 C-drain.
 5. Alternating shim placement on NPU2 (8 cols).
 6. Host-side: quantise bf16 activations → int8 + scale on iGPU, drain int32 → dequantise to bf16.
-7. xclbin produced by Peano, loaded via `1bit-xdna::XdnaDevice::load_xclbin`.
+7. xclbin produced by Peano, loaded at the ORT C++ session layer (post-2026-04-21 pivot: NPU lane is ONNX Runtime + VitisAI EP — the standalone `1bit-xdna` FFI crate is retired, see `project_npu_path_onnx.md`).
 8. Test: bit-exact match against the iGPU HIP reference kernel on a fixed prompt.
 
 ## Sources

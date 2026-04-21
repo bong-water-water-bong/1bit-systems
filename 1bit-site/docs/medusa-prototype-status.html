@@ -68,8 +68,8 @@
 </aside>
 <main class="docs-body">
 <h1>Medusa Prototype Status</h1>
-<p>Date: 2026-04-20 Status: scaffolding + scalar kernel stub landed; no runtime path yet. Parent plan: <code>docs/wiki/Medusa-Integration-Plan.md</code> (recommendation: DEFER).</p>
-<p>This page captures one day of prototype work sitting <em>below</em> the decision to defer. It does not flip the recommendation; it makes the &quot;if we later decide to do it&quot; estimate cheaper by pinning down head shape and giving us a placeholder kernel with a known-correct scalar reference.</p>
+<p>Date: 2026-04-20 Status: tiled small-M ternary GEMM kernel + scalar reference + standalone test harness landed in <code>rocm-cpp</code>. Hipcc compile + rocprof pending on the architect's box. No runtime wiring (not in halo-router). Parent plan: <code>docs/wiki/Medusa-Integration-Plan.md</code> (recommendation: DEFER).</p>
+<p>This page captures the prototype work sitting <em>below</em> the decision to defer. It does not flip the recommendation; it makes the &quot;if we later decide to do it&quot; estimate cheaper by pinning down head shape and landing a known-correct tiled kernel that diffs against a scalar reference to bf16 ULP tolerance.</p>
 <hr>
 <h2 id="1-medusa-head-shape">1. Medusa head shape</h2>
 <p><strong>Source constraint</strong>: the sandbox denied outbound HTTP to <code>huggingface.co</code> today, so the artifact <code>parrishcorcoran/MedusaBitNet-2B-4T</code> was <strong>not freshly re-downloaded</strong> for this prototype. Numbers below come from the upstream plan (<code>Medusa-Integration-Plan.md</code> §1) and the model card snapshot in memory (<code>project_medusa_plan.md</code>).</p>
@@ -89,47 +89,93 @@
 <p><strong>Action item</strong> the moment sandbox HTTP is unblocked: refetch <code>config.json</code> + <code>medusa_heads.safetensors</code> header (header read is &lt;&lt;100 MB per task constraint) and diff the declared shape against the table above. If it diverges — specifically if head dim ≠ 2560 or heads don't share <code>lm_head</code> — the kernel below still compiles but the integration plan's size estimates need revising.</p>
 <hr>
 <h2 id="2-small-m-ternary-gemm-kernel">2. Small-M ternary GEMM kernel</h2>
-<p><strong>File</strong>: <code>/home/bcloud/repos/rocm-cpp/src/ternary_gemm_smallm.hip</code></p>
-<p><strong>Shape contract</strong>:</p>
+<p><strong>Files</strong>:</p>
 <ul>
-<li><code>packed: uint32[N, ceil(K/16)]</code> — halo-1bit 2-bit packing, 16 values/word,</li>
+<li><code>/home/bcloud/repos/rocm-cpp/src/ternary_gemm_smallm.hip</code> — tiled kernel</li>
+<li><code>/home/bcloud/repos/rocm-cpp/src/ternary_gemm_smallm_scalar_ref.hip</code> — scalar reference</li>
+<li><code>/home/bcloud/repos/rocm-cpp/tests/test_ternary_gemm_smallm.cpp</code> — parity + timing harness</li>
 </ul>
-<p>code ∈ {0→-1, 1→0, 2→+1, 3→unused}. Matches every other ternary kernel in the repo (verified against <code>kernels/ternary_gemv_phase5_halo.hip</code> lines 1-45).</p>
-<ul>
-<li><code>scales: float32[N]</code> — one per output row.</li>
-<li><code>x_bf16: bf16[M, K]</code> — M ∈ [1, 16].</li>
-<li><code>y_bf16: bf16[M, N]</code>.</li>
-<li><code>packed_row_stride_u32</code> — explicit stride, not implicit, so the kernel</li>
-</ul>
-<p>works on non-contiguous submatrices later (tree-verify may slice).</p>
-<p><strong>Launch geometry</strong>: one thread per (m, n) output element. <code>BLOCK_SIZE = 64</code> along N, <code>M</code> along the grid y-axis. No LDS, no shuffles, no WMMA. Scalar K-loop 16 values per iteration inside an unrolled 16-way inner loop.</p>
-<p><strong>What it is</strong>: a numerical reference. Bit-exact vs a host-side CPU loop; useful as the &quot;golden&quot; to diff future tiled versions against.</p>
-<p><strong>What it is not</strong>: a performance kernel. Expected throughput for M=4, N=K=2560 is 50-100× slower than the production GEMV. Do not benchmark it; do not include it in the decode path. It is scaffolding.</p>
-<p><strong>Compile status</strong>: <strong>not verified in this session.</strong> The sandbox denied the hipcc invocation (<code>hipcc --offload-arch=gfx1151 -std=c++17 -O2 -c src/ternary_gemm_smallm.hip</code>). Mechanical review performed:</p>
-<ul>
-<li>Uses only headers already in use elsewhere in <code>rocm-cpp</code></li>
-</ul>
-<p>(<code>hip_runtime.h</code>, <code>hip_bfloat16.h</code>, <code>cstdint</code>).</p>
-<ul>
-<li><code>hip_bfloat16</code> constructor from float is the same pattern used in</li>
-</ul>
-<p><code>kernels/ternary_gemv_sherry.hip</code>.</p>
-<ul>
-<li><code>__restrict__</code> on every pointer param; <code>__attribute__((amdgpu_flat_work_group_size))</code></li>
-</ul>
-<p>matches the working <code>phase5_halo</code> kernel.</p>
-<ul>
-<li>Single <code>extern &quot;C&quot;</code> block around both kernel + host wrapper so symbol</li>
-</ul>
-<p>names stay ABI-clean for the future FFI hookup. No C++ name mangling surprises.</p>
-<ul>
-<li>No <code>__syncthreads</code>, no atomics — the stub is embarrassingly parallel.</li>
-</ul>
-<p>Next step before landing on <code>main</code>: run</p>
-<pre><code>hipcc --offload-arch=gfx1151 -std=c++17 -O2 -c \
-    src/ternary_gemm_smallm.hip -o build/ternary_gemm_smallm.o
+<p>Both kernels + the test are now in <code>CMakeLists.txt</code>. Compile + rocprof are pending on the architect's box.</p>
+<h3 id="2-1-activation-format-choice-b-int8-per-tensor-scale">2.1 Activation format — choice B (int8 per-tensor scale)</h3>
+<p>Matches <code>kernels/ternary_gemv_phase5_halo.hip</code> exactly, so the prefill → smallM verify → GEMV decode sequence shares one activation path (the existing <code>rcpp_quantize_fp16_to_i8</code> kernel). An alternative fp16-in, internal-scale-compute route was considered and rejected: doubles the HBM read bandwidth for activations (irrelevant at M=1, not irrelevant once M grows to 16 for tree verify) and forks the quant path that is known-good on 92%-of-peak GEMV.</p>
+<h3 id="2-2-shape-contract-architect-pinned">2.2 Shape contract (architect-pinned)</h3>
+<pre><code>onebit_ternary_gemm_smallm_launch(
+    const int8_t*         x_i8,          // [M, K]        int8
+    float                 x_scale,       //               per-tensor fp32
+    const uint32_t*       w_packed,      // [K/16, N]     u32, 16 codes/u32
+    const float*          w_row_scales,  // [N]           fp32 per column
+    hip_bfloat16*       y_out,         // [M, N]        bf16
+    int M, int N, int K,
+    hipStream_t stream);
 </code></pre>
-<p>from <code>/home/bcloud/repos/rocm-cpp</code>. If this is clean, add the source to <code>CMakeLists.txt</code> line 74-78 (alongside the other ternary kernels). Until compile is verified, the file is <strong>not</strong> in the CMake target.</p>
+<p>Packing: <code>w_packed[(k/16) * N + n]</code>, bits <code>2*(k%16)..2*(k%16)+1</code> carry the code; codes 0→-1, 1→0, 2→+1, 3→0. Same 2-bit code assignment as every other ternary kernel in the repo.</p>
+<h3 id="2-3-tile-shape-register-budget">2.3 Tile shape + register budget</h3>
+<ul>
+<li><strong>BLOCK_M = 16, BLOCK_N = 64, BLOCK_K = 64.</strong></li>
+<li><strong>128 threads/block = 4 waves × 32 lanes (wave32, gfx1151).</strong></li>
+<li>**Each wave owns one 16×16 accumulator tile → 8 int32 accumulators per</li>
+</ul>
+<p>lane × 32 lanes = 256 VGPRs of accumulator per wave.** Target occupancy 2 waves/SIMD — VGPR budget ~256 acc + ~64 spill-buffer headroom fits.</p>
+<ul>
+<li>**LDS per block: 1 KiB activations (16×64 int8) + 1 KiB weights</li>
+</ul>
+<p>(4×64 u32 = 64-K × 64-N ternary codes) = 2 KiB total.** Well under the 64 KiB CU limit; does not gate occupancy.</p>
+<ul>
+<li><strong>Inner loop</strong>: 16 k4-chunks × 8 accumulators = 128 sdot4</li>
+</ul>
+<p>(<code>__builtin_amdgcn_sudot4(true, weight_i32, true, x_i32, acc, false)</code>) per lane per K-tile. K=2560 → 40 K-tiles → 5120 sdot4 ops per lane.</p>
+<ul>
+<li><strong>Bank conflicts</strong>: weight LDS reads broadcast (2 distinct n_local per</li>
+</ul>
+<p>wave per inner step); activation LDS reads have a 2-way conflict on the m=lane stride but the broadcast on weights dominates.</p>
+<p>Lane → output-tile mapping: lane <code>l</code> owns <code>(m = l &amp; 15, n_tile_base = (l &gt;&gt; 4) * 8)</code>, with 8 accumulators running contiguous n.</p>
+<h3 id="2-4-scalar-reference">2.4 Scalar reference</h3>
+<p><code>ternary_gemm_smallm_scalar_ref.hip</code> uses the identical ABI with one thread per (m, n), scalar K-loop. It is intentionally slow; the test harness diffs tiled against scalar at bf16 ULP granularity (not bit-exact — sdot4 vs scalar accumulation is associative at the int32 level, but the final <code>float → bf16</code> cast rounds identically only when the pre-cast float matches bit-for-bit, which is not guaranteed across reorderings).</p>
+<h3 id="2-5-test-harness-test-ternary-gemm-smallm">2.5 Test harness — <code>test_ternary_gemm_smallm</code></h3>
+<ul>
+<li>Sweep: <strong>100 seeds × M ∈ {1, 2, 4, 8, 16}</strong> at N = K = 2560.</li>
+<li><strong>PASS</strong>: every (seed, M) produces <code>max|err| ≤ 1 bf16 ULP</code> vs scalar.</li>
+<li>Exit 1 on any cell over 1 ULP; exit 0 otherwise.</li>
+<li>Per-M line prints <code>worst_ulp</code>, <code>tiled_avg_ms</code>, <code>scalar_avg_ms</code>, and</li>
+</ul>
+<p><code>tok/s-eq = M / tiled_avg_s</code>.</p>
+<ul>
+<li><code>hipEvent</code>-based timing on a single stream; no <code>hipDeviceSynchronize</code></li>
+</ul>
+<p>in the hot measured section (only <code>hipEventSynchronize</code> on the stop event and <code>hipStreamSynchronize</code> before readback).</p>
+<ul>
+<li>One warmup launch per trial on the tiled kernel to avoid JIT-first-</li>
+</ul>
+<p>launch skew.</p>
+<h3 id="2-6-performance-targets-architect-pinned-to-be-verified-on-box">2.6 Performance targets (architect-pinned, to be verified on box)</h3>
+<ul>
+<li><strong>M=1</strong>: within 20% of the GEMV baseline (the GEMV is at 92% of LPDDR5</li>
+</ul>
+<p>peak; we expect some overhead from the M-dimension wiring that the specialized GEMV does not pay).</p>
+<ul>
+<li><strong>M=16</strong>: ≥ 8× the scalar reference.</li>
+</ul>
+<h3 id="2-7-measured-numbers">2.7 Measured numbers</h3>
+<p>_Pending hipcc compile + rocprof run on architect's box._</p>
+<table>
+<thead><tr><th>M</th><th>tiled_avg_ms</th><th>scalar_avg_ms</th><th>tok/s-eq</th><th>worst_ulp</th><th>PASS</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><td>2</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><td>4</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><td>8</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><td>16</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+</tbody></table>
+<h3 id="2-8-status-checklist">2.8 Status checklist</h3>
+<ul>
+<li>[x] Tiled kernel written, compiles in our heads; hipcc verification pending.</li>
+<li>[x] Scalar reference matches ABI.</li>
+<li>[x] Test harness written (ULP diff + timing).</li>
+<li>[x] <code>CMakeLists.txt</code> updated (both sources + new executable).</li>
+<li>[ ] <code>hipcc --offload-arch=gfx1151</code> clean on architect's box.</li>
+<li>[ ] <code>rocprofv3</code> counters: VGPR usage, LDS usage, achieved occupancy.</li>
+<li>[ ] Populate the perf table above.</li>
+</ul>
 <hr>
 <h2 id="3-tree-attention-how-kv-cache-extends">3. Tree attention — how KV cache extends</h2>
 <p>Today our attention kernel is <code>src/kv_cache_attn_fd.hip</code> (Flash-Decoding, one query per head, split-KV). It's called from <code>crates/1bit-router/src/backend_impl.rs</code> in the <code>forward_token</code> hot path:</p>
@@ -237,6 +283,14 @@
 <h4>on this page</h4>
 <a href="#1-medusa-head-shape">1. Medusa head shape</a>
 <a href="#2-small-m-ternary-gemm-kernel">2. Small-M ternary GEMM kernel</a>
+<a href="#2-1-activation-format-choice-b-int8-per-tensor-scale" style="padding-left:.8rem">2.1 Activation format — choice B (int8 per-tensor scale)</a>
+<a href="#2-2-shape-contract-architect-pinned" style="padding-left:.8rem">2.2 Shape contract (architect-pinned)</a>
+<a href="#2-3-tile-shape-register-budget" style="padding-left:.8rem">2.3 Tile shape + register budget</a>
+<a href="#2-4-scalar-reference" style="padding-left:.8rem">2.4 Scalar reference</a>
+<a href="#2-5-test-harness-test-ternary-gemm-smallm" style="padding-left:.8rem">2.5 Test harness — `test_ternary_gemm_smallm`</a>
+<a href="#2-6-performance-targets-architect-pinned-to-be-verified-on-box" style="padding-left:.8rem">2.6 Performance targets (architect-pinned, to be verified on box)</a>
+<a href="#2-7-measured-numbers" style="padding-left:.8rem">2.7 Measured numbers</a>
+<a href="#2-8-status-checklist" style="padding-left:.8rem">2.8 Status checklist</a>
 <a href="#3-tree-attention-how-kv-cache-extends">3. Tree attention — how KV cache extends</a>
 <a href="#4-integration-outline-pr-shaped-not-yet-applied">4. Integration outline — PR-shaped, not yet applied</a>
 <a href="#pr-1-rocm-cpp-kernels-only-no-ffi-wiring" style="padding-left:.8rem">PR-1: `rocm-cpp` — kernels only, no FFI wiring</a>

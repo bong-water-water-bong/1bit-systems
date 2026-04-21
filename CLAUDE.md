@@ -21,13 +21,19 @@ Keep terse; when in doubt, follow `ARCHITECTURE.md`.
   kernel to `rocm-cpp` instead.
 - **Rule D — Rust 1.86, edition 2024.** `rust-version` is pinned in the
   workspace `Cargo.toml`. Don't bump without a reason.
-- **Rule E — NPU stack = Peano C++ + libxrt + aie-rt. Never IRON Python.**
-  AIE kernel authoring: C++ via `Xilinx/llvm-aie` (Peano). Runtime dispatch:
-  `libxrt` C++ (`xrt::kernel`, `xrt::bo`). Tile driver: `Xilinx/aie-rt`
-  where we need bare-metal control. IRON is reference-only; we read its
-  MLIR-generated tile layouts + DMA descriptors then reimplement in
-  Peano-compiled C++. FFI through `1bit-xdna` (new crate
-  2026-04-20). Same discipline as `1bit-hip` → `rocm-cpp`.
+- **Rule E — NPU stack = ORT C++ with VitisAI Execution Provider (AMD
+  official, XDNA2) as the primary lane; Peano + libxrt + aie-rt stays
+  as the option for custom AIE kernels we write ourselves. IRON is
+  permitted at compile-time.** Primary lane: ONNX Runtime C++ API with
+  AMD's VitisAI EP does the .onnx → AIE lowering for us (matches the
+  Vitis AI enterprise stack trickling down to consumer Ryzen AI).
+  Custom-kernel lane (for ops VitisAI doesn't accelerate): AIE kernel
+  authoring in C++ via `Xilinx/llvm-aie` (Peano); runtime dispatch via
+  `libxrt` C++ (`xrt::kernel`, `xrt::bo`); tile driver `Xilinx/aie-rt`
+  where we need bare-metal control. IRON is permitted at compile-time
+  (reference-only). The retired FastFlowLM subprocess bridge +
+  `1bit-xdna` crate were removed 2026-04-21 — see
+  `project_npu_path_onnx.md`.
 - **Target: aspirational 7/7 lanes, ~280 tok/s decode, NPU-prefill
   crossover at L ≥ 33.** Projected in `docs/wiki/Peak-Performance-Projection.md`.
   We do not settle for the conservative tier.

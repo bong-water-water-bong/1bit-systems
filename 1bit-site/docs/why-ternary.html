@@ -91,7 +91,7 @@
 <li><strong>Hardware efficiency</strong> — ternary maps to <code>xnor</code> + <code>popcount</code> + sign-flip on GPU. Binary loses the sign-flip branch.</li>
 </ul>
 <p>Sub-1.58-bit formats (LittleBit 0.1 bpw, NanoQuant sub-binary) exist and are watched — see <a href="memory-only"><code>../../.claude/projects/-home-bcloud/memory/project_bitnet_frontier_2026_04.md</code></a>. Not production-ready for our scale today.</p>
-<h2 id="why-this-matters-for-1bit systems">Why this matters for 1bit systems</h2>
+<h2 id="why-this-matters-for-1bit-systems">Why this matters for 1bit systems</h2>
 <p>On a $3 000 Strix Halo mini-PC with 128 GB unified LPDDR5 at 256 GB/s, ternary BitNet gets us:</p>
 <ul>
 <li><strong>Model fits in 4 GB, leaving 124 GB for KV cache + activations</strong> — no OOM on long contexts.</li>
@@ -113,7 +113,7 @@
 <a href="#the-accuracy-story">The accuracy story</a>
 <a href="#where-1-58-comes-from">Where &quot;1.58&quot; comes from</a>
 <a href="#why-ternary-and-not-binary">Why ternary and not binary?</a>
-<a href="#why-this-matters-for-1bit systems">Why this matters for 1bit systems</a>
+<a href="#why-this-matters-for-1bit-systems">Why this matters for 1bit systems</a>
 <a href="#citations">Citations</a>
 
 </aside>

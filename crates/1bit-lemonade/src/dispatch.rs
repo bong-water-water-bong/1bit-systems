@@ -9,8 +9,8 @@
 //! 2. [`Upstream`] — the runtime **trait** through which HTTP handlers in
 //!    [`crate::routes`] talk to whatever inference service backs the
 //!    gateway today. [`HaloServer`] is the concrete impl pointing at
-//!    `127.0.0.1:8180`; a future `Lemond` or `Flm` impl slots in without
-//!    touching the axum routes.
+//!    `127.0.0.1:8180`; a future `Lemond` or `Ort` (ONNX Runtime) impl
+//!    slots in without touching the axum routes.
 //!
 //! This satisfies spec invariant 3 (upstream-agnostic dispatch). The route
 //! layer holds an `Arc<dyn Upstream>` and never reaches for reqwest or a
@@ -71,7 +71,7 @@ pub type UpstreamError = anyhow::Error;
 #[async_trait]
 pub trait Upstream: Send + Sync + std::fmt::Debug {
     /// Human-readable name for metrics labels + log lines (`"1bit-server"`,
-    /// `"lemond"`, `"flm"`, `"mock"`).
+    /// `"lemond"`, `"ort"`, `"mock"`).
     fn name(&self) -> &str;
 
     /// `POST /v1/chat/completions` forwarded upstream.

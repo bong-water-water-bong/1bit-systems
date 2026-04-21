@@ -38,7 +38,7 @@ spec(<crate>): promote from <old> → <new> — <reason>
 
 Examples:
 - `spec(1bit-helm): promote from analysis → solutioning — API signatures reviewed by cartograph 2026-04-20` (crate renamed from halo-gaia on the same day)
-- `spec(1bit-xdna): promote from implementation → verified — 201 tests green, bit-exact parity vs Hip on 10k prompts`
+- `spec(halo-ep): promote from implementation → verified — 201 tests green, bit-exact parity vs Hip on 10k prompts`
 
 If a spec needs to go BACK a phase (discovered-constraint rewrites the design), commit message says `spec(<crate>): demote from <old> → <new> — <reason>`. Demotions are normal; they're a sign the spec is learning.
 

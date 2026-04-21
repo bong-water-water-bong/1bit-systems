@@ -76,7 +76,6 @@ step "installing NPU + XRT packages"
 PKGS=(
   xrt
   xrt-plugin-amdxdna
-  fastflowlm
 )
 if command -v pacman >/dev/null 2>&1; then
   info "enabling cachyos-extra-znver4 repo (if not already)"

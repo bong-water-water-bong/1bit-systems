@@ -70,7 +70,7 @@
 <h1>Spec-driven development workflow (1bit systems)</h1>
 <hr>
 <p>phase: verified owner: cartograph ---</p>
-<h1 id="spec-driven-development-workflow-1bit systems">Spec-driven development workflow (1bit systems)</h1>
+<h1 id="spec-driven-development-workflow-1bit-systems">Spec-driven development workflow (1bit systems)</h1>
 <p>1bit systems runs on a spec-first loop. Every crate / kernel / service integration lands with a <code>docs/wiki/Crate-*.md</code> (or <code>docs/wiki/Why-*.md</code>) spec BEFORE code. Code implements the spec. Tests verify the spec. Agents are briefed against the spec, not ad-hoc prose.</p>
 <p>Inspired by BMAD-Method (<code>docs.bmad-method.org</code>) phase gates + Kiro / Spec-Kit specification patterns. <strong>We skip the frameworks</strong> (Rule A — no extra runtime deps). The markdown-plus-clangd-plus-tests workflow already gives spec → code → verification; we borrow only the phase tags + agent routing.</p>
 <h2 id="four-phases">Four phases</h2>
@@ -96,7 +96,7 @@ blocks: [Crate-foo, Crate-bar]    # optional: downstream specs that can't advanc
 <p>Examples:</p>
 <ul>
 <li><code>spec(1bit-helm): promote from analysis → solutioning — API signatures reviewed by cartograph 2026-04-20</code> (crate renamed from halo-gaia on the same day)</li>
-<li><code>spec(1bit-xdna): promote from implementation → verified — 201 tests green, bit-exact parity vs Hip on 10k prompts</code></li>
+<li><code>spec(halo-ep): promote from implementation → verified — 201 tests green, bit-exact parity vs Hip on 10k prompts</code></li>
 </ul>
 <p>If a spec needs to go BACK a phase (discovered-constraint rewrites the design), commit message says <code>spec(&lt;crate&gt;): demote from &lt;old&gt; → &lt;new&gt; — &lt;reason&gt;</code>. Demotions are normal; they're a sign the spec is learning.</p>
 <h2 id="required-sections-per-phase">Required sections per phase</h2>

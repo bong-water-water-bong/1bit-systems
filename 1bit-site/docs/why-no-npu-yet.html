@@ -68,6 +68,9 @@
 </aside>
 <main class="docs-body">
 <h1>Why no NPU yet?</h1>
+<h2 id="2026-04-21-pivot-npu-lane-onnx-runtime-vitisai-ep">2026-04-21 PIVOT — NPU lane = ONNX Runtime + VitisAI EP</h2>
+<p>User directive 2026-04-21: <strong>full ONNX.</strong> FastFlowLM (Q4-only subprocess bridge) is retired. The <code>crates/1bit-xdna</code> FFI crate and <code>HALO_BACKEND=xdna</code> router variant were deleted. NPU path going forward is ONNX Runtime's C++ API with AMD's VitisAI Execution Provider — <code>.onnx</code> model → graph partitioner → AIE ops via VitisAI, CPU-EP fallback for anything VitisAI doesn't accelerate. Rule A clean (ORT has a C++ API — Python is optional-only). See <code>project_npu_path_onnx.md</code> for the full rationale.</p>
+<p>Custom AIE kernels remain on the Peano + libxrt + aie-rt path described below, for ops VitisAI doesn't accelerate — we just don't need a separate <code>1bit-xdna</code> Rust crate to reach them, because ORT handles the dispatch side.</p>
 <h2 id="2026-04-20-rule-a-constraint-no-python-in-npu-path">2026-04-20 RULE A CONSTRAINT — no Python in NPU path</h2>
 <p>User directive 2026-04-20: <strong>zero Python, build-time or runtime.</strong> That rules IRON <em>as an authoring path</em> (it's Python+C++). IRON stays as a <strong>reference-only read</strong> — we crib its MLIR tile layouts + DMA descriptors, then reimplement the kernel in straight C++ against Peano.</p>
 <p>Production path when we start:</p>
@@ -78,7 +81,7 @@
 <tr><td>Build orchestration</td><td>CMake + Peano</td><td>not IRON's Python <code>build.py</code></td></tr>
 <tr><td>Runtime dispatch</td><td><a href="https://github.com/Xilinx/XRT">libxrt</a> C++ (<code>xrt::kernel</code>, <code>xrt::bo</code>)</td><td>loads xclbin, manages DMA, no Python</td></tr>
 <tr><td>Kernel driver</td><td><a href="https://github.com/amd/xdna-driver">amdxdna</a></td><td>upstreamed Linux 6.10+, already works</td></tr>
-<tr><td>Rust FFI</td><td>new <code>1bit-xdna</code> crate</td><td>mirrors <code>1bit-hip</code> shape</td></tr>
+<tr><td>Rust FFI</td><td>(retired — see 2026-04-21 pivot below)</td><td>—</td></tr>
 </tbody></table>
 <p>Same discipline as <code>rocm-cpp</code> today: C++ kernels, Rust above, no interpreters anywhere. The IRON examples at <code>programming_examples/basic/matrix_multiplication/</code> and <code>ml/bert/</code> are maps, not tools.</p>
 <h2 id="2026-04-20-update-iron-mlir-aie-lead-from-amd-discord">2026-04-20 UPDATE: IRON / MLIR-AIE lead from AMD Discord</h2>
@@ -106,7 +109,7 @@
 <li><strong>No Rust bindings today.</strong> Plan is: offline IRON → xclbin build step (Python is OK at build time, Rule A), runtime load via <code>libxrt</code> C API from a new <code>crates/halo-bitnet-npu</code> shim. Decode stays on iGPU; only prefill layers route to NPU.</li>
 <li>If the kill criteria trip (see memory), we re-defer to passive monitoring and the rest of this doc stands unchanged.</li>
 </ul>
-<p><strong>Honest framing</strong>: this is a fifth evaluation track, not a green light to ship NPU. We are thanking AMD for the pointer and spending one week to confirm the reproducibility of issue #55's 2.75 TFLOPS number on our box. Everything below remains correct for the Ryzen AI SDK / FastFlowLM / IREE / ONNX paths.</p>
+<p><strong>Honest framing</strong>: this is a fifth evaluation track, not a green light to ship NPU. We are thanking AMD for the pointer and spending one week to confirm the reproducibility of issue #55's 2.75 TFLOPS number on our box. Content below documents the prior evaluations for context; the 2026-04-21 pivot (top of file) supersedes the FastFlowLM and plain-ONNX tracks — the live path is ORT + VitisAI EP.</p>
 <hr>
 <p><strong>One-line answer</strong>: evaluated four stacks (ONNX-RT + Vitis EP, FastFlowLM, IREE-AIE, direct xrt). <strong>Deferred</strong> — no path runs BitNet-b1.58 on Strix Halo's XDNA 2 in Linux today, and the realistic decode ceiling is below our current iGPU. Update posture: quarterly passive monitoring, not active work. <strong>See 2026-04-20 update above for path #5 (IRON) now under active evaluation.</strong></p>
 <h2 id="what-s-on-the-box">What's on the box</h2>
@@ -161,7 +164,7 @@
 <ol>
 <li>Ryzen AI SDK ≥ 1.8 adds <strong>STX-H (Strix Halo)</strong> to its Linux-supported SKU list. Today's 1.7.1 (April 2026) lists only STX + KRK.</li>
 <li><code>microsoft/BitNet</code> ships an XDNA backend. <a href="https://github.com/microsoft/BitNet/issues/408">Issue #408</a> — &quot;Intel &amp; AMD NPU support?&quot; — has been open since Feb 2026 with zero Microsoft replies.</li>
-<li><strong>FastFlowLM</strong> open-sources its NPU kernels (currently closed-source, non-redistributable under their EULA) or adds a 1.58-bit model family.</li>
+<li><em>(Superseded 2026-04-21 by ONNX-Runtime + VitisAI EP pivot — FastFlowLM lane retired.)</em></li>
 <li>Our iGPU path saturates the 212 GB/s LPDDR5 ceiling. Today we run at ~15% utilization — plenty of Sherry / activation-sparsity / KV-compression runway.</li>
 <li>A third party publishes a working BitNet → AIE kernel in public.</li>
 </ol>
@@ -203,13 +206,14 @@
 <ul>
 <li><strong>Today</strong>: iGPU-only, 83 tok/s decode, production-green.</li>
 <li><strong>NPU research</strong>: concluded. Deferred.</li>
-<li><strong>Monitoring</strong>: quarterly — check Ryzen AI SDK release notes + microsoft/BitNet#408 + FastFlowLM model catalog.</li>
+<li><strong>Monitoring</strong>: quarterly — check Ryzen AI SDK release notes, microsoft/BitNet#408, and VitisAI EP op-coverage updates.</li>
 </ul>
 <p>Memory pointer: <code>project_npu_path_analysis.md</code> has the full comparison table, citations, and defer-until conditions.</p>
 
 </main>
 <aside class="docs-toc">
 <h4>on this page</h4>
+<a href="#2026-04-21-pivot-npu-lane-onnx-runtime-vitisai-ep">2026-04-21 PIVOT — NPU lane = ONNX Runtime + VitisAI EP</a>
 <a href="#2026-04-20-rule-a-constraint-no-python-in-npu-path">2026-04-20 RULE A CONSTRAINT — no Python in NPU path</a>
 <a href="#2026-04-20-update-iron-mlir-aie-lead-from-amd-discord">2026-04-20 UPDATE: IRON / MLIR-AIE lead from AMD Discord</a>
 <a href="#what-s-on-the-box">What's on the box</a>

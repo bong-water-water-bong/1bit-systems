@@ -69,7 +69,7 @@
 <main class="docs-body">
 <h1>Crate: 1bit-helm</h1>
 <hr>
-<p>phase: solutioning owner: cartograph renamed_from: halo-gaia rename_date: 2026-04-20 ---</p>
+<p>phase: implementation owner: cartograph renamed_from: halo-gaia rename_date: 2026-04-20 ---</p>
 <h1 id="crate-1bit-helm">Crate: 1bit-helm</h1>
 <blockquote>
 <p>Renamed from <code>halo-gaia</code> on 2026-04-20 to avoid clash with AMD GAIA (amd-gaia.ai). See <code>docs/wiki/AMD-GAIA-Integration.md</code>. The old name is retained as an install alias in <code>packages.toml</code> (<code>[component.gaia]</code> → <code>helm</code>) but no source tree reference to <code>halo-gaia</code> / <code>halo_gaia</code> should remain outside the AMD-GAIA comparison doc.</p>
@@ -103,28 +103,33 @@ HALO_HELM_TOKEN  # optional bearer
 # Legacy HALO_GAIA_* env vars are honored as fallbacks.
 </code></pre>
 <h3 id="public-api-crate">Public API (crate)</h3>
-<pre><code class="lang-rust">pub struct HelmApp { /* ...config, panes, transport... */ }
+<pre><code class="lang-rust">pub struct HelmApp { /* ...config, panes, transport, runtime handle... */ }
 impl HelmApp {
-    pub fn new(cfg: SessionConfig) -&gt; Self;                       // runtime-free; test-safe
+    pub fn new(cfg: SessionConfig) -&gt; Self;                                    // runtime-free; test-safe
     pub fn from_cc(cc: &amp;eframe::CreationContext, cfg: SessionConfig) -&gt; Self;
-    pub fn refresh_skills(&amp;mut self);                             // reads ~/.halo/skills
-    pub fn refresh_memory(&amp;mut self);                             // reads ~/.halo/memories
+    pub fn attach_runtime(&amp;mut self, handle: tokio::runtime::Handle,
+                          http: reqwest::Client);                              // called once from main
+    pub fn refresh_skills(&amp;mut self);                                          // reads ~/.halo/skills
+    pub fn refresh_memory(&amp;mut self);                                          // reads ~/.halo/memories
+    pub fn refresh_models(&amp;mut self);                                          // spawns GET /v1/models
+    pub fn send_chat(&amp;mut self);                                               // spawns SSE POST
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone, Eq, PartialEq)]
-pub enum Pane { Status, Chat, Skills, Memory, Models }
+pub enum Pane { Status, Chat, Skills, Memory, Models, Settings }
 </code></pre>
 <p><code>HelmApp</code> implements <code>eframe::App</code>. Panes:</p>
 <table>
 <thead><tr><th>Pane</th><th>Source of truth</th><th>Write path</th></tr></thead>
 <tbody>
-<tr><td>Status</td><td><code>GET /_health</code> + <code>/v1/models</code> + probe metrics</td><td>read-only</td></tr>
-<tr><td>Chat</td><td><code>POST /v1/chat/completions</code>, <code>stream: true</code></td><td>HelmClient stream</td></tr>
-<tr><td>Skills</td><td><code>onebit_agents::SkillStore::list</code></td><td>read-only for now</td></tr>
-<tr><td>Memory</td><td>`onebit_agents::MemoryStore::list(Memory \</td><td>User)`</td><td>read-only for now</td></tr>
-<tr><td>Models</td><td><code>GET /v1/models</code></td><td>read-only</td></tr>
+<tr><td>Status</td><td>SSE subscription to <code>http://127.0.0.1:8190/_live/stats</code></td><td>read-only</td></tr>
+<tr><td>Chat</td><td><code>POST /v1/chat/completions</code> (gateway :8200), <code>stream: true</code></td><td>stream worker → <code>UiMsg::ChatDelta</code></td></tr>
+<tr><td>Skills</td><td><code>onebit_agents::SkillStore::list</code> + body on row-click</td><td><code>$EDITOR</code> spawn on &quot;Edit&quot;</td></tr>
+<tr><td>Memory</td><td>`onebit_agents::MemoryStore::list(Memory \</td><td>User)`</td><td>inline &quot;Add&quot; → <code>store.add(kind, ...)</code></td></tr>
+<tr><td>Models</td><td><code>GET /v1/models</code> (gateway :8200)</td><td>Load button → toast (model-swap TBD)</td></tr>
+<tr><td>Settings</td><td><code>keyring::Entry</code> / XDG file via <code>Bearer</code></td><td>Save/Reset bearer</td></tr>
 </tbody></table>
-<p>Top bar: 5-button pane switcher. Left side panel: the same 5 panes as a radio list, plus a small config summary (default model). Bottom panel: status strip with reachability + tok/s OR last error in red.</p>
+<p>Top bar: 6-button pane switcher. Left side panel: the same 6 panes as a radio list, plus a small config summary (default model + landing URL). Bottom strip: live dot + brand + loaded model + tok/s + GPU temp/util, or an error/toast row.</p>
 <h3 id="persistence">Persistence</h3>
 <p>eframe's <code>persistence</code> feature stores state in the platform config dir (<code>~/.config/1bit-helm/</code> on Linux, via eframe's default). Today we persist the last-open pane under key <code>helm.current_pane</code>; window size is handled by eframe's own viewport save. Schema is <code>serde_json</code>-compatible so we can change the backing ron later without a migration.</p>
 <h2 id="test-matrix">Test matrix</h2>
@@ -133,19 +138,40 @@ pub enum Pane { Status, Chat, Skills, Memory, Models }
 <tbody>
 <tr><td>App constructs without window / tokio / FS access</td><td><code>app::tests::new_constructs_without_panic_...</code></td></tr>
 <tr><td>Status-first default (invariant 5 keyboard-trip)</td><td><code>app::tests::default_pane_is_status</code></td></tr>
-<tr><td>Pane-switcher coverage (tripwire on new variants)</td><td><code>app::tests::pane_all_covers_five_panes...</code></td></tr>
+<tr><td>Pane-switcher coverage (tripwire on new variants)</td><td><code>app::tests::pane_all_covers_six_panes...</code></td></tr>
 <tr><td>Stable pane labels (top-bar text contract)</td><td><code>app::tests::pane_labels_are_stable_strings</code></td></tr>
 <tr><td>Persistence round-trip (serde stays wired)</td><td><code>app::tests::pane_round_trips_through_serde</code></td></tr>
+<tr><td>Skills reads from tempdir-seeded root</td><td><code>app::tests::refresh_skills_picks_up_tempdir_seed</code></td></tr>
+<tr><td>Memory reads from tempdir-seeded root</td><td><code>app::tests::refresh_memory_reads_tempdir_seed</code></td></tr>
+<tr><td>Chat <code>stream: true</code> body shape</td><td><code>app::tests::build_chat_body_sets_stream_true_and_includes_turns</code></td></tr>
+<tr><td>SSE delta → assistant-turn state machine</td><td><code>app::tests::apply_ui_msg_chat_delta_then_done_lands_assistant_turn</code></td></tr>
+<tr><td>Telemetry disconnect flips <code>live_connected</code> flag</td><td><code>app::tests::apply_ui_msg_telemetry_disconnected_flips_state</code></td></tr>
+<tr><td>Conversation log roundtrip (write + read)</td><td><code>app::tests::conversation_log_flushes_on_save_path</code> + <code>conv_log::tests::roundtrip_write_then_read_preserves_turns</code></td></tr>
+<tr><td>Keyring fallback writes 0600 + reloads</td><td><code>bearer::tests::file_fallback_roundtrip_creates_0600_and_reloads</code></td></tr>
+<tr><td>Bearer clear nukes on-disk copy</td><td><code>bearer::tests::clear_removes_on_disk_copy</code></td></tr>
+<tr><td>Models pane parses OpenAI <code>/v1/models</code> shape</td><td><code>models::tests::parses_standard_openai_shape</code></td></tr>
+<tr><td>Landing SSE parse (full + minimal + garbage)</td><td><code>telemetry::tests::parse_stats_full_shape</code> + <code>..._tolerates_missing_fields</code> + <code>..._rejects_garbage</code></td></tr>
 </tbody></table>
 <p>Transport modules (<code>client</code>, <code>conversation</code>, <code>session</code>, <code>stream</code>) keep their pre-rename test coverage.</p>
-<h2 id="phase-solutioning">Phase: solutioning</h2>
-<p>Promoted from <code>analysis</code> on 2026-04-20 alongside the rename. The interface sketch above and the first real <code>HelmApp</code> + <code>Pane</code> types in <code>crates/1bit-helm/src/app.rs</code> give magistrate + cartograph something concrete to review.</p>
-<p>Remaining open questions for the jump to <code>implementation</code>:</p>
+<h2 id="phase-implementation">Phase: implementation</h2>
+<p>Promoted from <code>solutioning</code> on 2026-04-20 when all five panes went live against real transports. The scaffolded &quot;not wired yet&quot; placeholders are gone; everything renders from real SSE / REST / filesystem sources.</p>
+<p>Closed since the solutioning cut:</p>
 <ul>
-<li>Async plumbing for network panes. Today <code>refresh_models</code> / chat streaming are marked <code>not wired yet</code>. Path of least resistance: a <code>tokio</code> runtime handle stashed on <code>HelmApp</code>, a <code>mpsc::UnboundedReceiver&lt;PaneMsg&gt;</code> drained each frame. Keep the runtime out of <code>HelmApp::new</code> so tests stay runtime-free.</li>
-<li>Keyring backend selection per-OS. libsecret on Linux; keychain on macOS.</li>
-<li>Does it own its own 1bit-server lifecycle (start/stop via systemd --user) or just observe?</li>
-<li>egui theming: go with <code>egui::Visuals::dark</code> default or read the system prefers-colour-scheme hint?</li>
+<li>[x] <strong>Async plumbing for network panes.</strong> A multi-thread tokio runtime is spun up on the side in <code>main</code>; <code>HelmApp::attach_runtime(handle, http)</code> hands the app a <code>Handle</code> + shared <code>reqwest::Client</code>, and workers post back via <code>mpsc::UnboundedSender&lt;UiMsg&gt;</code>. <code>HelmApp::new</code> stays runtime-free — tests construct it without touching tokio (see <code>app::tests::new_constructs_without_panic_and_defaults_are_sane</code>).</li>
+<li>[x] <strong>Keyring backend selection.</strong> <code>keyring</code> 3.x on <code>sync-secret-service</code> + <code>crypto-rust</code> features. Linux gets <code>dbus-secret-service</code> (pure Rust, no libsecret C dep). File fallback: <code>~/.config/1bit-helm/bearer.txt</code> chmod 0600. Backend on the current session is surfaced in the Settings pane via <code>Bearer::backend()</code>.</li>
+<li>[x] <strong>Status-pane live probe.</strong> Subscribes to <code>http://127.0.0.1:8190/_live/stats</code> (1bit-landing SSE). Long-lived connection with exp-backoff reconnect (500 ms → 5 s cap). Cadence matches the server's 1.5 s SSE_INTERVAL.</li>
+<li>[x] <strong>Chat pane streaming.</strong> <code>POST /v1/chat/completions</code> with <code>stream: true</code>, reuses the hand-rolled <code>parse_sse_line</code> parser from <code>stream.rs</code>. Token-by-token append to the streaming bubble; <code>stick_to_bottom(true)</code> ScrollArea.</li>
+<li>[x] <strong>Skills + Memory pane reads.</strong> Direct calls to <code>onebit_agents::SkillStore::list</code> + <code>onebit_agents::MemoryStore::list(MemoryKind)</code>. Both accept <code>..._root_override: Option&lt;PathBuf&gt;</code> so tests seed a tempdir.</li>
+<li>[x] <strong>Conversation log on close.</strong> Flushed from <code>eframe::App::save</code> into <code>~/.halo/helm/conversations/&lt;ts&gt;.jsonl</code> (roundtrip tested).</li>
+<li>[x] <strong>Desktop entry + icon.</strong> <code>crates/1bit-helm/assets/1bit-helm.desktop</code> + <code>crates/1bit-helm/assets/icon.svg</code> (copy of the <code>1b</code> cyan monogram from <code>1bit-site/assets/logo.svg</code>).</li>
+<li>[x] <strong>Brand surfacing.</strong> Top bar shows &quot;1bit-helm — 1bit monster&quot;; bottom strip and Settings → About show <code>1bit monster</code> and <code>1bit.systems</code>.</li>
+</ul>
+<p>Remaining for <code>verified</code> (needs user manual-run screenshot):</p>
+<ul>
+<li>[ ] Manual run on strixhalo: screenshot of Status pane with live telemetry + Chat pane streaming a real reply + Models pane populated from the gateway.</li>
+<li>[ ] Model-swap API. Today the &quot;Load&quot; button in the Models pane emits a toast (&quot;halo-server loads models at startup today; model-swap API TBD&quot;). Future hook: a <code>/v1/models/load</code> endpoint on lemonade.</li>
+<li>[ ] egui theming. Shipped with egui's default <code>Visuals::dark</code>. A future polish pass can read the system prefers-colour-scheme hint.</li>
+<li>[ ] 1bit-server lifecycle (observe-only today; the <code>systemctl --user start/stop</code> actions live in <code>halo</code> CLI — helm does not shell out).</li>
 </ul>
 <h2 id="runtime-system-deps">Runtime system deps</h2>
 <p>eframe's <code>glow</code> backend is OpenGL over <code>winit</code>. On a stock CachyOS / Arch box that means the existing <code>mesa</code> + <code>libxkbcommon</code> + <code>wayland-client</code> + <code>libxcb</code> packages are sufficient — nothing new to add to <code>packages.toml</code>. Noting here so a future PKGBUILD author doesn't need to re-trace:</p>
@@ -177,7 +203,7 @@ pub enum Pane { Status, Chat, Skills, Memory, Models }
 <a href="#public-api-crate" style="padding-left:.8rem">Public API (crate)</a>
 <a href="#persistence" style="padding-left:.8rem">Persistence</a>
 <a href="#test-matrix">Test matrix</a>
-<a href="#phase-solutioning">Phase: solutioning</a>
+<a href="#phase-implementation">Phase: implementation</a>
 <a href="#runtime-system-deps">Runtime system deps</a>
 <a href="#cross-refs">Cross-refs</a>
 

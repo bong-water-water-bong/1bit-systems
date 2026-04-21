@@ -116,7 +116,7 @@ The kernel behind `rcpp_prefill_ternary_aie` is the missing piece. Candidate pat
 - Write it in MLIR for IREE-AMD-AIE (community, open source). Multi-engineer-quarter.
 - Write it in AIE assembly + dispatch via `xrt`. No public reference exists.
 - Wait for Microsoft's first-party XDNA backend (issue #408 open since Feb 2026, zero replies).
-- Wait for FastFlowLM to open-source their kernels + add 1.58-bit.
+- Route through ONNX Runtime + VitisAI Execution Provider (AMD official, XDNA2) for the ops VitisAI accelerates; fall back to CPU EP for the rest. *(2026-04-21 pivot — FastFlowLM bridge retired.)*
 
 We're watching, not building. The iGPU path has too much runway left — Sherry, rotorquant KV compression, MedusaBitNet speculative heads — all higher-ROI than NPU porting.
 
