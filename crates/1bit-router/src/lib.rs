@@ -117,7 +117,7 @@ impl Backend {
 /// argument on `Router::new_with`) so we have a natural place to grow
 /// knobs like a prefill-threshold override or a sampler dispatch path
 /// without churning call sites.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct RouterConfig {
     /// Which execution surface the router dispatches the forward pass to.
     pub backend: Backend,
@@ -131,6 +131,38 @@ pub struct RouterConfig {
     /// sampler is ~4.5% of a 15 ms forward pass and doesn't justify
     /// pipelining today.
     pub sampler_mode: SamplerMode,
+    /// Prompt-length threshold at or above which the prefill phase is
+    /// offloaded to the CPU AVX2 ternary lane (`1bit-cpu`). Below this
+    /// threshold the iGPU runs prefill + decode as before.
+    ///
+    /// Derived in `docs/wiki/APU-Aggregator-Plan.md` §2: at L=33 the
+    /// iGPU's per-token M=1 GEMV cost equals the CPU's AVX2 prefill cost
+    /// plus a single host→device handoff. Overridable via
+    /// `HALO_PREFILL_CROSSOVER_L` — setting it to `usize::MAX` (or any
+    /// value ≥ a plausible max prompt length) pins every request to the
+    /// iGPU lane, which is the rollback path.
+    pub prefill_crossover_len: usize,
+}
+
+/// Env var name for the prefill-crossover override. Public so operator
+/// tooling (`halo power`, `halo status`) can surface the same name
+/// without stringly-typing it.
+pub const PREFILL_CROSSOVER_ENV: &str = "HALO_PREFILL_CROSSOVER_L";
+
+/// Default prefill crossover — see `docs/wiki/APU-Aggregator-Plan.md` §2.
+/// Changing this default means updating the plan doc and re-measuring;
+/// per `CLAUDE.md` the `.h1b` loader + `1bit-cpu` kernel are the only
+/// callers in the runtime path.
+pub const DEFAULT_PREFILL_CROSSOVER_L: usize = 33;
+
+impl Default for RouterConfig {
+    fn default() -> Self {
+        Self {
+            backend: Backend::default(),
+            sampler_mode: SamplerMode::default(),
+            prefill_crossover_len: DEFAULT_PREFILL_CROSSOVER_L,
+        }
+    }
 }
 
 impl RouterConfig {
@@ -143,9 +175,19 @@ impl RouterConfig {
             _ => Backend::default(),
         };
         let sampler_mode = sampler_mode_from_env()?;
+        let prefill_crossover_len = match std::env::var(PREFILL_CROSSOVER_ENV) {
+            Ok(raw) if !raw.trim().is_empty() => raw.trim().parse::<usize>().map_err(|e| {
+                BackendError::Other(format!(
+                    "{PREFILL_CROSSOVER_ENV}: {raw:?} is not a valid non-negative \
+                     integer: {e}"
+                ))
+            })?,
+            _ => DEFAULT_PREFILL_CROSSOVER_L,
+        };
         Ok(Self {
             backend,
             sampler_mode,
+            prefill_crossover_len,
         })
     }
 }
@@ -235,6 +277,16 @@ pub struct Router {
     /// can cheaply snapshot into worker closures.
     #[allow(dead_code)] // consumed by follow-up passes that wire the verify loop
     medusa: Arc<medusa::MedusaState>,
+    /// Prompt-length threshold at or above which prefill offloads to the
+    /// CPU AVX2 ternary lane. See
+    /// [`RouterConfig::prefill_crossover_len`] for the source of truth
+    /// and `docs/wiki/APU-Aggregator-Plan.md` §2 for the derivation.
+    /// Read by [`Router::check_prefill_routing`] — the CPU forward-pass
+    /// itself still lands on `BackendError::CpuLaneStub` until the
+    /// Rust-side attention / RMSNorm / GLU glue is wired (tracked
+    /// alongside the `1bit-cpu` FFI crate).
+    #[allow(dead_code)] // reserved for the follow-up forward-pass wire-up
+    prefill_crossover_len: usize,
 }
 
 struct Inner {
@@ -337,6 +389,7 @@ impl Router {
                     sampler = cfg.sampler_mode.label(),
                     cpu_lane_threads = cpu_lane.num_threads(),
                     medusa = medusa_state.is_enabled(),
+                    prefill_crossover_len = cfg.prefill_crossover_len,
                     label = backend.label(),
                     "router ready"
                 );
@@ -353,6 +406,7 @@ impl Router {
                     cpu_lane,
                     cpu_sampler,
                     medusa: Arc::new(medusa_state),
+                    prefill_crossover_len: cfg.prefill_crossover_len,
                 })
             }
             BackendKind::Mlx => {
@@ -1117,6 +1171,61 @@ pub fn prefill_routing_decision(
     }
 }
 
+/// Per-request lane decision for the prefill phase.
+///
+/// Distinct from [`prefill_routing_decision`], which answers "is the
+/// operator-selected `Backend` viable at all?". This function answers
+/// "given a `Backend::Hip` session and a prompt of `prompt_tokens`
+/// length, should the prefill run on the CPU AVX2 lane or the iGPU?".
+///
+/// Rules (see `docs/wiki/APU-Aggregator-Plan.md` §2):
+///
+/// * `prompt_tokens >= crossover_len` → [`PrefillLane::Cpu`]. Prefill
+///   runs through the `1bit-cpu` ternary GEMV kernel; hidden state is
+///   handed off to the iGPU for decode via `hipMemcpy`.
+/// * `prompt_tokens <  crossover_len` → [`PrefillLane::IGpu`]. Prefill
+///   stays on the iGPU M=1 GEMV path (current behaviour).
+///
+/// `crossover_len == 0` means "always use CPU" (ops override for
+/// stress-testing); `crossover_len == usize::MAX` means "never use CPU"
+/// (rollback override, same as setting `HALO_PREFILL_CROSSOVER_L=99999`).
+///
+/// The function is deliberately total — no errors, no allocation — so
+/// the forward-pass hot loop can call it without an extra `?`. Callers
+/// compose with [`prefill_routing_decision`] for the enclosing backend
+/// check.
+pub fn prefill_lane_for_prompt(prompt_tokens: usize, crossover_len: usize) -> PrefillLane {
+    if prompt_tokens >= crossover_len {
+        PrefillLane::Cpu
+    } else {
+        PrefillLane::IGpu
+    }
+}
+
+/// Which surface runs the prefill for this request. Paired with
+/// [`prefill_lane_for_prompt`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrefillLane {
+    /// iGPU handles prefill. Current default for short prompts + the
+    /// rollback path when `HALO_PREFILL_CROSSOVER_L` is set high.
+    IGpu,
+    /// CPU AVX2 ternary GEMV lane handles prefill. Hidden state at
+    /// position `L-1` is handed to the iGPU for decode.
+    Cpu,
+}
+
+impl PrefillLane {
+    /// Short log label. Matches the `prefill=cpu` / `prefill=igpu`
+    /// string used in the plan doc + what the integration test greps
+    /// for.
+    pub fn label(self) -> &'static str {
+        match self {
+            PrefillLane::IGpu => "igpu",
+            PrefillLane::Cpu => "cpu",
+        }
+    }
+}
+
 #[cfg(test)]
 mod ppl_math_tests {
     //! Unit tests for the PPL math helpers. These are GPU-free — they
@@ -1287,6 +1396,80 @@ mod backend_config_tests {
                 }
                 other => panic!("expected CpuLaneStub, got {other:?}"),
             }
+        }
+    }
+
+    /// The per-request prefill-lane decision:
+    ///   * L < crossover  → iGpu (current hot path)
+    ///   * L ≥ crossover  → Cpu  (offload)
+    ///
+    /// Mocks no backends — the function is pure so a direct assertion
+    /// against its output validates what `generate_blocking` would see.
+    #[test]
+    fn prefill_lane_switches_at_crossover() {
+        // Default crossover per the APU-Aggregator-Plan.md is 33.
+        assert_eq!(DEFAULT_PREFILL_CROSSOVER_L, 33);
+        for len in [0usize, 1, 16, 32] {
+            assert_eq!(
+                prefill_lane_for_prompt(len, DEFAULT_PREFILL_CROSSOVER_L),
+                PrefillLane::IGpu,
+                "len={len} must stay on iGPU"
+            );
+        }
+        for len in [33usize, 64, 256, 2048] {
+            assert_eq!(
+                prefill_lane_for_prompt(len, DEFAULT_PREFILL_CROSSOVER_L),
+                PrefillLane::Cpu,
+                "len={len} must offload to CPU"
+            );
+        }
+        // Operator override: crossover=16 (integration-test value from the
+        // APU-Aggregator-Plan.md playbook).
+        assert_eq!(prefill_lane_for_prompt(15, 16), PrefillLane::IGpu);
+        assert_eq!(prefill_lane_for_prompt(16, 16), PrefillLane::Cpu);
+        // Rollback: crossover=usize::MAX pins every request to iGPU.
+        assert_eq!(prefill_lane_for_prompt(10_000, usize::MAX), PrefillLane::IGpu);
+        // Stress: crossover=0 forces every request to CPU.
+        assert_eq!(prefill_lane_for_prompt(0, 0), PrefillLane::Cpu);
+    }
+
+    /// `HALO_PREFILL_CROSSOVER_L=16` must flow from the environment into
+    /// `RouterConfig::prefill_crossover_len`. Unset → default 33.
+    /// Garbage → a parse error that names the env var.
+    #[test]
+    fn halo_prefill_crossover_env_parses() {
+        let _g = ENV_LOCK.lock().unwrap();
+        // SAFETY: env mutation behind the ENV_LOCK.
+        unsafe {
+            std::env::remove_var(PREFILL_CROSSOVER_ENV);
+        }
+        let cfg = RouterConfig::from_env().expect("unset → default");
+        assert_eq!(cfg.prefill_crossover_len, DEFAULT_PREFILL_CROSSOVER_L);
+
+        unsafe {
+            std::env::set_var(PREFILL_CROSSOVER_ENV, "16");
+        }
+        let cfg = RouterConfig::from_env().expect("parse 16");
+        assert_eq!(cfg.prefill_crossover_len, 16);
+
+        unsafe {
+            std::env::set_var(PREFILL_CROSSOVER_ENV, "  99999\n");
+        }
+        let cfg = RouterConfig::from_env().expect("parse with whitespace");
+        assert_eq!(cfg.prefill_crossover_len, 99999);
+
+        unsafe {
+            std::env::set_var(PREFILL_CROSSOVER_ENV, "not-a-number");
+        }
+        let err = RouterConfig::from_env().expect_err("garbage must error");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains(PREFILL_CROSSOVER_ENV),
+            "error should name the env var; got: {msg}"
+        );
+
+        unsafe {
+            std::env::remove_var(PREFILL_CROSSOVER_ENV);
         }
     }
 
