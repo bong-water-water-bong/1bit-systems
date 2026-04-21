@@ -268,6 +268,12 @@ struct Inner {
     /// Last decoded position in the shared KV cache. Reset between
     /// conversations.
     pos: i32,
+    /// Live Medusa verifier state. Accumulates per-head acceptance
+    /// counters across decode requests on this router instance. Always
+    /// present — the verifier is zero-cost when the
+    /// [`medusa::MedusaState`] is `Disabled`, and we read its counters
+    /// unconditionally when `/metrics` lands them.
+    medusa_verifier: medusa::TreeVerifier,
 }
 
 impl Router {
@@ -364,7 +370,11 @@ impl Router {
                     "router ready"
                 );
                 Ok(Self {
-                    inner: Arc::new(Mutex::new(Inner { backend, pos: 0 })),
+                    inner: Arc::new(Mutex::new(Inner {
+                        backend,
+                        pos: 0,
+                        medusa_verifier: medusa::TreeVerifier::new(),
+                    })),
                     model_id,
                     kind,
                     backend: cfg.backend,
@@ -419,6 +429,7 @@ impl Router {
         let sampler_mode = self.sampler_mode;
         let cpu_lane = self.cpu_lane.clone();
         let cpu_sampler = self.cpu_sampler.clone();
+        let medusa = self.medusa.clone();
         tokio::task::spawn_blocking(move || {
             let mut guard = inner.blocking_lock();
             generate_blocking(
@@ -429,6 +440,7 @@ impl Router {
                 sampler_mode,
                 &cpu_lane,
                 &cpu_sampler,
+                &medusa,
             )
         })
         .await
@@ -452,6 +464,7 @@ impl Router {
         let sampler_mode = self.sampler_mode;
         let cpu_lane = self.cpu_lane.clone();
         let cpu_sampler = self.cpu_sampler.clone();
+        let medusa = self.medusa.clone();
         let (tx, rx) = tokio::sync::mpsc::channel::<Result<String, BackendError>>(64);
         tokio::task::spawn_blocking(move || {
             let mut guard = inner.blocking_lock();
@@ -468,6 +481,7 @@ impl Router {
                 sampler_mode,
                 &cpu_lane,
                 &cpu_sampler,
+                &medusa,
             ) {
                 let _ = tx.blocking_send(Err(e));
             }
@@ -478,6 +492,34 @@ impl Router {
     /// Which sampler path the router is using (process-level dial).
     pub fn sampler_mode(&self) -> SamplerMode {
         self.sampler_mode
+    }
+
+    /// `true` iff the Medusa speculative-decode gate resolved to
+    /// `Enabled` at router construction. Used by `/metrics` + the
+    /// bench harness so operators can confirm the gate without
+    /// grepping startup logs.
+    pub fn medusa_enabled(&self) -> bool {
+        self.medusa.is_enabled()
+    }
+
+    /// Snapshot of the Medusa verifier counters since router startup.
+    ///
+    /// Returns `None` if the gate is off or no verify steps have run
+    /// yet. Carries: (total verify steps, per-head accepted counts,
+    /// mean accepted-prefix length). Cheap — integer loads only.
+    pub async fn medusa_stats(&self) -> Option<MedusaStats> {
+        let guard = self.inner.lock().await;
+        if !self.medusa.is_enabled() || guard.medusa_verifier.steps == 0 {
+            return None;
+        }
+        let rates = guard.medusa_verifier.per_head_acceptance()?;
+        let mean_prefix = guard.medusa_verifier.mean_accepted_prefix_len()?;
+        Some(MedusaStats {
+            verify_steps: guard.medusa_verifier.steps,
+            head_accepted: guard.medusa_verifier.head_accepted,
+            per_head_rate: rates,
+            mean_accepted_prefix_len: mean_prefix,
+        })
     }
 
     /// Reset any per-conversation state on the backend (KV cache pointer).
@@ -525,6 +567,24 @@ impl Router {
         .await
         .map_err(|e| BackendError::Other(format!("blocking task join: {e}")))?
     }
+}
+
+/// Snapshot of the Medusa verifier state. Read via
+/// [`Router::medusa_stats`] for bench + `/metrics`.
+#[derive(Debug, Clone)]
+pub struct MedusaStats {
+    /// Cumulative count of verify steps run since router startup.
+    pub verify_steps: u64,
+    /// Per-head accepted counts — `head_accepted[i]` is the number
+    /// of times head i produced the same argmax as the backbone at
+    /// the corresponding position.
+    pub head_accepted: [u64; medusa::heads::NUM_MEDUSA_HEADS],
+    /// Live per-head acceptance rate — just `head_accepted / steps`.
+    pub per_head_rate: [f64; medusa::heads::NUM_MEDUSA_HEADS],
+    /// Mean accepted prefix length (0..=NUM_MEDUSA_HEADS). Equal to
+    /// `tokens/cycle - 1` — the average number of speculative
+    /// tokens accepted per decode cycle.
+    pub mean_accepted_prefix_len: f64,
 }
 
 /// PPL harness result.
@@ -658,6 +718,7 @@ fn generate_blocking(
     sampler_mode: SamplerMode,
     cpu_lane: &CpuLane,
     cpu_sampler: &CpuSampler,
+    medusa: &medusa::MedusaState,
 ) -> Result<RouterResponse, BackendError> {
     // `cpu_lane` is currently reserved for future use (parallel top-k
     // reductions beyond the `Sampler::sample` path). The `CpuSampler`
@@ -730,9 +791,35 @@ fn generate_blocking(
     // BitNet's special tokens from the tokenizer — matches the C++ stops.
     let stop_ids = [128001, 128009];
 
-    for step in 0..max_new {
-        let pos = inner.pos + step as i32;
-        let argmax_next = inner.backend.forward_token(cur, pos, &mut logits_scratch)?;
+    // Medusa dispatch gate. Only the greedy path activates it today
+    // (the sampler-aware variant compares head argmax with a sampled
+    // token rather than base argmax — a follow-up pass once the tree-
+    // attention kernel is wired). Stepper indirection keeps the legacy
+    // path byte-identical for the `medusa_disabled` case.
+    let medusa_active =
+        medusa.is_enabled() && req.sampler.temperature <= 0.0 && on_delta.is_none();
+    let mut hidden_scratch: Vec<u16> = Vec::new();
+    let mut head_logits_scratch: Vec<f32> = Vec::new();
+
+    let mut step_count = 0usize;
+    while step_count < max_new {
+        let pos = inner.pos + step_count as i32;
+
+        // -------------------------------------------------------------
+        // Base forward pass. Medusa path takes a variant that also
+        // copies the post-final-norm hidden state back to the host so
+        // the heads can project it into candidate-token logits.
+        // -------------------------------------------------------------
+        let argmax_next = if medusa_active {
+            inner.backend.forward_token_with_hidden(
+                cur,
+                pos,
+                &mut logits_scratch,
+                &mut hidden_scratch,
+            )?
+        } else {
+            inner.backend.forward_token(cur, pos, &mut logits_scratch)?
+        };
 
         // Optional host-side sampling path. [`SamplerMode::Inline`]
         // takes the direct call (legacy, `HALO_SAMPLER=inline`).
@@ -772,7 +859,6 @@ fn generate_blocking(
         };
 
         history.push(next);
-        cur = next;
 
         // Stop-token check before detokenizing: otherwise the special
         // token's string form (e.g. "<|eot_id|>") leaks into the output.
@@ -782,6 +868,7 @@ fn generate_blocking(
         }
 
         generated_ids.push(next);
+        step_count += 1;
 
         // Incremental detokenization — decode the whole generated prefix
         // each step (matches C++) and emit whatever is newly printable.
@@ -803,7 +890,201 @@ fn generate_blocking(
             stopped_on_eos = true;
             break;
         }
+
+        cur = next;
+
+        // -------------------------------------------------------------
+        // Medusa speculative-decode extension. When the heads are
+        // loaded and we took the with-hidden path above, project the
+        // backbone hidden through the four heads to get candidate
+        // tokens (at positions t+2..t+5 relative to the base token we
+        // just emitted), then verify them sequentially against the
+        // backbone. Accept the longest matching prefix.
+        //
+        // Sequential verify = one backbone call per verified position.
+        // Each verify call advances the KV cache by one slot, so if
+        // head i is rejected we must NOT continue to verify[i+1] —
+        // that would feed the rejected head_i into the backbone and
+        // corrupt KV. We therefore break out of the verify loop on
+        // first mismatch. Tree-attention amortisation (the follow-up
+        // lane) is what actually yields >1.0 tok/backbone.
+        // -------------------------------------------------------------
+        if medusa_active && step_count < max_new {
+            if let medusa::MedusaState::Enabled { heads, .. } = medusa {
+                // 1) Project backbone hidden through the 4 heads →
+                //    host-side `h_out` fp16 vectors.
+                let projected = heads
+                    .project_all_heads_host(&hidden_scratch)
+                    .map_err(|e| BackendError::Other(format!("medusa project: {e}")))?;
+
+                // 2) Head logits = lm_head(h_out_i); take argmax per
+                //    head. Re-use the live backbone lm_head GEMV on
+                //    the device to avoid a second 128256×2560 upload
+                //    per cycle.
+                let mut head_candidates = [0i32; medusa::heads::NUM_MEDUSA_HEADS];
+                for i in 0..medusa::heads::NUM_MEDUSA_HEADS {
+                    inner
+                        .backend
+                        .lm_head_from_hidden(&projected[i], &mut head_logits_scratch)?;
+                    let mut max_l = head_logits_scratch[0];
+                    let mut max_i = 0i32;
+                    for (idx, &l) in head_logits_scratch.iter().enumerate().skip(1) {
+                        if l > max_l {
+                            max_l = l;
+                            max_i = idx as i32;
+                        }
+                    }
+                    head_candidates[i] = max_i;
+                }
+
+                // 3) Sequential verify.
+                //
+                //    Standard Medusa convention: head_i predicts the
+                //    token at position base+(i+1) relative to the
+                //    backbone's own argmax `next`. So head_0 predicts
+                //    t+2 (one past the base), head_1 → t+3, etc. Each
+                //    verify step runs the backbone on the prior
+                //    accepted token to produce base_argmax_i at that
+                //    head's position.
+                //
+                //    verify_cur starts as `next` — the base token at
+                //    position `pos+1`. verify[0] feeds it at pos+1 to
+                //    predict pos+2 (= head_0's position).
+                //
+                //    On a match, we accept head_i and advance
+                //    verify_cur = head_i for the next step. On a
+                //    mismatch we break — the KV cache past this
+                //    position is still clean so the next decode
+                //    cycle's first forward_token Just Works.
+                let mut verify_cur = next;
+                let mut accepted_len = 0usize;
+                let mut mismatch_base: Option<i32> = None;
+                for i in 0..medusa::heads::NUM_MEDUSA_HEADS {
+                    // Respect remaining budget.
+                    if step_count + accepted_len + 1 > max_new {
+                        break;
+                    }
+                    let vpos = inner.pos + (step_count + accepted_len) as i32;
+                    let base_argmax_i = inner.backend.forward_token(
+                        verify_cur,
+                        vpos,
+                        &mut logits_scratch,
+                    )?;
+
+                    if base_argmax_i == head_candidates[i] {
+                        accepted_len += 1;
+                        verify_cur = head_candidates[i];
+                        if stop_ids.contains(&head_candidates[i]) {
+                            mismatch_base = None;
+                            break;
+                        }
+                        continue;
+                    }
+
+                    // Mismatch: record the base argmax as the fallback
+                    // token to emit, then stop verifying.
+                    mismatch_base = Some(base_argmax_i);
+                    break;
+                }
+
+                // 4) Update the verifier's counters (for `/metrics`
+                //    and the bench output). We hand it the full-row
+                //    base_argmax reconstructed from the matches +
+                //    (at most one) mismatch we observed. Positions
+                //    beyond the first mismatch were never verified
+                //    sequentially, so we mark them never-equal so
+                //    the verifier's per-head counters don't falsely
+                //    credit them.
+                let mut base_argmax_full = [0i32; medusa::heads::NUM_MEDUSA_HEADS];
+                for i in 0..accepted_len {
+                    // Matched heads: base == head by construction.
+                    base_argmax_full[i] = head_candidates[i];
+                }
+                if accepted_len < medusa::heads::NUM_MEDUSA_HEADS {
+                    if let Some(bm) = mismatch_base {
+                        base_argmax_full[accepted_len] = bm;
+                    } else {
+                        // Stop-token early-exit on the accepted
+                        // path; no "base vs head" comparison was
+                        // done at this index. Mark never-equal.
+                        base_argmax_full[accepted_len] =
+                            head_candidates[accepted_len].wrapping_add(1);
+                    }
+                }
+                for j in (accepted_len + 1)..medusa::heads::NUM_MEDUSA_HEADS {
+                    // Never verified — mark never-equal so the
+                    // per-head counter stays honest.
+                    base_argmax_full[j] = head_candidates[j].wrapping_add(1);
+                }
+                let _ = inner
+                    .medusa_verifier
+                    .verify_step(&head_candidates, &base_argmax_full);
+
+                // 5) Emit accepted head-predicted tokens.
+                for i in 0..accepted_len {
+                    let tok = head_candidates[i];
+                    history.push(tok);
+                    generated_ids.push(tok);
+                    step_count += 1;
+                    if stop_ids.contains(&tok) {
+                        stopped_on_eos = true;
+                        break;
+                    }
+                }
+
+                // 6) Emit the "free" fallback base token from the
+                //    verify step that recorded a mismatch. This is
+                //    what makes sequential verify equivalent in
+                //    wall-clock to vanilla decode: every verify call
+                //    produces a usable base argmax, and if the head
+                //    at that position was wrong, we emit the correct
+                //    base answer instead.
+                if !stopped_on_eos && step_count < max_new {
+                    if let Some(bm) = mismatch_base {
+                        history.push(bm);
+                        if stop_ids.contains(&bm) {
+                            stopped_on_eos = true;
+                        } else {
+                            generated_ids.push(bm);
+                            step_count += 1;
+                            cur = bm;
+                        }
+                    } else if accepted_len > 0 {
+                        cur = head_candidates[accepted_len - 1];
+                    }
+                } else if accepted_len > 0 {
+                    cur = head_candidates[accepted_len - 1];
+                }
+
+                // 7) Re-detokenize for streaming / stop-substring
+                //    checks. Streaming path is gated off above
+                //    (`medusa_active` requires `on_delta.is_none()`)
+                //    so this only matters for stop-substring and the
+                //    terminal `full_text`.
+                let decoded_so_far = inner.backend.detokenize(&generated_ids);
+                if decoded_so_far.len() > printed_bytes {
+                    let delta = decoded_so_far[printed_bytes..].to_string();
+                    printed_bytes = decoded_so_far.len();
+                    full_text.push_str(&delta);
+                }
+                if stopped_on_eos {
+                    break;
+                }
+                if req
+                    .stop
+                    .iter()
+                    .any(|s| !s.is_empty() && full_text.ends_with(s))
+                {
+                    stopped_on_eos = true;
+                    break;
+                }
+            }
+        }
     }
+
+    // `step_count` is the number of generated tokens emitted; the
+    // accumulator is consumed below via `generated_ids.len()`.
+    let _ = step_count;
 
     // Advance cache_pos past this turn's decoded tokens.
     inner.pos += generated_ids.len() as i32;

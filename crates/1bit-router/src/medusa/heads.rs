@@ -188,4 +188,226 @@ impl MedusaHeads {
             "medusa heads: live projection not wired (scaffold only) — awaiting retrained weights",
         ))
     }
+
+    /// Live host-side projection for a single head.
+    ///
+    /// Computes `h_out = h + W_out · SiLU(W_in · h)` on the CPU, using
+    /// the mmapped fp16 weights from the `.h1b-medusa` file. The
+    /// `ternary_gemm_smallm` HIP kernel dispatch is still scaffolding
+    /// (`Err(Unsupported)`) today, so this path provides a correct
+    /// fallback that lets the Medusa speculative-decode loop run
+    /// end-to-end while the kernel is being fitted.
+    ///
+    /// The heads are **fp16-dense**, not ternary — they're the 13 MiB
+    /// `W_in` + `W_out` tensors lifted out of the upstream
+    /// `MedusaBitNet-2B-4T` checkpoint. At 2560×2560 × 2 matmuls per
+    /// head, a scalar-f32 reduction across the contraction axis lands
+    /// in the 10–30 ms range on Zen5 per head — heavy enough that this
+    /// path is only suitable for measurement / correctness bring-up.
+    /// Moving to the native small-M ternary GEMM (when it grows a
+    /// device-pointer wrapper + fp16 variant) is the obvious next step.
+    ///
+    /// # Inputs
+    /// * `hidden` — post-final-norm hidden state for this token,
+    ///   `MEDUSA_HIDDEN_DIM` fp16 elements (as `u16`).
+    /// * `head_idx` — which head (0..NUM_MEDUSA_HEADS).
+    ///
+    /// # Output
+    /// `h_out` as an owned `Vec<u16>` of length `MEDUSA_HIDDEN_DIM`, fp16.
+    pub fn project_one_head_host(
+        &self,
+        hidden: &[u16],
+        head_idx: usize,
+    ) -> Result<Vec<u16>, MedusaError> {
+        if hidden.len() != MEDUSA_HIDDEN_DIM {
+            return Err(MedusaError::BadInput(
+                "medusa heads: hidden state length must equal MEDUSA_HIDDEN_DIM (2560)",
+            ));
+        }
+        if head_idx >= NUM_MEDUSA_HEADS {
+            return Err(MedusaError::BadInput(
+                "medusa heads: head_idx out of range",
+            ));
+        }
+        let file = self.file.as_ref().ok_or(MedusaError::BadInput(
+            "medusa heads: no mmapped file (was this a scaffold stub?)",
+        ))?;
+        let view = file.head(head_idx)?;
+
+        let hd = MEDUSA_HIDDEN_DIM;
+
+        // Decode hidden state once.
+        let h_f32: Vec<f32> = hidden
+            .iter()
+            .map(|&bits| half::f16::from_bits(bits).to_f32())
+            .collect();
+
+        // inner = W_in · h  — row-major [hd, hd] × [hd] → [hd]
+        let mut inner = vec![0.0f32; hd];
+        for row in 0..hd {
+            let w_row = &view.w_in[row * hd..(row + 1) * hd];
+            let mut acc = 0.0f32;
+            for k in 0..hd {
+                acc += half::f16::from_bits(w_row[k]).to_f32() * h_f32[k];
+            }
+            inner[row] = acc;
+        }
+
+        // SiLU in-place: silu(x) = x / (1 + exp(-x))
+        for v in &mut inner {
+            let x = *v;
+            *v = x / (1.0 + (-x).exp());
+        }
+
+        // h_out = h + W_out · inner
+        let mut out_f32 = h_f32.clone();
+        for row in 0..hd {
+            let w_row = &view.w_out[row * hd..(row + 1) * hd];
+            let mut acc = 0.0f32;
+            for k in 0..hd {
+                acc += half::f16::from_bits(w_row[k]).to_f32() * inner[k];
+            }
+            out_f32[row] += acc;
+        }
+
+        // Quantize back to fp16 for the downstream lm_head GEMV (which
+        // takes fp16 inputs on the device side).
+        let out_u16: Vec<u16> = out_f32
+            .iter()
+            .map(|&v| half::f16::from_f32(v).to_bits())
+            .collect();
+
+        Ok(out_u16)
+    }
+
+    /// Batched variant of [`Self::project_one_head_host`] — runs all
+    /// four heads against the same hidden state and returns the
+    /// per-head projected hidden `h_out` tensors in index order.
+    ///
+    /// The four scalar GEMVs are independent; rayon-parallelising them
+    /// is an obvious speedup but intentionally left for a follow-up
+    /// pass once the accuracy of the projection path is confirmed
+    /// against the upstream reference. Today we walk them sequentially.
+    pub fn project_all_heads_host(
+        &self,
+        hidden: &[u16],
+    ) -> Result<[Vec<u16>; NUM_MEDUSA_HEADS], MedusaError> {
+        let mut out: [Vec<u16>; NUM_MEDUSA_HEADS] =
+            std::array::from_fn(|_| Vec::new());
+        for i in 0..NUM_MEDUSA_HEADS {
+            out[i] = self.project_one_head_host(hidden, i)?;
+        }
+        Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::loader::{
+        MEDUSA_DTYPE_FP16, MEDUSA_FORMAT_VERSION, MEDUSA_HEADER_BYTES, MEDUSA_MAGIC,
+        MEDUSA_RESIDUAL_LAYERS, MedusaHeadsFile,
+    };
+    use std::io::Write;
+
+    /// Hand-rolled round-trip: synthesize a small-shape `.h1b-medusa`
+    /// file with all-zero weights, run `project_one_head_host`, and
+    /// confirm the output equals the input hidden (W_in·h = 0 → SiLU(0)
+    /// = 0 → W_out·0 = 0 → h_out = h).
+    #[test]
+    fn project_one_head_host_zero_weights_is_identity() {
+        // Synthesize a file at the canonical shape (2560) so the loader
+        // accepts it. The mmap is sparse-extended with zeros, which is
+        // exactly the identity-weight case we want to exercise.
+        let num_heads = NUM_MEDUSA_HEADS as u32;
+        let hidden_dim = MEDUSA_HIDDEN_DIM as u32;
+
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        tmp.write_all(&MEDUSA_MAGIC).unwrap();
+        tmp.write_all(&MEDUSA_FORMAT_VERSION.to_le_bytes()).unwrap();
+        tmp.write_all(&num_heads.to_le_bytes()).unwrap();
+        tmp.write_all(&hidden_dim.to_le_bytes()).unwrap();
+        tmp.write_all(&MEDUSA_RESIDUAL_LAYERS.to_le_bytes()).unwrap();
+        tmp.write_all(&MEDUSA_DTYPE_FP16.to_le_bytes()).unwrap();
+        tmp.write_all(&[0u8; 40]).unwrap();
+        let hd = hidden_dim as usize;
+        let per_head = 2 * hd * hd * 2;
+        let total = MEDUSA_HEADER_BYTES + per_head * num_heads as usize;
+        tmp.as_file_mut().set_len(total as u64).unwrap();
+        let path = tmp.path().to_path_buf();
+
+        let file = MedusaHeadsFile::open(&path).expect("synthetic file opens");
+        let heads = MedusaHeads {
+            heads: std::array::from_fn(|i| MedusaHead {
+                index: i,
+                weights_path: path.clone(),
+                expected_acceptance: EXPECTED_ACCEPTANCE[i],
+            }),
+            source_path: path,
+            file: Some(Arc::new(file)),
+        };
+
+        // Hidden state with non-trivial values so an identity check is
+        // meaningful (all-zero hidden would pass even on a buggy impl).
+        let hidden: Vec<u16> = (0..MEDUSA_HIDDEN_DIM)
+            .map(|i| half::f16::from_f32(((i as f32) * 0.01) - 10.0).to_bits())
+            .collect();
+
+        let h_out = heads
+            .project_one_head_host(&hidden, 0)
+            .expect("projection runs against synthetic file");
+
+        assert_eq!(h_out.len(), MEDUSA_HIDDEN_DIM);
+        // Zero weights → h_out == h (to fp16 round-trip precision).
+        for (i, (&a, &b)) in hidden.iter().zip(h_out.iter()).enumerate() {
+            let af = half::f16::from_bits(a).to_f32();
+            let bf = half::f16::from_bits(b).to_f32();
+            assert!(
+                (af - bf).abs() < 1e-3,
+                "idx {i}: input {af} output {bf}",
+            );
+        }
+    }
+
+    /// All four heads return a `MEDUSA_HIDDEN_DIM`-length vector under
+    /// the batched entry point. Size check only — content identity is
+    /// covered by the single-head test above.
+    #[test]
+    fn project_all_heads_host_returns_four_sized_vectors() {
+        let num_heads = NUM_MEDUSA_HEADS as u32;
+        let hidden_dim = MEDUSA_HIDDEN_DIM as u32;
+
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        tmp.write_all(&MEDUSA_MAGIC).unwrap();
+        tmp.write_all(&MEDUSA_FORMAT_VERSION.to_le_bytes()).unwrap();
+        tmp.write_all(&num_heads.to_le_bytes()).unwrap();
+        tmp.write_all(&hidden_dim.to_le_bytes()).unwrap();
+        tmp.write_all(&MEDUSA_RESIDUAL_LAYERS.to_le_bytes()).unwrap();
+        tmp.write_all(&MEDUSA_DTYPE_FP16.to_le_bytes()).unwrap();
+        tmp.write_all(&[0u8; 40]).unwrap();
+        let hd = hidden_dim as usize;
+        let per_head = 2 * hd * hd * 2;
+        let total = MEDUSA_HEADER_BYTES + per_head * num_heads as usize;
+        tmp.as_file_mut().set_len(total as u64).unwrap();
+        let path = tmp.path().to_path_buf();
+
+        let file = MedusaHeadsFile::open(&path).expect("synthetic file opens");
+        let heads = MedusaHeads {
+            heads: std::array::from_fn(|i| MedusaHead {
+                index: i,
+                weights_path: path.clone(),
+                expected_acceptance: EXPECTED_ACCEPTANCE[i],
+            }),
+            source_path: path,
+            file: Some(Arc::new(file)),
+        };
+
+        let hidden = vec![0u16; MEDUSA_HIDDEN_DIM];
+        let outs = heads
+            .project_all_heads_host(&hidden)
+            .expect("batched projection runs");
+        for h_out in &outs {
+            assert_eq!(h_out.len(), MEDUSA_HIDDEN_DIM);
+        }
+    }
 }

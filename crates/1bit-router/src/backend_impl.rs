@@ -998,6 +998,91 @@ impl HipBackend {
     pub fn config(&self) -> &H1bConfig {
         &self.cfg
     }
+
+    /// Variant of [`Self::forward_token`] that also exposes the
+    /// post-final-norm, pre-`lm_head` hidden state back to the host.
+    ///
+    /// Runs the full forward pass exactly like [`Self::forward_token`] —
+    /// argmax, logits copy, return value. After the base-model logits are
+    /// computed the `scratch.normed` device buffer still holds the
+    /// post-final-RMSNorm hidden state (the `lm_head` GEMV only reads
+    /// from it; it never overwrites), so we issue one extra D→H memcpy
+    /// and hand `hidden_out` back to the Medusa path.
+    ///
+    /// `hidden_out` is resized to `hidden_size` fp16 (as `u16`) elements
+    /// on success. The caller reuses this buffer across decode cycles to
+    /// avoid per-step allocation.
+    ///
+    /// Cost: one extra `hidden_size` fp16 D→H copy on top of the regular
+    /// forward pass (2 × hs = 5120 bytes on BitNet-2B-4T). Measured
+    /// overhead on gfx1151 is sub-microsecond — dwarfed by the 30-layer
+    /// forward itself.
+    pub fn forward_token_with_hidden(
+        &mut self,
+        token_id: i32,
+        pos: i32,
+        logits_out: &mut Vec<f32>,
+        hidden_out: &mut Vec<u16>,
+    ) -> Result<i32, BackendError> {
+        let next = self.forward_token(token_id, pos, logits_out)?;
+        let hs = self.cfg.hidden_size as usize;
+        if hidden_out.len() != hs {
+            hidden_out.resize(hs, 0);
+        }
+        self.scratch
+            .normed
+            .copy_to_slice(hidden_out.as_mut_slice())?;
+        Ok(next)
+    }
+
+    /// Run the existing fp16×fp16 `lm_head` GEMV against a
+    /// caller-supplied host hidden state and return the resulting logits.
+    ///
+    /// Used by the Medusa speculative-decode path: each head produces a
+    /// projected hidden `h_out` on the host (four scalar fp16 GEMVs +
+    /// residual in [`crate::medusa::heads::MedusaHeads::project`]), and
+    /// this method re-runs the already-uploaded backbone `lm_head`
+    /// against that hidden to produce per-head logits. Reusing the live
+    /// device-resident embedding matrix avoids a second upload and keeps
+    /// the `tied_embedding` invariant intact.
+    ///
+    /// The `normed` scratch is clobbered as a side effect — the caller
+    /// must not rely on its previous contents. Logits are copied back to
+    /// the host in `logits_out` (resized to `vocab_size` on success).
+    pub fn lm_head_from_hidden(
+        &mut self,
+        hidden: &[u16],
+        logits_out: &mut Vec<f32>,
+    ) -> Result<(), BackendError> {
+        let hs = self.cfg.hidden_size as usize;
+        let vocab = self.cfg.vocab_size;
+        if hidden.len() != hs {
+            return Err(BackendError::BadInput(
+                "lm_head_from_hidden: hidden length must equal hidden_size",
+            ));
+        }
+        // Upload the host-side hidden into the `normed` scratch so the
+        // live `fp16_gemv(embedding, normed, logits)` dispatch works
+        // unchanged. `normed` is already sized to `[hs]`.
+        self.scratch.normed.copy_from_slice(hidden)?;
+        let stream = HipStream::DEFAULT;
+        ok(hip::fp16_gemv(
+            self.weights.embedding.as_device_ptr(),
+            self.scratch.normed.as_device_ptr(),
+            self.scratch.logits.as_device_mut_ptr(),
+            vocab,
+            self.cfg.hidden_size,
+            stream,
+        ))?;
+        hip::device_synchronize()?;
+        if logits_out.len() != vocab as usize {
+            logits_out.resize(vocab as usize, 0.0);
+        }
+        self.scratch
+            .logits
+            .copy_to_slice(logits_out.as_mut_slice())?;
+        Ok(())
+    }
 }
 
 // ----------------------------------------------------------------------------

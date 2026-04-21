@@ -52,6 +52,26 @@ pub struct HtokFile {
 }
 
 impl HtokFile {
+    /// Construct from raw parts. Used by writers that build a tokenizer
+    /// from a different source (e.g. a GGUF-embedded tokenizer) and want
+    /// to serialize via [`to_bytes`]. The `path` slot records where the
+    /// file will eventually live — or `<memory>` if callers never write
+    /// to disk — and is only used for diagnostics.
+    pub fn from_parts(
+        bos_id: i32,
+        eos_id: i32,
+        id_to_bytes: Vec<Vec<u8>>,
+        merges: Vec<Merge>,
+    ) -> Self {
+        Self {
+            bos_id,
+            eos_id,
+            id_to_bytes,
+            merges,
+            path: PathBuf::from("<memory>"),
+        }
+    }
+
     pub fn open(path: impl AsRef<Path>) -> Result<Self, HaloError> {
         let p = path.as_ref();
         let mut f = File::open(p).map_err(|e| HaloError::io_at(p, e))?;

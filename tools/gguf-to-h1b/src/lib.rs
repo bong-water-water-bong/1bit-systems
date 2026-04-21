@@ -48,6 +48,9 @@ use onebit_core::h1b::{
     H1B_FLAG_BONSAI_Q1, H1B_FLAG_BONSAI_TQ2, H1B_MAGIC, H1bWeightFormat,
 };
 
+pub mod htok_export;
+pub use htok_export::{HtokExportError, HtokStats, build_htok_from_gguf, export_htok_sidecar};
+
 /// Bonsai-specific GGUF dtype tags. PrismML's converter assigns its own
 /// numbers distinct from ggml's canonical TQ1_0 (34) / TQ2_0 (35) — both
 /// because the block layout differs (g128 not g256) and because PrismML's
