@@ -179,31 +179,46 @@ impl ModelConfig {
 
 /// Quantize a 128-element fp32 group into a `TQ2_0_g128` block.
 ///
-/// Returns the 34-byte block: `[32 B codes LSB-first, 4/byte][fp16 d]`.
+/// Returns the 34-byte block: `[fp16 d : 2 B][32 B codes LSB-first, 4/byte]`.
 /// Code map: `00→-d, 01→0, 10→+d, 11→0 (unused)`.
 ///
-/// Scale rule: `d = max(|w|)`, threshold `t = 0.5 * d`. For MS-BitNet master
-/// weights (`w ∈ {-1,0,+1} × α`) this yields `d = α` and every non-zero
-/// sample round-trips exactly.
+/// Layout note: d-FIRST, not d-last. This matches the PrismML stock GGUF
+/// layout and the `bonsai_tq2_gemv.hip` kernel (see `kScaleOffset = 0`
+/// / `kCodesOffset = 2`). The `docs/wiki/Bonsai-Kernel-Spec.md` diagram
+/// originally claimed d-last; that was wrong and got corrected once the
+/// kernel was verified byte-for-byte against the upstream GGUF file.
+///
+/// Scale rule: `d = mean(|w|)`, threshold `t = 0.5 * d`. This is BitNet
+/// b1.58's native `absmean` rule (see MS `modeling_bitnet.py`:
+/// `scale = 1.0 / w.abs().mean().clamp(min=1e-5); w_q = (w *
+/// scale).round().clamp(-1, 1)`). For the MS-BitNet-2B-4T `bf16` master
+/// the weights are NOT pre-quantized — they're the full-precision master,
+/// with long fp16 tails well past `±α`. An absmax rule on a 128-weight
+/// group fires a threshold too far out (median tail value wins) and
+/// collapses ~90% of codes to 0; absmean tracks the ternary centroid and
+/// leaves ~75% of codes as signed ±1, matching the native BitNet shape.
 pub fn quantize_group_tq2(weights: &[f32; TQ2_GROUP_SIZE]) -> [u8; TQ2_BLOCK_BYTES] {
     let mut block = [0u8; TQ2_BLOCK_BYTES];
-    // absmax — single pass, branch-free min/max on positive values.
-    let absmax = weights
+    // absmean — BitNet b1.58's native per-tensor scale, applied per 128-weight
+    // group. Branch-free; short-circuits to the all-zero fast-path below.
+    let absmean = weights
         .iter()
         .copied()
-        .fold(0.0f32, |acc, x| acc.max(x.abs()));
+        .map(|x| x.abs())
+        .sum::<f32>()
+        / TQ2_GROUP_SIZE as f32;
 
-    if absmax == 0.0 {
+    if absmean == 0.0 {
         // All-zero group. Mirror oxibonsai's "fill with 0b01 codes" so the
         // decoder reads zeros (code 0b01 → 0). 0b01 × 4 lanes = 0x55.
-        for b in &mut block[..32] {
+        for b in &mut block[2..] {
             *b = 0x55;
         }
-        // d = +0.0 (fp16 0x0000) — already zero.
+        // d = +0.0 (fp16 0x0000) — already zero at block[0..2].
         return block;
     }
 
-    let threshold = 0.5 * absmax;
+    let threshold = 0.5 * absmean;
     for (j, &w) in weights.iter().enumerate() {
         let code: u8 = if w >= threshold {
             0b10 // +d
@@ -212,14 +227,14 @@ pub fn quantize_group_tq2(weights: &[f32; TQ2_GROUP_SIZE]) -> [u8; TQ2_BLOCK_BYT
         } else {
             0b01 //  0
         };
-        let byte_idx = j / 4;
+        let byte_idx = 2 + j / 4;
         let shift = (j % 4) * 2;
         block[byte_idx] |= code << shift;
     }
-    let d = f16::from_f32(absmax);
+    let d = f16::from_f32(absmean);
     let d_bits = d.to_bits();
-    block[32] = (d_bits & 0xff) as u8;
-    block[33] = (d_bits >> 8) as u8;
+    block[0] = (d_bits & 0xff) as u8;
+    block[1] = (d_bits >> 8) as u8;
     block
 }
 
@@ -227,9 +242,9 @@ pub fn quantize_group_tq2(weights: &[f32; TQ2_GROUP_SIZE]) -> [u8; TQ2_BLOCK_BYT
 /// one 128-element fp32 group from a 34-byte block.
 pub fn dequantize_group_tq2(block: &[u8; TQ2_BLOCK_BYTES]) -> [f32; TQ2_GROUP_SIZE] {
     let mut out = [0.0f32; TQ2_GROUP_SIZE];
-    let d = f16::from_bits(u16::from_le_bytes([block[32], block[33]])).to_f32();
+    let d = f16::from_bits(u16::from_le_bytes([block[0], block[1]])).to_f32();
     for j in 0..TQ2_GROUP_SIZE {
-        let byte_idx = j / 4;
+        let byte_idx = 2 + j / 4;
         let shift = (j % 4) * 2;
         let code = (block[byte_idx] >> shift) & 0b11;
         out[j] = match code {
@@ -661,8 +676,13 @@ mod tests {
 
     /// Synth a 128-weight group of `{-1, 0, +1} × 0.3`, repack through the
     /// TQ2 quantizer, unpack via the scalar reference decoder, and assert
-    /// max-abs error ≤ 1%. This is the load-bearing "the quantizer is
-    /// byte-accurate against the oxibonsai reference" test.
+    /// (a) every non-zero input preserves its sign in the output and
+    /// (b) the stored scale `d` matches the BitNet absmean formula.
+    ///
+    /// On a ternary `{-0.3, 0, +0.3}` pattern with 1/3 of each level:
+    ///   absmean = (43 × 0.3 + 43 × 0.3 + 42 × 0) / 128 ≈ 0.2015625
+    /// so `d = absmean ≈ 0.2`, not 0.3. Round-trip reconstructs values at
+    /// `±d` — the magnitude shrinks, but signs and zero positions match.
     #[test]
     fn quantize_group_absmean_roundtrip() {
         // Build a deterministic pattern spanning all three ternary levels.
@@ -675,20 +695,23 @@ mod tests {
             };
         }
         let block = quantize_group_tq2(&w);
-        // Scale d should be 0.3 (absmax of `{-0.3, 0, +0.3}`).
-        let d = f16::from_bits(u16::from_le_bytes([block[32], block[33]])).to_f32();
-        assert!((d - 0.3).abs() < 1e-3, "d={d}, expected ~0.3");
+        // Scale d = absmean = (86 × 0.3) / 128 ≈ 0.2015625, within one fp16
+        // ULP. Layout is d-first (bytes 0..2), codes-second (bytes 2..34)
+        // — matches the PrismML GGUF and `bonsai_tq2_gemv.hip` kernel.
+        let d = f16::from_bits(u16::from_le_bytes([block[0], block[1]])).to_f32();
+        let absmean_expected: f32 =
+            w.iter().map(|x| x.abs()).sum::<f32>() / 128.0;
+        assert!(
+            (d - absmean_expected).abs() < 1e-3,
+            "d={d}, expected ~{absmean_expected}"
+        );
 
         let out = dequantize_group_tq2(&block);
-        let mut max_err = 0.0f32;
-        for i in 0..128 {
-            max_err = max_err.max((out[i] - w[i]).abs());
-        }
-        // ≤ 1% of the scale (0.3) = 3e-3. Round-trip of exact ternary values
-        // with fp16 scale should blow well below this.
-        assert!(max_err <= 3e-3, "max_err={max_err}");
 
-        // Sanity: every lane decodes to the exact same sign as input.
+        // Sign-preservation: every lane that was non-zero on input must
+        // still be non-zero with the same sign on output (magnitude
+        // shrinks to ±d since d < |w|; that's the expected absmean
+        // rounding, not an error).
         for i in 0..128 {
             if w[i] > 0.0 {
                 assert!(out[i] > 0.0, "lane {i} lost + sign");
@@ -696,6 +719,17 @@ mod tests {
                 assert!(out[i] < 0.0, "lane {i} lost - sign");
             } else {
                 assert_eq!(out[i], 0.0, "lane {i} should be zero");
+            }
+        }
+
+        // Every non-zero output must equal exactly ±d (within fp16 round).
+        for i in 0..128 {
+            if w[i] != 0.0 {
+                assert!(
+                    (out[i].abs() - d).abs() < 1e-3,
+                    "lane {i}: out.abs()={} expected d={d}",
+                    out[i].abs()
+                );
             }
         }
     }

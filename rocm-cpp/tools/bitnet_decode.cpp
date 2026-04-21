@@ -451,7 +451,13 @@ int main(int argc, char** argv) {
     const bool is_bonsai_q1   = (m.weight_format == RCPP_WEIGHT_FORMAT_BONSAI_Q1);
     const bool is_bonsai_tq2  = (m.weight_format == RCPP_WEIGHT_FORMAT_BONSAI_TQ2);
     const bool is_bonsai      = is_bonsai_q1 || is_bonsai_tq2;
-    const bool is_qwen3       = (m.is_qwen3 != 0);
+    // `arch` drives the attention preamble (per-head q/k norm vs
+    // attn_sub_norm) and the FFN activation (SwiGLU vs squared-ReLU GLU +
+    // ffn_sub_norm) — orthogonal to the ternary GEMV dispatch. A
+    // BitNet-repacked Bonsai .h1b has arch=BITNET + weight_format=BONSAI_TQ2.
+    const bool is_qwen3       = (m.arch == RCPP_ARCH_QWEN3);
+    fprintf(stderr, "[bitnet_decode] arch=%s weight_format=%d\n",
+            is_qwen3 ? "qwen3" : "bitnet", (int)m.weight_format);
 
     // Int8-activation dispatch (HALO_V2 / SHERRY_I8 / TQ1). Unused on the
     // SHERRY_FP16 / BONSAI_* paths — forward lambda branches before calling.

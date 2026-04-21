@@ -65,13 +65,14 @@ HIP kernels live under `rocm-cpp/` as a git subtree. `1bit-hip`'s `build.rs` res
 
 Grace week: a parallel `bong-water-water-bong/rocm-cpp` standalone repo mirrors the subtree so external clones with `git submodule` pins keep working. Archived after one week without drift.
 
-## Brand vs engineering
+## Brand
 
-- **Product brand:** `1bit monster` (hero, Reddit, Discord, marketing copy)
-- **Engineering brand:** `1bit systems` (repo, docs, README)
-- **Domain:** `1bit.systems` (URL bar, install.sh, always with dot)
+Single brand across every surface (2026-04-20 lock-in, supersedes the earlier brand-vs-engineering split):
 
-Don't hyphenate the brand. Don't spell out "one-bit". Don't write "1 bit" with a space where it should be hyphen-free two-token: it's always "1bit monster", "1bit systems", "1bit.systems".
+- **Brand:** `1bit systems` — hero, Reddit, Discord, marketing copy, repo, docs, README.
+- **Domain:** `1bit.systems` — URL bar, `install.sh`, `wrangler.toml`. Always with dot.
+
+Don't hyphenate. Don't spell out "one-bit". Don't write "1 bit" with a space. It is always "1bit systems" as the brand and "1bit.systems" as the address. Any earlier tagline variants are retired — don't reintroduce in new copy.
 
 ## Preserved halo-* references
 

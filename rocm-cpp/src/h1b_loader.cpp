@@ -284,6 +284,11 @@ void dequantize_bonsai_tq2_to_fp16(const uint8_t* packed, size_t rows, size_t co
 }
 
 // Derive the sidecar GGUF path from the .h1b path.
+//
+// The fallback to `Ternary-Bonsai-1.7B-Q2_0.gguf` exists for the oxibonsai
+// workflow where the user dropped the stock HF GGUF next to a converter-
+// emitted `.h1b`. It's intentionally narrow: a BitNet-repacked `.h1b`
+// dropped in a different directory will not collide with it.
 std::string derive_gguf_sidecar_path(const char* h1b_path) {
     std::string p(h1b_path);
     const size_t n = p.size();
@@ -299,6 +304,40 @@ std::string derive_gguf_sidecar_path(const char* h1b_path) {
     std::ifstream t(fallback);
     if (t) return fallback;
     return std::string();
+}
+
+// Decide the architecture of a Bonsai-weight-format .h1b. If a sidecar GGUF
+// exists and its `general.architecture` key is `qwen3` we lock the model to
+// Qwen3; otherwise we fall back to BitNet (matches the MS-BitNet-repack path
+// emitted by `tools/bitnet-to-tq2/`, which writes real attn_sub_norm +
+// ffn_sub_norm into the `.h1b` and has no sidecar GGUF).
+//
+// The returned string holds the resolved sidecar path (empty on BitNet) so
+// the caller can skip the GGUF hydration pass without re-deriving it.
+rcpp_arch_t resolve_bonsai_arch(const char* h1b_path, std::string& out_sidecar) {
+    out_sidecar.clear();
+    const std::string candidate = derive_gguf_sidecar_path(h1b_path);
+    if (candidate.empty()) {
+        return RCPP_ARCH_BITNET;
+    }
+    GgufSidecar g;
+    if (!g.open(candidate)) {
+        // Unreadable GGUF — treat as "no sidecar" and route through BitNet
+        // rather than crash or silently fall back to Qwen3 + zeroed norms.
+        fprintf(stderr,
+            "[rocm-cpp] sidecar candidate %s failed to parse — treating as BitNet arch\n",
+            candidate.c_str());
+        return RCPP_ARCH_BITNET;
+    }
+    if (g.arch() == "qwen3") {
+        out_sidecar = candidate;
+        return RCPP_ARCH_QWEN3;
+    }
+    // Sidecar present but arch != qwen3 (e.g. "bitnet" / "llama"). Ignore it.
+    fprintf(stderr,
+        "[rocm-cpp] sidecar %s arch=%s (not qwen3) — routing as BitNet arch\n",
+        candidate.c_str(), g.arch().c_str());
+    return RCPP_ARCH_BITNET;
 }
 
 }  // namespace
@@ -353,7 +392,7 @@ rcpp_bitnet_load_h1b(const char* path, rcpp_bitnet_model_t* out_model) {
         fprintf(stderr, "[rocm-cpp] both BONSAI_Q1 and BONSAI_TQ2 set — refusing to guess\n");
         return RCPP_INVALID_ARG;
     }
-    const bool is_bonsai = bonsai_q1 || bonsai_tq2;
+    const bool is_bonsai_fmt = bonsai_q1 || bonsai_tq2;
 
     // Resolve dispatch tag. Bonsai bits take precedence across all .h1b
     // versions (format differs fundamentally — inline block scales, no
@@ -371,7 +410,23 @@ rcpp_bitnet_load_h1b(const char* path, rcpp_bitnet_model_t* out_model) {
     } else {
         out_model->weight_format = RCPP_WEIGHT_FORMAT_HALO_V2;
     }
-    out_model->is_qwen3 = is_bonsai ? 1 : 0;
+
+    // Resolve model architecture. Non-Bonsai weight formats are always
+    // BitNet-flavored today (halo v2, Sherry, TQ1 all ship with
+    // attn_sub_norm / ffn_sub_norm / squared-ReLU GLU). Bonsai-format
+    // models split by whether a Qwen3 sidecar GGUF is present.
+    std::string sidecar_path;
+    if (is_bonsai_fmt) {
+        out_model->arch = resolve_bonsai_arch(path, sidecar_path);
+    } else {
+        out_model->arch = RCPP_ARCH_BITNET;
+    }
+    out_model->is_qwen3 = (out_model->arch == RCPP_ARCH_QWEN3) ? 1 : 0;
+    // Gate the sidecar-hydration pass at the bottom of this function on
+    // *both* the weight format AND the resolved arch, so a BitNet-repacked
+    // Bonsai .h1b reads its BitNet norms from the `.h1b` stream and never
+    // touches a sidecar.
+    const bool is_bonsai_qwen3 = is_bonsai_fmt && out_model->arch == RCPP_ARCH_QWEN3;
 
     if (version >= 2) {
         float extras[2] = {0.0f, 0.0f};
@@ -387,14 +442,17 @@ rcpp_bitnet_load_h1b(const char* path, rcpp_bitnet_model_t* out_model) {
     } else if (use_sherry) {
         fprintf(stderr, "[rocm-cpp] .h1b v3 (Sherry 1.25 bpw, int8-act) — dispatching ternary GEMVs through sherry decoder.\n");
     }
-    if (use_tq1) {
+    if (use_tq1 && !is_bonsai_fmt) {
         fprintf(stderr, "[rocm-cpp] .h1b v4 (TQ1 base-3, 1.6 bpw, lossless) — dispatching through tq1-halo kernel.\n");
     }
+    const char* arch_name = (out_model->arch == RCPP_ARCH_QWEN3) ? "Qwen3" : "BitNet";
     if (bonsai_tq2) {
-        fprintf(stderr, "[rocm-cpp] .h1b v%d + BONSAI_TQ2 flag — dispatching through bonsai_tq2_gemv_launch; Qwen3 forward pass.\n", version);
+        fprintf(stderr, "[rocm-cpp] .h1b v%d + BONSAI_TQ2 flag — dispatching through bonsai_tq2_gemv_launch; %s forward pass.\n",
+                version, arch_name);
     }
     if (bonsai_q1) {
-        fprintf(stderr, "[rocm-cpp] .h1b v%d + BONSAI_Q1  flag — dispatching through bonsai_q1_gemv_launch;  Qwen3 forward pass.\n", version);
+        fprintf(stderr, "[rocm-cpp] .h1b v%d + BONSAI_Q1  flag — dispatching through bonsai_q1_gemv_launch;  %s forward pass.\n",
+                version, arch_name);
     }
     fprintf(stderr, "[rocm-cpp] .h1b v%d flags=0x%x: rope_theta=%.1f rms_norm_eps=%.1e\n",
             version, out_model->flags, out_model->rope_theta, out_model->rms_norm_eps);
@@ -408,11 +466,16 @@ rcpp_bitnet_load_h1b(const char* path, rcpp_bitnet_model_t* out_model) {
     fprintf(stderr, "[rocm-cpp] loading .h1b: hs=%d is=%d L=%d nh=%d nkv=%d hd=%d vocab=%d\n",
             hs, is_, out_model->num_layers, nh, nkv, hd, out_model->vocab_size);
 
-    // Embeddings + final norm — .h1b stores them as FP32. Bonsai converter
-    // zero-fills both slots (no real payload); we advance past the bytes so
-    // the per-layer stream aligns, and pre-allocate empty device buffers
-    // that the sidecar pass at the bottom of this function hipMemcpy's into.
-    if (is_bonsai) {
+    // Embeddings + final norm — .h1b stores them as FP32.
+    //
+    // Bonsai-Qwen3 (oxibonsai converter) zero-fills both slots; we advance
+    // past the zero bytes and pre-allocate empty device buffers that the
+    // sidecar GGUF pass hydrates from the Qwen3 TQ2 embedding.
+    //
+    // Bonsai-BitNet (tools/bitnet-to-tq2/, MS-BitNet repack) writes *real*
+    // fp32 embedding + final_norm payloads from the safetensors master —
+    // same on-disk layout as the non-Bonsai path, so we read them directly.
+    if (is_bonsai_qwen3) {
         f.seekg((std::streamoff)((size_t)out_model->vocab_size * hs * 4 + (size_t)hs * 4),
                 std::ios::cur);
         LOAD_RC_HIP(hipMalloc(reinterpret_cast<void**>(&out_model->embedding_dev),
@@ -432,10 +495,11 @@ rcpp_bitnet_load_h1b(const char* path, rcpp_bitnet_model_t* out_model) {
     for (int l = 0; l < out_model->num_layers; ++l) {
         rcpp_bitnet_layer_t& L = out_model->layers[l];
 
-        if (is_bonsai) {
-            // Skip the 9 zero-filled BitNet-shaped norm slots the converter
-            // wrote. Sidecar pass below fills the ones the Qwen3 forward
-            // pass actually uses (input_norm, post_attn_norm, attn_q/k_norm).
+        if (is_bonsai_qwen3) {
+            // Skip the 9 zero-filled BitNet-shaped norm slots the oxibonsai
+            // converter wrote. Sidecar pass below fills the ones the Qwen3
+            // forward pass actually uses (input_norm, post_attn_norm,
+            // attn_q/k_norm).
             f.seekg((std::streamoff)((size_t)hs * (2 + 4 + 2) * sizeof(float)
                                      + (size_t)is_ * sizeof(float)),
                     std::ios::cur);
@@ -452,6 +516,11 @@ rcpp_bitnet_load_h1b(const char* path, rcpp_bitnet_model_t* out_model) {
                                   (size_t)is_ * sizeof(_Float16)));
             LOAD_RC_HIP(hipMemset(L.ffn_sub_norm_dev, 0, (size_t)is_ * sizeof(_Float16)));
         } else {
+            // Either classic BitNet (HALO_V2 / Sherry / TQ1) or
+            // Bonsai-format + BitNet arch (tools/bitnet-to-tq2/ MS repack).
+            // On-disk layout is identical — input_norm, post_attn_norm,
+            // attn_sub_norm, then 3 duplicate attn_sub copies + 2 truncated
+            // ffn_sub copies (historical filler) + ffn_sub_norm.
             if (read_fp32_as_fp16(f, hs, reinterpret_cast<__half**>(&L.input_norm_dev))     != 0) return RCPP_HIP_ERROR;
             if (read_fp32_as_fp16(f, hs, reinterpret_cast<__half**>(&L.post_attn_norm_dev)) != 0) return RCPP_HIP_ERROR;
             if (read_fp32_as_fp16(f, hs, reinterpret_cast<__half**>(&L.attn_sub_norm_dev))  != 0) return RCPP_HIP_ERROR;
@@ -464,7 +533,7 @@ rcpp_bitnet_load_h1b(const char* path, rcpp_bitnet_model_t* out_model) {
         }
 
         // 7 ternary linear layers: Q K V O gate up down.
-        if (is_bonsai) {
+        if (is_bonsai_fmt) {
             const int block_bytes = bonsai_tq2 ? 34 : 18;
             const int gs = 128;
             if (read_bonsai_blocks(f, nh * hd,  hs,    block_bytes, gs, &L.q_packed_dev   ) != 0) return RCPP_HIP_ERROR;
@@ -488,33 +557,37 @@ rcpp_bitnet_load_h1b(const char* path, rcpp_bitnet_model_t* out_model) {
         }
     }
 
-    if (!out_model->tie_embeddings && !is_bonsai) {
+    if (!out_model->tie_embeddings && !is_bonsai_fmt) {
         fprintf(stderr, "[rocm-cpp] WARN: untied LM head not supported in MVP loader\n");
     }
 
     f.close();
 
     // -----------------------------------------------------------------------
-    // Bonsai (Qwen3) sidecar — hydrate norms + embedding from the GGUF.
+    // Bonsai + Qwen3 sidecar — hydrate norms + embedding from the GGUF.
+    // Bonsai + BitNet skips this block entirely (everything needed lives in
+    // the `.h1b` already — the MS-BitNet repack writes real norms +
+    // embedding fp32 payloads).
     // -----------------------------------------------------------------------
-    if (is_bonsai) {
-        const std::string gguf_path = derive_gguf_sidecar_path(path);
+    if (is_bonsai_qwen3) {
+        const std::string gguf_path = sidecar_path;
         if (gguf_path.empty()) {
             fprintf(stderr,
-                "[rocm-cpp] bonsai: NO sidecar GGUF found next to %s — norms + embedding stay zero.\n",
+                "[rocm-cpp] bonsai(qwen3): NO sidecar GGUF path resolved for %s — "
+                "norms + embedding stay zero.\n",
                 path);
             out_model->tie_embeddings = 1;
             return RCPP_OK;
         }
-        fprintf(stderr, "[rocm-cpp] bonsai: sidecar GGUF = %s\n", gguf_path.c_str());
+        fprintf(stderr, "[rocm-cpp] bonsai(qwen3): sidecar GGUF = %s\n", gguf_path.c_str());
 
         GgufSidecar g;
         if (!g.open(gguf_path)) {
-            fprintf(stderr, "[rocm-cpp] bonsai: failed to parse sidecar GGUF\n");
+            fprintf(stderr, "[rocm-cpp] bonsai(qwen3): failed to parse sidecar GGUF\n");
             return RCPP_INVALID_ARG;
         }
         if (g.arch() != "qwen3") {
-            fprintf(stderr, "[rocm-cpp] bonsai: GGUF architecture=%s (expected qwen3)\n",
+            fprintf(stderr, "[rocm-cpp] bonsai(qwen3): GGUF architecture=%s (expected qwen3)\n",
                     g.arch().c_str());
         }
 

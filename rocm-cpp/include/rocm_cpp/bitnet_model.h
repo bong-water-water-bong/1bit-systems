@@ -48,6 +48,23 @@ typedef enum {
     RCPP_WEIGHT_FORMAT_BONSAI_TQ2 = 5,
 } rcpp_weight_format_t;
 
+// Model-level architecture tag. Decoupled from `weight_format` because the
+// Bonsai Q1 / TQ2 kernel path is arch-agnostic — a `.h1b` emitted by
+// `tools/bitnet-to-tq2/` carries Microsoft BitNet-b1.58 norms (attn_sub_norm
+// + ffn_sub_norm + squared-ReLU GLU) in the ternary-GEMV-compatible TQ2
+// payload, while oxibonsai emits Qwen3 norms (per-head attn_q/k_norm +
+// SwiGLU) in the same TQ2 payload.
+//
+// The loader resolves this from the `.h1b` flags plus the (optional) sidecar
+// GGUF: if `H1B_FLAG_BONSAI_*` is set AND a sidecar GGUF with
+// `general.architecture = "qwen3"` is found next to the `.h1b`, the model is
+// Qwen3; otherwise it falls back to BitNet (uses the sub-norms already
+// written to the `.h1b` by the converter).
+typedef enum {
+    RCPP_ARCH_BITNET = 0,
+    RCPP_ARCH_QWEN3  = 1,
+} rcpp_arch_t;
+
 typedef struct {
     // RMSNorm weights (FP16). BitNet-b1.58 has four per layer:
     //   input_norm    [hs] — pre Q/K/V
@@ -101,11 +118,17 @@ typedef struct {
     // branches on this instead of re-deriving from (version, flags).
     rcpp_weight_format_t weight_format;
 
-    // Non-zero when the loader detected a Qwen3-flavored model (any of the
-    // H1B_FLAG_BONSAI_* bits). The forward pass uses this to skip the BitNet
-    // sub-norms and run the Qwen3 attention preamble (per-head q/k norms)
-    // + plain SwiGLU FFN. Zero for every BitNet / halo family model.
+    // Non-zero when the resolved arch is RCPP_ARCH_QWEN3. Mirrors `arch`
+    // below for backwards compat with call sites that predate the enum
+    // (test_bonsai_e2e.cpp, older halo-1bit mirrors). New code should
+    // branch on `arch` directly.
     int is_qwen3;
+
+    // Resolved model architecture — drives the attention preamble + FFN
+    // activation in the forward pass. Orthogonal to `weight_format`:
+    // BONSAI_TQ2 weights can land under either BITNET (MS repack, no
+    // sidecar GGUF) or QWEN3 (oxibonsai, sidecar GGUF arch=qwen3).
+    rcpp_arch_t arch;
 
     void* embedding_dev;            // FP16 [vocab, hidden]
     void* final_norm_weight_dev;    // FP16 [hidden]
