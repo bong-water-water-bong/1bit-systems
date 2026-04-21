@@ -5,26 +5,25 @@
 //! pass will populate each head's device-side weight buffer from the
 //! mmapped `.h1b` (or equivalent) file.
 //!
-//! # Head shape (from `parrishcorcoran/MedusaBitNet-2B-4T`)
-//!
-//! From `docs/wiki/Medusa-Prototype-Status.md §1`:
+//! # Head shape (from `parrishcorcoran/MedusaBitNet-2B-4T`
+//! `medusa_heads_step2000.pt`)
 //!
 //! | Field            | Value  |
 //! |------------------|--------|
 //! | Number of heads  | 4      |
-//! | Per-head layers  | 1 residual MLP block + shared `lm_head` |
+//! | Per-head layers  | 1 residual SiLU-gated block + shared `lm_head` |
 //! | Hidden dim       | 2560   |
-//! | Output vocab     | 128256 (shared across heads) |
-//! | Per-head params  | ~3.3 MB fp16 residual block |
-//! | Total head file  | 13 MB fp16 |
+//! | Output vocab     | 128256 (shared across heads, lives on backbone) |
+//! | Per-head tensors | `w_in` + `w_out`, each fp16[2560, 2560] (25 MiB) |
+//! | Total head file  | ~100 MiB fp16 |
 //! | Acceptance rates | 63.0 / 29.0 / 11.1 / 4.6 % |
 //!
 //! Heads share the backbone's `lm_head`, so the vocab-projection path is
-//! the existing LM-head GEMV. Each head only owns its residual block.
-//! The forward pass per head is:
+//! the existing LM-head GEMV. Each head only owns its `w_in` / `w_out`
+//! matrices. The forward pass per head is (from the upstream README):
 //!
-//!   hidden' = head.residual(hidden)          // small-M ternary GEMM
-//!   logits  = shared_lm_head.project(hidden')  // existing fp16 GEMV
+//!   h_out  = h + W_out · SiLU(W_in · h)      // small-M ternary GEMM × 2
+//!   logits = backbone.lm_head(h_out)           // existing fp16 GEMV
 //!
 //! Today this file scaffolds the head *type* — the residual-block
 //! dispatch lands in the follow-up pass.
@@ -48,8 +47,8 @@ pub const MEDUSA_HIDDEN_DIM: usize = 2560;
 /// A single speculative head — scaffolding form.
 ///
 /// The retrained-weights pass adds two device-side fields:
-/// * `residual_weights: DeviceBuffer<u8>` — packed ternary (halo-1bit).
-/// * `residual_scales: DeviceBuffer<f32>` — per-row weight scale.
+/// * `w_in: DeviceBuffer<u16>` — fp16 pre-SiLU projection, hd × hd.
+/// * `w_out: DeviceBuffer<u16>` — fp16 post-SiLU projection, hd × hd.
 ///
 /// For now the head just remembers which positional index it occupies
 /// (0 = t+1, 1 = t+2, ...) and the path its weights will be loaded from.
