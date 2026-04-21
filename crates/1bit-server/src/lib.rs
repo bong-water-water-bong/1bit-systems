@@ -45,5 +45,5 @@ pub use backend::RealBackend;
 pub use backend::{EchoBackend, InferenceBackend, PerplexityOutput, TokenStream};
 pub use error::ServerError;
 pub use metrics::{Metrics, MetricsSnapshot};
-pub use routes::build_router;
+pub use routes::{build_router, build_router_with_state};
 pub use shutdown::shutdown_signal;

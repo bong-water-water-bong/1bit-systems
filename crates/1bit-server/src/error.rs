@@ -27,6 +27,12 @@ pub enum ServerError {
     #[error("backend failure: {0}")]
     Backend(String),
 
+    /// Upstream service (e.g. sd-server on :8081) returned an error or was
+    /// unreachable. Surfaced to the client as HTTP 502 Bad Gateway so it's
+    /// distinguishable from our own Backend(..) failures.
+    #[error("upstream error: {0}")]
+    Upstream(String),
+
     #[error("internal: {0}")]
     Internal(#[from] anyhow::Error),
 }
@@ -53,6 +59,11 @@ impl ServerError {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "api_error",
                 "backend_failure",
+            ),
+            ServerError::Upstream(_) => (
+                StatusCode::BAD_GATEWAY,
+                "api_error",
+                "upstream_error",
             ),
             ServerError::Internal(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,

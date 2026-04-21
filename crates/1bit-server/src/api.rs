@@ -211,6 +211,71 @@ pub struct PplResponse {
     pub elapsed_ms: f64,
 }
 
+// ─── /v1/images/generations (Layer A proxy → sd-server :8081) ───────────
+//
+// OpenAI-compatible image generation. We do not render here — we forward
+// the request body unchanged to `{sd_base_url}/v1/images/generations`
+// (sd-server already speaks this shape) and echo its 200 response back.
+//
+// The only request-side logic in 1bit-server is defaulting (`size`,
+// `output_format`, `n`) and rejecting empty prompts. Everything else
+// (SDXL sampler knobs, b64 vs url, etc.) is sd-server's problem.
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageGenRequest {
+    pub prompt: String,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default = "default_image_n")]
+    pub n: u32,
+    #[serde(default = "default_image_size")]
+    pub size: String,
+    #[serde(default = "default_image_output_format")]
+    pub output_format: String,
+    /// OpenAI's `response_format` ("url" | "b64_json") — forwarded as-is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_format: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+    /// Pass-through for sd-server-specific knobs (steps, cfg_scale, seed,
+    /// negative_prompt, …). Captured with `flatten` so unknown fields
+    /// survive the round-trip.
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
+}
+
+fn default_image_n() -> u32 {
+    1
+}
+
+fn default_image_size() -> String {
+    "1024x1024".to_string()
+}
+
+fn default_image_output_format() -> String {
+    "png".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageGenResponse {
+    pub created: i64,
+    pub data: Vec<ImageGenItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageGenItem {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub b64_json: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revised_prompt: Option<String>,
+}
+
 // ─── /v1/models ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize)]

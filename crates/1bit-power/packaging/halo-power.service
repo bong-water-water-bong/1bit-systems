@@ -1,0 +1,25 @@
+# /etc/systemd/system/halo-power.service
+#
+# On-boot: apply the "balanced" profile. Runs once, oneshot.
+# Operator can switch at runtime with: sudo halo-power profile <name>
+[Unit]
+Description=halo-power — apply balanced profile on boot (Strix Halo)
+Documentation=https://1bit.systems/halo-power
+After=multi-user.target
+ConditionPathExists=/usr/bin/ryzenadj
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/halo-power profile balanced
+# RyzenAdj writes MSRs via /dev/mem; it needs CAP_SYS_RAWIO. Everything
+# else is locked down with the usual systemd hardening knobs.
+AmbientCapabilities=CAP_SYS_RAWIO
+CapabilityBoundingSet=CAP_SYS_RAWIO
+NoNewPrivileges=false
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

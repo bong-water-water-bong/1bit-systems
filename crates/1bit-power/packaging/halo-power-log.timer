@@ -1,0 +1,17 @@
+# /etc/systemd/system/halo-power-log.timer
+#
+# Fire halo-power-log.service every 30 s. AccuracySec kept generous so
+# systemd can batch wakeups with neighbours.
+[Unit]
+Description=halo-power — metrics sampler (30 s cadence)
+Documentation=https://1bit.systems/halo-power
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=30s
+AccuracySec=2s
+Unit=halo-power-log.service
+Persistent=false
+
+[Install]
+WantedBy=timers.target

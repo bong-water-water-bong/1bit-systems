@@ -14,7 +14,8 @@ use clap::Parser;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-use onebit_server::{EchoBackend, InferenceBackend, build_router, shutdown_signal};
+use onebit_server::routes::{AppState, build_router_with_state, default_http_client};
+use onebit_server::{EchoBackend, InferenceBackend, Metrics, shutdown_signal};
 
 /// 1bit-server — OpenAI-compatible HTTP front door.
 #[derive(Parser, Debug)]
@@ -32,6 +33,12 @@ struct Args {
     /// `.gguf` reads its tokenizer from the GGUF metadata block.
     #[arg(long, env = "HALO_SERVER_MODEL")]
     model: Option<PathBuf>,
+
+    /// Base URL of the Stable Diffusion sidecar (sd-server). The Layer-A
+    /// image proxy at `/v{1,2}/images/generations` forwards to
+    /// `{sd_url}/v1/images/generations` with a 900 s timeout.
+    #[arg(long, env = "HALO_SD_URL", default_value = "http://127.0.0.1:8081")]
+    sd_url: String,
 }
 
 #[tokio::main]
@@ -46,7 +53,14 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     let backend: Arc<dyn InferenceBackend> = build_backend(&args)?;
-    let app = build_router(backend);
+    info!(sd_url = %args.sd_url, "image proxy upstream configured");
+    let state = AppState {
+        backend,
+        metrics: Arc::new(Metrics::new()),
+        sd_base_url: Arc::new(args.sd_url.clone()),
+        http_client: default_http_client(),
+    };
+    let app = build_router_with_state(state);
 
     let listener = tokio::net::TcpListener::bind(args.bind)
         .await

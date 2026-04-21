@@ -34,8 +34,8 @@ use uuid::Uuid;
 use crate::api::{
     ChatChoice, ChatChunkChoice, ChatCompletionChunk, ChatCompletionRequest,
     ChatCompletionResponse, ChatDelta, ChatMessage, CompletionChoice, CompletionChunk,
-    CompletionChunkChoice, CompletionRequest, CompletionResponse, ModelList, PplRequest,
-    PplResponse,
+    CompletionChunkChoice, CompletionRequest, CompletionResponse, ImageGenRequest, ModelList,
+    PplRequest, PplResponse,
 };
 use crate::backend::{GenerationParams, SharedBackend};
 use crate::error::ServerError;
@@ -47,6 +47,15 @@ use crate::metrics::{Metrics, MetricsSnapshot};
 pub struct AppState {
     pub backend: SharedBackend,
     pub metrics: Arc<Metrics>,
+    /// Base URL for the Stable Diffusion sidecar server (sd-server).
+    /// Layer-A image proxy forwards to `{sd_base_url}/v1/images/generations`.
+    /// Plumbed from `$HALO_SD_URL` at `main.rs` startup, default
+    /// `http://127.0.0.1:8081`.
+    pub sd_base_url: Arc<String>,
+    /// Reqwest client for upstream forwarding (image proxy today, could
+    /// grow more upstreams later). Held as `Arc` so the 900-second timeout
+    /// config is set once and shared across requests.
+    pub http_client: reqwest::Client,
 }
 
 // ─── Router assembly ─────────────────────────────────────────────────────
@@ -64,7 +73,22 @@ pub fn build_router(backend: SharedBackend) -> Router {
     build_router_with_state(AppState {
         backend,
         metrics: Arc::new(Metrics::new()),
+        sd_base_url: Arc::new("http://127.0.0.1:8081".to_string()),
+        http_client: default_http_client(),
     })
+}
+
+/// Build the reqwest client used for upstream forwarding (sd-server today).
+///
+/// 900 s timeout matches the Caddy reverse-proxy `transport http { …
+/// response_header_timeout 15m }` on the strixhalo edge — SDXL at
+/// 1024×1024/30 steps takes ~60 s but we allow headroom for batched
+/// requests and cold starts.
+pub fn default_http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(900))
+        .build()
+        .expect("reqwest::Client with 900s timeout must build")
 }
 
 /// Same as [`build_router`] but takes a pre-built [`AppState`].
@@ -84,6 +108,12 @@ pub fn build_router_with_state(state: AppState) -> Router {
         .route("/v1/chat/completions", post(chat_completions))
         .route("/v1/completions", post(completions))
         .route("/v1/npu/status", get(crate::npu::npu_status))
+        // Layer-A image generation proxy → sd-server :8081. `/v2` is the
+        // canonical gen-2 route (Caddy's `/v2/*` block already routes here);
+        // `/v1` alias keeps parity with the legacy OpenAI surface so plain
+        // OpenAI SDKs work without a path override.
+        .route("/v2/images/generations", post(images_generations))
+        .route("/v1/images/generations", post(images_generations))
         .route("/ppl", post(ppl))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
@@ -257,6 +287,76 @@ async fn ppl(
         tokens: out.tokens,
         elapsed_ms: out.elapsed_ms,
     }))
+}
+
+/// `POST /v2/images/generations` (and `/v1/...` alias) — Layer A image
+/// proxy.
+///
+/// Forwards the OpenAI-compat request body verbatim to
+/// `{sd_base_url}/v1/images/generations` (sd-server already speaks this
+/// shape), then echoes the upstream 200 JSON response back to the caller.
+///
+/// Validation is minimal on purpose — sd-server is the authority on
+/// sampler knobs, size constraints, and negative prompts. The only thing
+/// we reject locally is an empty prompt, because sd-server's error
+/// message for that case is opaque ("assertion failed: !prompt.empty()")
+/// and surfacing the 400 here gives clients a cleaner signal.
+///
+/// Defaulting: `n → 1`, `size → "1024x1024"`, `output_format → "png"`.
+/// Everything else passes through unchanged via the `extra` flatten
+/// field on `ImageGenRequest`.
+///
+/// Any non-2xx upstream response becomes `ServerError::Upstream(..)`
+/// → HTTP 502, carrying the upstream status + body prefix in the
+/// message for debugging.
+async fn images_generations(
+    State(s): State<AppState>,
+    Json(req): Json<ImageGenRequest>,
+) -> Result<Response, ServerError> {
+    if req.prompt.trim().is_empty() {
+        return Err(ServerError::BadRequest(
+            "prompt must not be empty".into(),
+        ));
+    }
+
+    let url = format!("{}/v1/images/generations", s.sd_base_url.as_str());
+    tracing::debug!(target = %url, n = req.n, size = %req.size, "forwarding image request to sd-server");
+
+    let upstream = s
+        .http_client
+        .post(&url)
+        .json(&req)
+        .send()
+        .await
+        .map_err(|e| ServerError::Upstream(format!("sd-server POST {url}: {e}")))?;
+
+    let status = upstream.status();
+    if !status.is_success() {
+        let body = upstream
+            .text()
+            .await
+            .unwrap_or_else(|e| format!("<body read failed: {e}>"));
+        let snippet: String = body.chars().take(512).collect();
+        return Err(ServerError::Upstream(format!(
+            "sd-server returned {status}: {snippet}"
+        )));
+    }
+
+    // Forward the JSON body unchanged. We go through `bytes()` rather than
+    // `json::<ImageGenResponse>()` so that any sd-server-specific extra
+    // fields survive the round-trip (future-proofing for `seed`, `steps`,
+    // etc. that we don't model today).
+    let bytes = upstream
+        .bytes()
+        .await
+        .map_err(|e| ServerError::Upstream(format!("sd-server body read: {e}")))?;
+
+    Ok((
+        StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        bytes,
+    )
+        .into_response())
 }
 
 // ─── Metrics hooks ───────────────────────────────────────────────────────
@@ -673,6 +773,8 @@ mod tests {
         let state = AppState {
             backend: Arc::new(EchoBackend::new()),
             metrics: Arc::new(crate::metrics::Metrics::new()),
+            sd_base_url: Arc::new("http://127.0.0.1:8081".to_string()),
+            http_client: default_http_client(),
         };
         let app = build_router_with_state(state.clone());
 

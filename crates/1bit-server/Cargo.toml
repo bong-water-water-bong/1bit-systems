@@ -40,6 +40,11 @@ anyhow             = { workspace = true }
 thiserror          = { workspace = true }
 uuid               = { workspace = true }
 libc               = { workspace = true }
+# reqwest is a runtime dep for the Layer-A image proxy (forwards
+# /v{1,2}/images/generations to sd-server on :8081). Also re-exported to
+# `[dev-dependencies]` implicitly because the `integration*` tests use the
+# same workspace entry.
+reqwest            = { workspace = true }
 
 # Real backend wiring — optional, enabled by `--features real-backend`.
 onebit-router        = { path = "../1bit-router", features = ["hip"], optional = true }
@@ -47,7 +52,6 @@ onebit-core          = { path = "../1bit-core", optional = true }
 onebit-hip    = { path = "../1bit-hip", optional = true }
 
 [dev-dependencies]
-reqwest            = { workspace = true }
 # Used by benches/sampler.rs + parallel-sampler parity tests. Both are
 # workspace members already — dev-deps here don't grow the link graph of
 # the shipping binary; they only affect `cargo test` / `cargo bench`.

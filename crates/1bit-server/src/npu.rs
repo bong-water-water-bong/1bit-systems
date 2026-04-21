@@ -413,6 +413,8 @@ mod tests {
         let state = AppState {
             backend: Arc::new(EchoBackend::new()),
             metrics: Arc::new(crate::metrics::Metrics::new()),
+            sd_base_url: Arc::new("http://127.0.0.1:8081".to_string()),
+            http_client: crate::routes::default_http_client(),
         };
         let app = build_router_with_state(state);
 
