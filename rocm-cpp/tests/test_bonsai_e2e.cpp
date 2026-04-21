@@ -202,7 +202,9 @@ int main(int argc, char** argv) {
                                             m.rms_norm_eps, hs, nullptr));
         bonsai_gemv(m.weight_format, ly.gate_packed_dev, normed, gate_fp16, is, hs);
         bonsai_gemv(m.weight_format, ly.up_packed_dev,   normed, up_fp16,   is, hs);
-        RC_OK(rcpp_silu_glu_fp16(up_fp16, gate_fp16, silu_out, is, nullptr));
+        // rcpp_silu_glu_fp16 computes `silu(first_arg) * second_arg`.
+        // Canonical Qwen3 SwiGLU = silu(gate) * up, so gate goes first.
+        RC_OK(rcpp_silu_glu_fp16(gate_fp16, up_fp16, silu_out, is, nullptr));
         bonsai_gemv(m.weight_format, ly.down_packed_dev, silu_out, down_fp16, hs, is);
         RC_OK(rcpp_residual_add_fp32_from_fp16(x_fp32, down_fp16, hs, nullptr));
     }

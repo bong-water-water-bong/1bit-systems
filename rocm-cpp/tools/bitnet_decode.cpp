@@ -823,9 +823,16 @@ int main(int argc, char** argv) {
 
             if (is_qwen3) {
                 // Qwen3 FFN activation: SwiGLU = silu(gate) * up. No
-                // ffn_sub_norm between GLU and down_proj. rcpp_silu_glu_fp16
-                // takes (up, gate, y) — note the arg order on the C API.
-                RC_OK(rcpp_silu_glu_fp16(up_fp16, gate_fp16, silu_out, is, nullptr));
+                // ffn_sub_norm between GLU and down_proj.
+                // rcpp_silu_glu_fp16's C API signature is (up, gate, y) but
+                // the kernel computes `silu(first_arg) * second_arg`
+                // (see tests/test_prim_and_attn.cpp:160 — ref is
+                // `silu(u) * g`). Canonical Qwen3/HF SwiGLU is
+                // `silu(gate) * up`, so we pass `gate` as the first arg
+                // and `up` as the second. Passing them in the "natural"
+                // name order computes `silu(up) * gate`, which is a
+                // factor-swap bug that produces near-uniform logits.
+                RC_OK(rcpp_silu_glu_fp16(gate_fp16, up_fp16, silu_out, is, nullptr));
             } else {
                 // BitNet-b1.58 FFN activation: relu²(gate) * up — fused with
                 // ffn_sub_norm in FP32 to avoid FP16 overflow of the raw

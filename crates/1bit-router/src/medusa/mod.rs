@@ -46,6 +46,7 @@ pub mod loader;
 pub mod verify;
 
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 pub use heads::{MedusaHead, MedusaHeads, NUM_MEDUSA_HEADS};
 pub use verify::{TreeVerifier, VerifyOutcome};
@@ -145,9 +146,15 @@ pub enum MedusaState {
     Disabled,
     /// Speculative path is on; holds loaded heads + the verifier.
     Enabled {
-        /// The four speculative heads (lazily initialized in the
-        /// scaffold; real weight tensors land in the follow-up pass).
-        heads: MedusaHeads,
+        /// The four speculative heads. Wrapped in a `Mutex` because the
+        /// device-side projection path threads host slices through a
+        /// stack of per-cycle HIP scratch buffers held inside
+        /// `MedusaHeads::device` — which requires `&mut self`. The
+        /// outer router already serializes decode requests via the
+        /// `Inner` mutex, so contention here is zero; the wrapper is
+        /// purely a compile-time affordance to reconcile that `&mut`
+        /// with the `Arc<MedusaState>` we share across tokio tasks.
+        heads: Mutex<MedusaHeads>,
         /// Tree-attention verifier state. Currently empty; populated
         /// per decode step once the kernel is wired.
         verifier: TreeVerifier,
@@ -184,7 +191,10 @@ impl MedusaState {
         }
         let heads = MedusaHeads::load(&path, cfg)?;
         let verifier = TreeVerifier::new();
-        Ok(MedusaState::Enabled { heads, verifier })
+        Ok(MedusaState::Enabled {
+            heads: Mutex::new(heads),
+            verifier,
+        })
     }
 
     /// Cheap check used at call sites that dispatch the Medusa path.

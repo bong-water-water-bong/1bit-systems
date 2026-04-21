@@ -912,10 +912,18 @@ fn generate_blocking(
         if medusa_active && step_count < max_new {
             if let medusa::MedusaState::Enabled { heads, .. } = medusa {
                 // 1) Project backbone hidden through the 4 heads →
-                //    host-side `h_out` fp16 vectors.
-                let projected = heads
-                    .project_all_heads_host(&hidden_scratch)
+                //    host-side `h_out` fp16 vectors. Runs on-device via
+                //    `fp16_gemv` + `silu_glu_fp16` with weights uploaded
+                //    once at load time. The `Mutex` never contends — the
+                //    outer `Inner` lock already serializes decode — it
+                //    only hands out the `&mut` the device path needs.
+                let mut guard = heads
+                    .lock()
+                    .map_err(|e| BackendError::Other(format!("medusa heads lock poisoned: {e}")))?;
+                let projected = guard
+                    .project_all_heads_device(&hidden_scratch)
                     .map_err(|e| BackendError::Other(format!("medusa project: {e}")))?;
+                drop(guard);
 
                 // 2) Head logits = lm_head(h_out_i); take argmax per
                 //    head. Re-use the live backbone lm_head GEMV on

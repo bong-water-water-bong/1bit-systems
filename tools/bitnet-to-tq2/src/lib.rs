@@ -18,25 +18,31 @@
 //!
 //! # Quantization rule
 //!
-//! We use **`absmax`** (not `absmean`) — matching oxibonsai's canonical
-//! PrismML quantizer at `crates/oxibonsai-core/src/quant_ternary.rs`:
+//! BitNet b1.58 was trained with `absmean` as the *per-tensor* scale
+//! (see MS `modeling_bitnet.py`:
+//! `scale = 1.0 / w.abs().mean().clamp(min=1e-5); w_q = (w *
+//! scale).round().clamp(-1, 1)`). The TQ2\_0\_g128 block layout on the
+//! other hand stores one fp16 scale **per 128-weight block**. Two scale
+//! policies are supported:
 //!
-//! ```text
-//!     absmax = max(|w_i|)
-//!     t      = 0.5 * absmax
-//!     code[i] = 0b10 if w_i >= t          (→ +1)
-//!             = 0b00 if w_i <= -t         (→ -1)
-//!             = 0b01 otherwise            (→  0)
-//!     d      = absmax  (stored fp16)
-//! ```
+//! * **Per-tensor scale** (default, `--per-tensor-scale`) — compute one
+//!   `s_tensor = mean(|w|)` over ALL weights in the tensor and store
+//!   `d = s_tensor` into EVERY block's fp16 slot. Matches native BitNet
+//!   training scale exactly. Wastes 2 B × N\_blocks but preserves ~0.5
+//!   bits of scale precision that per-block absmean throws away on a
+//!   noisy 128-lane absmean estimate. Output is coherent English.
 //!
-//! For the MS-BitNet master weights this is effectively a no-op sign
-//! extraction: the bf16 tensors are already `{-1, 0, +1} × α`, so every
-//! non-zero element sits at exactly `±α` and `α * 0.5` is the threshold.
-//! Using absmean would collapse the three levels into a smaller dynamic
-//! range and break the sign assignment at the boundary. The task brief
-//! notes "if unsure, absmean is the safe default"; the oxibonsai reference
-//! confirms absmax as the PrismML rule, so we follow it.
+//! * **Per-block scale** (opt-in, `--per-block-scale`) — compute
+//!   `d = mean(|w_block|)` independently per 128-weight block. This is
+//!   the TQ2\_0\_g128 native policy, useful for A/B testing. On
+//!   MS-BitNet-2B-4T's bf16 master the per-block absmean collapses to a
+//!   noisy approximation of the per-tensor scale and the output degrades
+//!   to "the the the..." degeneracy; see the 2026-04-20 writeup in
+//!   `project_bitnet_live_bench.md`.
+//!
+//! Codes are sign-extracted identically in both modes:
+//!   `code[i] = 0b10 if w_i >= t ; 0b00 if w_i <= -t ; 0b01 otherwise`,
+//! where `t = 0.5 * d`. Threshold computed from whichever `d` is used.
 //!
 //! # Arch mismatch warning
 //!
@@ -177,48 +183,45 @@ impl ModelConfig {
 // Quantization core — one 128-weight group → one 34-byte TQ2 block
 // ---------------------------------------------------------------------------
 
-/// Quantize a 128-element fp32 group into a `TQ2_0_g128` block.
+/// Which scale policy to use when repacking a tensor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScaleMode {
+    /// One `s_tensor = mean(|w|)` over ALL weights in the tensor, then
+    /// duplicated into every block's fp16 slot. Matches BitNet b1.58's
+    /// native per-tensor training scale. Default as of 2026-04-20 — the
+    /// per-block absmean fix revealed that the 128-lane noise eats enough
+    /// scale precision to push MS-BitNet-2B-4T output into "the the the…"
+    /// degeneracy.
+    PerTensor,
+    /// Independent `d = mean(|w_block|)` per 128-weight block — the TQ2
+    /// native policy. Retained for A/B testing; known-degenerate on
+    /// MS-BitNet weights.
+    PerBlock,
+}
+
+/// Quantize a 128-element fp32 group into a `TQ2_0_g128` block using a
+/// caller-supplied scale `d_override`. Used by the per-tensor path.
 ///
 /// Returns the 34-byte block: `[fp16 d : 2 B][32 B codes LSB-first, 4/byte]`.
 /// Code map: `00→-d, 01→0, 10→+d, 11→0 (unused)`.
 ///
-/// Layout note: d-FIRST, not d-last. This matches the PrismML stock GGUF
-/// layout and the `bonsai_tq2_gemv.hip` kernel (see `kScaleOffset = 0`
-/// / `kCodesOffset = 2`). The `docs/wiki/Bonsai-Kernel-Spec.md` diagram
-/// originally claimed d-last; that was wrong and got corrected once the
-/// kernel was verified byte-for-byte against the upstream GGUF file.
-///
-/// Scale rule: `d = mean(|w|)`, threshold `t = 0.5 * d`. This is BitNet
-/// b1.58's native `absmean` rule (see MS `modeling_bitnet.py`:
-/// `scale = 1.0 / w.abs().mean().clamp(min=1e-5); w_q = (w *
-/// scale).round().clamp(-1, 1)`). For the MS-BitNet-2B-4T `bf16` master
-/// the weights are NOT pre-quantized — they're the full-precision master,
-/// with long fp16 tails well past `±α`. An absmax rule on a 128-weight
-/// group fires a threshold too far out (median tail value wins) and
-/// collapses ~90% of codes to 0; absmean tracks the ternary centroid and
-/// leaves ~75% of codes as signed ±1, matching the native BitNet shape.
-pub fn quantize_group_tq2(weights: &[f32; TQ2_GROUP_SIZE]) -> [u8; TQ2_BLOCK_BYTES] {
+/// Layout note: d-FIRST, not d-last — matches the `bonsai_tq2_gemv.hip`
+/// kernel's `kScaleOffset = 0` / `kCodesOffset = 2`.
+pub fn quantize_group_with_scale(
+    weights: &[f32; TQ2_GROUP_SIZE],
+    d_override: f32,
+) -> [u8; TQ2_BLOCK_BYTES] {
     let mut block = [0u8; TQ2_BLOCK_BYTES];
-    // absmean — BitNet b1.58's native per-tensor scale, applied per 128-weight
-    // group. Branch-free; short-circuits to the all-zero fast-path below.
-    let absmean = weights
-        .iter()
-        .copied()
-        .map(|x| x.abs())
-        .sum::<f32>()
-        / TQ2_GROUP_SIZE as f32;
 
-    if absmean == 0.0 {
-        // All-zero group. Mirror oxibonsai's "fill with 0b01 codes" so the
-        // decoder reads zeros (code 0b01 → 0). 0b01 × 4 lanes = 0x55.
+    if d_override == 0.0 {
+        // All-zero scale → force decoder-zero path (code 0b01 per lane).
         for b in &mut block[2..] {
             *b = 0x55;
         }
-        // d = +0.0 (fp16 0x0000) — already zero at block[0..2].
         return block;
     }
 
-    let threshold = 0.5 * absmean;
+    let threshold = 0.5 * d_override;
     for (j, &w) in weights.iter().enumerate() {
         let code: u8 = if w >= threshold {
             0b10 // +d
@@ -231,11 +234,19 @@ pub fn quantize_group_tq2(weights: &[f32; TQ2_GROUP_SIZE]) -> [u8; TQ2_BLOCK_BYT
         let shift = (j % 4) * 2;
         block[byte_idx] |= code << shift;
     }
-    let d = f16::from_f32(absmean);
+    let d = f16::from_f32(d_override);
     let d_bits = d.to_bits();
     block[0] = (d_bits & 0xff) as u8;
     block[1] = (d_bits >> 8) as u8;
     block
+}
+
+/// Quantize a 128-element fp32 group using the per-block absmean policy.
+/// Computes `d = mean(|w|)` from the group itself.
+pub fn quantize_group_tq2(weights: &[f32; TQ2_GROUP_SIZE]) -> [u8; TQ2_BLOCK_BYTES] {
+    let absmean =
+        weights.iter().copied().map(|x| x.abs()).sum::<f32>() / TQ2_GROUP_SIZE as f32;
+    quantize_group_with_scale(weights, absmean)
 }
 
 /// Inverse of [`quantize_group_tq2`] — used by round-trip tests. Produces
@@ -257,8 +268,9 @@ pub fn dequantize_group_tq2(block: &[u8; TQ2_BLOCK_BYTES]) -> [f32; TQ2_GROUP_SI
 }
 
 /// Quantize a full row (length must be a multiple of 128) into a
-/// `(K/128) * 34`-byte packed buffer. No padding is emitted — caller is
-/// expected to pre-check divisibility via [`ConvertError::GroupMisaligned`].
+/// `(K/128) * 34`-byte packed buffer using the per-block absmean policy.
+/// Provided for compatibility; prefer [`quantize_row_with_scale`] when you
+/// already know the per-tensor scale.
 pub fn quantize_row_tq2(row: &[f32]) -> Result<Vec<u8>, ConvertError> {
     if row.len() % TQ2_GROUP_SIZE != 0 {
         return Err(ConvertError::GroupMisaligned {
@@ -274,6 +286,28 @@ pub fn quantize_row_tq2(row: &[f32]) -> Result<Vec<u8>, ConvertError> {
         let base = b * TQ2_GROUP_SIZE;
         scratch.copy_from_slice(&row[base..base + TQ2_GROUP_SIZE]);
         out.extend_from_slice(&quantize_group_tq2(&scratch));
+    }
+    Ok(out)
+}
+
+/// Quantize a full row using a caller-supplied scale `d` duplicated into
+/// every block. This is the per-tensor-scale path used by the default
+/// `convert` mode.
+pub fn quantize_row_with_scale(row: &[f32], d: f32) -> Result<Vec<u8>, ConvertError> {
+    if row.len() % TQ2_GROUP_SIZE != 0 {
+        return Err(ConvertError::GroupMisaligned {
+            name: "<row>".into(),
+            cols: row.len(),
+            group: TQ2_GROUP_SIZE,
+        });
+    }
+    let n_blocks = row.len() / TQ2_GROUP_SIZE;
+    let mut out = Vec::with_capacity(n_blocks * TQ2_BLOCK_BYTES);
+    let mut scratch = [0.0f32; TQ2_GROUP_SIZE];
+    for b in 0..n_blocks {
+        let base = b * TQ2_GROUP_SIZE;
+        scratch.copy_from_slice(&row[base..base + TQ2_GROUP_SIZE]);
+        out.extend_from_slice(&quantize_group_with_scale(&scratch, d));
     }
     Ok(out)
 }
@@ -365,8 +399,18 @@ pub struct ConvertStats {
 }
 
 /// Read a HF BitNet-bf16 checkpoint directory and write a `.h1b` v4 file
-/// with the Bonsai TQ2 flag set.
+/// with the Bonsai TQ2 flag set, using the default per-tensor scale
+/// policy. Thin wrapper over [`convert_with_mode`].
 pub fn convert(input_dir: &Path, output_path: &Path) -> Result<ConvertStats, ConvertError> {
+    convert_with_mode(input_dir, output_path, ScaleMode::PerTensor)
+}
+
+/// Full converter — explicit scale-mode selection. See [`ScaleMode`].
+pub fn convert_with_mode(
+    input_dir: &Path,
+    output_path: &Path,
+    scale_mode: ScaleMode,
+) -> Result<ConvertStats, ConvertError> {
     // -- Load config.json -------------------------------------------------
     let cfg_path = input_dir.join("config.json");
     if !cfg_path.exists() {
@@ -532,6 +576,21 @@ pub fn convert(input_dir: &Path, output_path: &Path) -> Result<ConvertStats, Con
             let fp32 = bf16_view_to_f32(&view, &name)?;
             debug_assert_eq!(fp32.len(), rows * cols);
 
+            // Per-tensor scale (if applicable): mean(|w|) over the WHOLE
+            // tensor, computed once and reused in every block. Matches the
+            // BitNet b1.58 training scale exactly.
+            let s_tensor = match scale_mode {
+                ScaleMode::PerTensor => {
+                    let sum: f64 = fp32.iter().map(|&x| x.abs() as f64).sum();
+                    if fp32.is_empty() {
+                        0.0f32
+                    } else {
+                        (sum / fp32.len() as f64) as f32
+                    }
+                }
+                ScaleMode::PerBlock => 0.0, // unused in the PerBlock arm below
+            };
+
             // Per-row quantization. 34 B × (cols/128) per row.
             let n_blocks_per_row = cols / TQ2_GROUP_SIZE;
             let row_packed = n_blocks_per_row * TQ2_BLOCK_BYTES;
@@ -543,7 +602,11 @@ pub fn convert(input_dir: &Path, output_path: &Path) -> Result<ConvertStats, Con
                     let group: &[f32; TQ2_GROUP_SIZE] = row[start..start + TQ2_GROUP_SIZE]
                         .try_into()
                         .expect("group slice matches TQ2_GROUP_SIZE");
-                    packed.extend_from_slice(&quantize_group_tq2(group));
+                    let block = match scale_mode {
+                        ScaleMode::PerTensor => quantize_group_with_scale(group, s_tensor),
+                        ScaleMode::PerBlock => quantize_group_tq2(group),
+                    };
+                    packed.extend_from_slice(&block);
                 }
             }
             out_file.write_all(&packed)?;
@@ -794,10 +857,197 @@ mod tests {
         .expect("valid args should parse");
         assert_eq!(args.input.to_str().unwrap(), "/tmp/in");
         assert_eq!(args.output.to_str().unwrap(), "/tmp/out.h1b");
+        // Default scale mode is per-tensor (the bug fix default).
+        assert_eq!(args.scale_mode(), ScaleMode::PerTensor);
+
+        // Explicit --per-block-scale flips to PerBlock.
+        let pb = crate::cli::Args::try_parse_from([
+            "bitnet-to-tq2",
+            "--in",
+            "/tmp/in",
+            "--out",
+            "/tmp/out.h1b",
+            "--per-block-scale",
+        ])
+        .expect("valid args should parse");
+        assert_eq!(pb.scale_mode(), ScaleMode::PerBlock);
+
+        // --per-tensor-scale + --per-block-scale → mutually exclusive.
+        let err = crate::cli::Args::try_parse_from([
+            "bitnet-to-tq2",
+            "--in",
+            "/tmp/in",
+            "--out",
+            "/tmp/out.h1b",
+            "--per-tensor-scale",
+            "--per-block-scale",
+        ])
+        .unwrap_err();
+        assert!(err.to_string().contains("cannot be used with") || err.to_string().contains("conflict"));
 
         // Missing --in → error.
         let err = crate::cli::Args::try_parse_from(["bitnet-to-tq2", "--out", "/tmp/x"]).unwrap_err();
         assert!(err.to_string().contains("--in") || err.to_string().contains("in"));
+    }
+
+    /// With `ScaleMode::PerTensor`, every block across every ternary
+    /// tensor must share the SAME fp16 `d` value (the per-tensor
+    /// absmean). Per-block mode must produce at least some variation.
+    #[test]
+    fn per_tensor_scale_duplicated_across_blocks() {
+        let td = tempfile::tempdir().unwrap();
+        let input_dir = td.path().join("in");
+        std::fs::create_dir_all(&input_dir).unwrap();
+
+        // 1-layer config with ≥2 blocks per row so we can assert
+        // "all blocks equal".
+        let cfg = r#"{
+            "hidden_size": 256,
+            "intermediate_size": 512,
+            "num_hidden_layers": 1,
+            "num_attention_heads": 4,
+            "num_key_value_heads": 1,
+            "vocab_size": 32,
+            "max_position_embeddings": 64,
+            "tie_word_embeddings": true,
+            "rope_theta": 10000.0,
+            "rms_norm_eps": 1e-5
+        }"#;
+        std::fs::write(input_dir.join("config.json"), cfg).unwrap();
+        build_tiny_safetensors_256(&input_dir.join("model.safetensors"));
+
+        let out_pt = td.path().join("pt.h1b");
+        let stats_pt =
+            convert_with_mode(&input_dir, &out_pt, ScaleMode::PerTensor).expect("pt convert");
+        let out_pb = td.path().join("pb.h1b");
+        let stats_pb =
+            convert_with_mode(&input_dir, &out_pb, ScaleMode::PerBlock).expect("pb convert");
+
+        // File sizes must match exactly — layout is identical, only the
+        // block `d` values change.
+        assert_eq!(
+            std::fs::metadata(&out_pt).unwrap().len(),
+            std::fs::metadata(&out_pb).unwrap().len(),
+            "per-tensor vs per-block file sizes must match"
+        );
+        assert_eq!(stats_pt.packed_ternary_bytes, stats_pb.packed_ternary_bytes);
+
+        // Extract every block `d` from the first ternary tensor of layer 0
+        // (q_proj) in both files. Easier to work off the ConvertStats +
+        // known header size than to reparse — just read both full files
+        // and scan for TQ2 blocks in the ternary payload region.
+        let pt_bytes = std::fs::read(&out_pt).unwrap();
+        let pb_bytes = std::fs::read(&out_pb).unwrap();
+
+        // Header = 8 (magic+version) + 9*4 (cfg) + 8 (rope+eps) = 52 B.
+        let header = 52usize;
+        // Embedding fp32: vocab × hidden_size = 32 × 256 × 4 = 32 768 B.
+        let embed = 32 * 256 * 4;
+        // Final norm fp32: 256 × 4 = 1 024 B.
+        let final_norm = 256 * 4;
+        // Layer norms (per the writer): input(256*4) + post_attn(256*4)
+        //   + attn_sub×4(256*4*4) + trunc_ffn×2(256*4*2) + ffn_sub(512*4)
+        let norms = 256 * 4 + 256 * 4 + 256 * 4 * 4 + 256 * 4 * 2 + 512 * 4;
+        let ternary_start = header + embed + final_norm + norms;
+
+        // q_proj: rows = nh*head_dim = 4 * (256/4) = 256, cols = 256.
+        let cols = 256usize;
+        let n_blocks_per_row = cols / TQ2_GROUP_SIZE; // = 2
+        let q_blocks = 256 * n_blocks_per_row; // 512 blocks
+
+        let mut pt_ds: Vec<u16> = Vec::with_capacity(q_blocks);
+        let mut pb_ds: Vec<u16> = Vec::with_capacity(q_blocks);
+        for b in 0..q_blocks {
+            let off = ternary_start + b * TQ2_BLOCK_BYTES;
+            pt_ds.push(u16::from_le_bytes([pt_bytes[off], pt_bytes[off + 1]]));
+            pb_ds.push(u16::from_le_bytes([pb_bytes[off], pb_bytes[off + 1]]));
+        }
+
+        // Per-tensor: all block scales identical.
+        let first = pt_ds[0];
+        for (i, &d) in pt_ds.iter().enumerate() {
+            assert_eq!(
+                d, first,
+                "per-tensor block {i}: d={d:#x} != first={first:#x}"
+            );
+        }
+        // And that single value must equal fp16(mean(|w|)) of the whole
+        // tensor. Our synthesized q_proj is ternary × 0.3 so the
+        // per-tensor absmean is ~0.2 (2/3 non-zero × 0.3).
+        let d_f32 = f16::from_bits(first).to_f32();
+        assert!(
+            d_f32 > 0.15 && d_f32 < 0.25,
+            "per-tensor d out of expected range: {d_f32}"
+        );
+
+        // Per-block: at least two distinct values (noise across blocks).
+        let any_diff = pb_ds.iter().any(|&d| d != pb_ds[0]);
+        assert!(
+            any_diff,
+            "per-block scales were all identical — seeded RNG may be degenerate"
+        );
+    }
+
+    /// 256-hidden variant of the fixture so we get ≥2 blocks per row.
+    fn build_tiny_safetensors_256(path: &Path) {
+        use safetensors::tensor::{Dtype, TensorView};
+        let hs: usize = 256;
+        let is_: usize = 512;
+        let nh: usize = 4;
+        let nkv: usize = 1;
+        let vocab: usize = 32;
+        let head_dim = hs / nh;
+        fn fill_bf16(n: usize, v: f32) -> Vec<u8> {
+            let bits = bf16::from_f32(v).to_bits().to_le_bytes();
+            let mut out = Vec::with_capacity(n * 2);
+            for _ in 0..n {
+                out.extend_from_slice(&bits);
+            }
+            out
+        }
+        let embed = fill_bf16(vocab * hs, 0.0);
+        let hs_ones = fill_bf16(hs, 1.0);
+        let is_ones = fill_bf16(is_, 1.0);
+        fn ternary_tensor(rows: usize, cols: usize, seed: u32) -> Vec<u8> {
+            let mut out = Vec::with_capacity(rows * cols * 2);
+            let mut s = seed;
+            for _ in 0..(rows * cols) {
+                s = s.wrapping_mul(1664525).wrapping_add(1013904223);
+                let v = match s % 3 {
+                    0 => 0.3f32,
+                    1 => -0.3f32,
+                    _ => 0.0f32,
+                };
+                out.extend_from_slice(&bf16::from_f32(v).to_bits().to_le_bytes());
+            }
+            out
+        }
+        let q_rows = nh * head_dim;
+        let kv_rows = nkv * head_dim;
+        let q = ternary_tensor(q_rows, hs, 1);
+        let k = ternary_tensor(kv_rows, hs, 2);
+        let v = ternary_tensor(kv_rows, hs, 3);
+        let o = ternary_tensor(hs, nh * head_dim, 4);
+        let gate = ternary_tensor(is_, hs, 5);
+        let up = ternary_tensor(is_, hs, 6);
+        let down = ternary_tensor(hs, is_, 7);
+        let tensors: Vec<(String, TensorView)> = vec![
+            ("model.embed_tokens.weight".into(), TensorView::new(Dtype::BF16, vec![vocab, hs], &embed).unwrap()),
+            ("model.norm.weight".into(), TensorView::new(Dtype::BF16, vec![hs], &hs_ones).unwrap()),
+            ("model.layers.0.input_layernorm.weight".into(), TensorView::new(Dtype::BF16, vec![hs], &hs_ones).unwrap()),
+            ("model.layers.0.post_attention_layernorm.weight".into(), TensorView::new(Dtype::BF16, vec![hs], &hs_ones).unwrap()),
+            ("model.layers.0.self_attn.attn_sub_norm.weight".into(), TensorView::new(Dtype::BF16, vec![hs], &hs_ones).unwrap()),
+            ("model.layers.0.mlp.ffn_sub_norm.weight".into(), TensorView::new(Dtype::BF16, vec![is_], &is_ones).unwrap()),
+            ("model.layers.0.self_attn.q_proj.weight".into(), TensorView::new(Dtype::BF16, vec![q_rows, hs], &q).unwrap()),
+            ("model.layers.0.self_attn.k_proj.weight".into(), TensorView::new(Dtype::BF16, vec![kv_rows, hs], &k).unwrap()),
+            ("model.layers.0.self_attn.v_proj.weight".into(), TensorView::new(Dtype::BF16, vec![kv_rows, hs], &v).unwrap()),
+            ("model.layers.0.self_attn.o_proj.weight".into(), TensorView::new(Dtype::BF16, vec![hs, nh * head_dim], &o).unwrap()),
+            ("model.layers.0.mlp.gate_proj.weight".into(), TensorView::new(Dtype::BF16, vec![is_, hs], &gate).unwrap()),
+            ("model.layers.0.mlp.up_proj.weight".into(), TensorView::new(Dtype::BF16, vec![is_, hs], &up).unwrap()),
+            ("model.layers.0.mlp.down_proj.weight".into(), TensorView::new(Dtype::BF16, vec![hs, is_], &down).unwrap()),
+        ];
+        safetensors::serialize_to_file(tensors.iter().map(|(n, v)| (n.as_str(), v)), None, path)
+            .expect("serialize tiny safetensors");
     }
 
     // ---- helpers ---------------------------------------------------------
@@ -917,6 +1167,7 @@ mod tests {
 /// CLI argument definitions, shared between `main.rs` and the cli-arg
 /// parsing test in this crate.
 pub mod cli {
+    use super::ScaleMode;
     use clap::Parser;
     use std::path::PathBuf;
 
@@ -936,5 +1187,28 @@ pub mod cli {
         /// Output `.h1b` file. Overwrites if it exists.
         #[arg(long = "out", value_name = "FILE")]
         pub output: PathBuf,
+
+        /// Use per-tensor absmean for the block `d` (BitNet training
+        /// scale, duplicated into every block's fp16 slot). Default ON.
+        #[arg(long = "per-tensor-scale", default_value_t = true, conflicts_with = "per_block_scale")]
+        pub per_tensor_scale: bool,
+
+        /// Use per-128-block absmean for the block `d` (TQ2 native
+        /// policy). Opt-in for A/B testing — known to produce degenerate
+        /// output on MS-BitNet-2B-4T.
+        #[arg(long = "per-block-scale", default_value_t = false)]
+        pub per_block_scale: bool,
+    }
+
+    impl Args {
+        /// Resolve the CLI flags to a concrete [`ScaleMode`]. `clap`
+        /// already enforces mutual exclusion via `conflicts_with`.
+        pub fn scale_mode(&self) -> ScaleMode {
+            if self.per_block_scale {
+                ScaleMode::PerBlock
+            } else {
+                ScaleMode::PerTensor
+            }
+        }
     }
 }

@@ -3,11 +3,13 @@
 use std::process::ExitCode;
 
 use anyhow::Result;
-use bitnet_to_tq2::{ConvertStats, cli::Args, convert};
+use bitnet_to_tq2::{ConvertStats, cli::Args, convert_with_mode};
 use clap::Parser;
 
 fn run(args: Args) -> Result<ConvertStats> {
-    let stats = convert(&args.input, &args.output)?;
+    let mode = args.scale_mode();
+    eprintln!("[bitnet-to-tq2] scale_mode={mode:?}");
+    let stats = convert_with_mode(&args.input, &args.output, mode)?;
     Ok(stats)
 }
 
