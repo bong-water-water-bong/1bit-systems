@@ -255,6 +255,12 @@ pub struct Router {
     /// their respective `spawn_blocking` closures. The worker thread
     /// it owns sticks around for the lifetime of the router.
     cpu_sampler: Arc<CpuSampler>,
+    /// Medusa speculative-decode state. `Disabled` unless both
+    /// `HALO_MEDUSA=1` is set AND the heads file at
+    /// `HALO_MEDUSA_HEADS_PATH` loaded cleanly. Arc'd so the verify path
+    /// can cheaply snapshot into worker closures.
+    #[allow(dead_code)] // consumed by follow-up passes that wire the verify loop
+    medusa: Arc<medusa::MedusaState>,
 }
 
 struct Inner {
@@ -332,12 +338,28 @@ impl Router {
                 // ~1 MB RSS and spawning it lazily would race with
                 // the first decode request. See `sampler::cpu::CpuSampler`.
                 let cpu_sampler = Arc::new(CpuSampler::new(cpu_lane.clone()));
+
+                let medusa_cfg = medusa::MedusaConfig::from_env();
+                let medusa_state = match medusa::MedusaState::from_config(&medusa_cfg) {
+                    Ok(s) => {
+                        if s.is_enabled() {
+                            tracing::info!("medusa enabled: heads loaded from {:?}", medusa_cfg.medusa_heads_path);
+                        }
+                        s
+                    }
+                    Err(e) => {
+                        tracing::warn!("medusa init failed, falling back to Disabled: {e}");
+                        medusa::MedusaState::Disabled
+                    }
+                };
+
                 tracing::info!(
                     model_id,
                     hw = %kind.label(),
                     requested = cfg.backend.label(),
                     sampler = cfg.sampler_mode.label(),
                     cpu_lane_threads = cpu_lane.num_threads(),
+                    medusa = medusa_state.is_enabled(),
                     label = backend.label(),
                     "router ready"
                 );
@@ -349,6 +371,7 @@ impl Router {
                     sampler_mode: cfg.sampler_mode,
                     cpu_lane,
                     cpu_sampler,
+                    medusa: Arc::new(medusa_state),
                 })
             }
             BackendKind::Mlx => {
