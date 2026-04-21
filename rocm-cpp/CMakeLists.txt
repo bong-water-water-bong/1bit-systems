@@ -150,6 +150,17 @@ target_compile_options(test_sherry_gemv PRIVATE
 target_link_libraries(test_sherry_gemv PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(test_sherry_gemv PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
+# -- tests/test_sherry_e2e : fp16-Sherry loader + decode smoke test -----------
+# Loads the real halo-1bit-2b-sherry-v4.h1b file, runs one decode token
+# through the fp16-Sherry dispatch path, asserts finite + non-trivial logits.
+# Build-only by default; executable is run by hand on the strix-halo box.
+add_executable(test_sherry_e2e tests/test_sherry_e2e.cpp)
+set_source_files_properties(tests/test_sherry_e2e.cpp PROPERTIES LANGUAGE HIP)
+target_compile_options(test_sherry_e2e PRIVATE
+    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_link_libraries(test_sherry_e2e PRIVATE rocm_cpp hip::host hip::device)
+set_target_properties(test_sherry_e2e PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+
 # -- tools/bitnet_decode : end-to-end MVP decode CLI ---------------------------
 add_executable(bitnet_decode tools/bitnet_decode.cpp)
 set_source_files_properties(tools/bitnet_decode.cpp PROPERTIES LANGUAGE HIP)

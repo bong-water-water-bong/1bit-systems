@@ -42,8 +42,8 @@ pub use gguf::{
     GgufTensorType, GgufValue, GgufValueType,
 };
 pub use h1b::{
-    H1B_FLAG_HADAMARD_ROTATED, H1B_FLAG_SHERRY_FP16, H1B_MAGIC, H1bConfig, H1bFile,
-    H1bLayerOffsets, H1bWeightFormat,
+    BONSAI_GROUP_SIZE, H1B_FLAG_BONSAI_Q1, H1B_FLAG_BONSAI_TQ2, H1B_FLAG_HADAMARD_ROTATED,
+    H1B_FLAG_SHERRY_FP16, H1B_MAGIC, H1bConfig, H1bFile, H1bLayerOffsets, H1bWeightFormat,
 };
 pub use htok::{HTOK_MAGIC, HtokFile, Merge};
 pub use sampler::{Sampler, SamplerConfig};

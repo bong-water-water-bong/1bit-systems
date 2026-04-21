@@ -98,6 +98,71 @@ pub const H1B_FLAG_HADAMARD_ROTATED: i32 = 0x1;
 /// fp16 Sherry kernel in the same file (`reserved = 0x3`).
 pub const H1B_FLAG_SHERRY_FP16: i32 = 0x2;
 
+/// Bit flag (in `H1bConfig::reserved` / `cfg[8]`) marking a checkpoint whose
+/// ternary weights are packed in PrismML's **`Q1_0_g128`** 1-bit format
+/// (oxibonsai compat: `BlockQ1_0G128`, 18 B / 128-weight block). Each
+/// block carries a 2-byte FP16 scale + 16 B of sign bits; weight reconstruction
+/// is `w[i] = bit[i] ? +d : -d` (no zero code, strict 1 bit per weight).
+///
+/// Blocks are stored **row-major, interleaved on disk** as `[d : 2][qs : 16]`
+/// × `(K / 128)` per row — the verbatim GGUF tensor payload from
+/// `prism-ml/Bonsai-*-gguf` files (dtype tag 41 = 0x29 in Bonsai's flavour
+/// of GGUF). The loader hands the bytes to the HIP kernel unchanged; any
+/// SoA/AoS remixing is a kernel-side upload transform, not a file format
+/// concern.
+///
+/// **Flag bit, not a version bump** — row-byte math differs fundamentally
+/// from halo-v2/Sherry/TQ1 (block-interleaved, no per-row scale payload),
+/// so we signal it via flag rather than bolting another integer onto the
+/// version ladder. Mutually exclusive with [`H1B_FLAG_BONSAI_TQ2`]; both
+/// set is a configuration error and the dispatcher rejects it.
+///
+/// This flag is **file-format only** as of 2026-04-20 — there is no HIP
+/// kernel implementation yet. Setting it today produces an
+/// `H1bWeightFormat::BonsaiQ1 { group_size: 128 }` format the loader
+/// understands but no GEMV path consumes; the scaffold exists so the
+/// subsequent HIP port agent can flip from "no kernel" to "kernel landed"
+/// without touching the file format. See
+/// `docs/wiki/Bonsai-Kernel-Spec.md`.
+pub const H1B_FLAG_BONSAI_Q1: i32 = 0x4;
+
+/// Bit flag (in `H1bConfig::reserved` / `cfg[8]`) marking a checkpoint whose
+/// ternary weights are packed in PrismML's **`TQ2_0_g128`** ~1.585-bit
+/// format (oxibonsai compat: `BlockTQ2_0_g128`, 34 B / 128-weight block).
+/// Each block carries 32 B of 2-bit codes + a trailing 2-byte FP16 scale;
+/// code map is `0b00→−1, 0b01→0, 0b10→+1, 0b11→0(reserved)` with 4 weights
+/// packed per byte LSB-first.
+///
+/// Blocks are stored **row-major, interleaved on disk** as `[qs : 32][d : 2]`
+/// × `(K / 128)` per row — the verbatim GGUF tensor payload from
+/// `prism-ml/Ternary-Bonsai-*-gguf` files (dtype tag 42 = 0x2A in Bonsai's
+/// flavour of GGUF; distinct from llama.cpp's canonical `TQ2_0` tag 35).
+/// The loader hands the bytes to the HIP kernel unchanged; any SoA/AoS
+/// remixing is a kernel-side upload transform (the oxibonsai Metal path
+/// repacks to `[all d][all qs]` at upload), not a file format concern.
+///
+/// **Flag bit, not a version bump** — row-byte math differs fundamentally
+/// from halo-v2/Sherry/TQ1 (block-interleaved with in-block scale bytes,
+/// no separate per-row scale payload), so we signal it via flag rather
+/// than bolting another integer onto the version ladder. Mutually
+/// exclusive with [`H1B_FLAG_BONSAI_Q1`]; both set is a configuration
+/// error and the dispatcher rejects it.
+///
+/// This flag is **file-format only** as of 2026-04-20 — there is no HIP
+/// kernel implementation yet. Setting it today produces an
+/// `H1bWeightFormat::BonsaiTQ2 { group_size: 128 }` format the loader
+/// understands but no GEMV path consumes; the scaffold exists so the
+/// subsequent HIP port agent can flip from "no kernel" to "kernel landed"
+/// without touching the file format. See
+/// `docs/wiki/Bonsai-Kernel-Spec.md`.
+pub const H1B_FLAG_BONSAI_TQ2: i32 = 0x8;
+
+/// Fixed group size for both Bonsai formats (oxibonsai `QK1_0_G128` /
+/// `QK_TQ2_0_G128`). Carried as a field on the enum variants so future
+/// variants (e.g. `g64`, `g256`) can extend the format family without
+/// another flag bit.
+pub const BONSAI_GROUP_SIZE: u32 = 128;
+
 /// Fixed-size header sizes, for offset arithmetic.
 const CFG_BYTES: usize = 9 * 4;
 const EXTRAS_BYTES: usize = 2 * 4;
@@ -126,6 +191,28 @@ pub enum H1bWeightFormat {
     SherryFp16,
     /// TQ1 v4: `uint8[rows * cols_padded / 5]`, 1.6 bpw. `cols` padded to mult. 20.
     TQ1V4,
+    /// PrismML `Q1_0_g128`: 18-byte blocks of `{FP16 scale d, [u8; 16] sign bits}`,
+    /// interleaved on disk. 1.125 bpw on-disk (`18 * 8 / 128`), 1.0 bpw information.
+    /// `cols % group_size == 0` required. Signalled by
+    /// [`H1B_FLAG_BONSAI_Q1`]; no per-row scale payload — scales live
+    /// inside each block.
+    BonsaiQ1 {
+        /// Number of weights per block. Always 128 today; carried on the
+        /// variant so a future `g64` / `g256` format can extend the family
+        /// without a new flag bit.
+        group_size: u32,
+    },
+    /// PrismML `TQ2_0_g128`: 34-byte blocks of `{[u8; 32] 2-bit codes, FP16 scale d}`,
+    /// interleaved on disk. 2.125 bpw on-disk (`34 * 8 / 128`), ~1.585 bpw information.
+    /// `cols % group_size == 0` required. Signalled by
+    /// [`H1B_FLAG_BONSAI_TQ2`]; no per-row scale payload — scales live
+    /// inside each block.
+    BonsaiTQ2 {
+        /// Number of weights per block. Always 128 today; carried on the
+        /// variant so a future `g64` / `g256` format can extend the family
+        /// without a new flag bit.
+        group_size: u32,
+    },
 }
 
 impl H1bWeightFormat {
@@ -145,7 +232,53 @@ impl H1bWeightFormat {
                 let cols_padded = cols.div_ceil(20) * 20;
                 Ok(cols_padded / 5)
             }
+            H1bWeightFormat::BonsaiQ1 { group_size } => {
+                let g = group_size as usize;
+                if g == 0 || !g.is_power_of_two() {
+                    return Err(HaloError::InvalidConfig(
+                        "BonsaiQ1 group_size must be a positive power of two",
+                    ));
+                }
+                if cols % g != 0 {
+                    return Err(HaloError::InvalidConfig(
+                        "BonsaiQ1 requires cols divisible by group_size",
+                    ));
+                }
+                // 18 bytes per block (2 bytes FP16 scale + 16 bytes sign bits).
+                Ok((cols / g) * 18)
+            }
+            H1bWeightFormat::BonsaiTQ2 { group_size } => {
+                let g = group_size as usize;
+                if g == 0 || !g.is_power_of_two() {
+                    return Err(HaloError::InvalidConfig(
+                        "BonsaiTQ2 group_size must be a positive power of two",
+                    ));
+                }
+                if cols % g != 0 {
+                    return Err(HaloError::InvalidConfig(
+                        "BonsaiTQ2 requires cols divisible by group_size",
+                    ));
+                }
+                // 34 bytes per block (32 bytes 2-bit codes + 2 bytes FP16 scale).
+                Ok((cols / g) * 34)
+            }
         }
+    }
+
+    /// Whether this format carries its per-group scale inside each packed
+    /// block (Bonsai family) rather than as a separate `[rows] f32` scales
+    /// tensor after the packed payload (halo / Sherry / TQ1 family).
+    ///
+    /// Loaders use this to decide whether to reserve bytes for the scales
+    /// tensor when walking the layer directory: halo-style formats follow
+    /// a packed tensor with `rows * 4` scale bytes; Bonsai formats write
+    /// zero scale bytes after the packed tensor because the FP16 scales
+    /// are already embedded in the 18 B / 34 B blocks.
+    pub fn has_inline_block_scales(self) -> bool {
+        matches!(
+            self,
+            H1bWeightFormat::BonsaiQ1 { .. } | H1bWeightFormat::BonsaiTQ2 { .. }
+        )
     }
 
     /// Resolve the packing format given a file version AND the `reserved`
@@ -154,6 +287,27 @@ impl H1bWeightFormat {
     /// [`Self::SherryFp16`] (the clean-room fp16 kernel). Other flag bits
     /// (e.g. `H1B_FLAG_HADAMARD_ROTATED`) compose independently.
     fn from_version_and_flags(v: i32, flags: i32) -> Result<Self, HaloError> {
+        // Bonsai flags take precedence across all versions — they carry their
+        // own block-interleaved row-byte math independent of the version
+        // ladder. Both set simultaneously is a configuration error: a
+        // checkpoint is either 1-bit Q1 or ternary TQ2, never both.
+        let bonsai_q1 = (flags & H1B_FLAG_BONSAI_Q1) != 0;
+        let bonsai_tq2 = (flags & H1B_FLAG_BONSAI_TQ2) != 0;
+        if bonsai_q1 && bonsai_tq2 {
+            return Err(HaloError::InvalidConfig(
+                "H1B_FLAG_BONSAI_Q1 and H1B_FLAG_BONSAI_TQ2 are mutually exclusive",
+            ));
+        }
+        if bonsai_q1 {
+            return Ok(H1bWeightFormat::BonsaiQ1 {
+                group_size: BONSAI_GROUP_SIZE,
+            });
+        }
+        if bonsai_tq2 {
+            return Ok(H1bWeightFormat::BonsaiTQ2 {
+                group_size: BONSAI_GROUP_SIZE,
+            });
+        }
         match v {
             1 | 2 => Ok(H1bWeightFormat::HaloV2),
             3 => {
@@ -243,6 +397,22 @@ impl H1bConfig {
     /// happens to be set.
     pub fn is_sherry_fp16(&self) -> bool {
         self.version == 3 && (self.reserved & H1B_FLAG_SHERRY_FP16) != 0
+    }
+
+    /// Whether this checkpoint's ternary weights are packed in PrismML's
+    /// `Q1_0_g128` 1-bit format. See [`H1B_FLAG_BONSAI_Q1`] for the flag
+    /// rationale. Mutually exclusive with [`Self::is_bonsai_tq2`].
+    pub fn is_bonsai_q1(&self) -> bool {
+        (self.reserved & H1B_FLAG_BONSAI_Q1) != 0
+            && (self.reserved & H1B_FLAG_BONSAI_TQ2) == 0
+    }
+
+    /// Whether this checkpoint's ternary weights are packed in PrismML's
+    /// `TQ2_0_g128` ~1.585-bit format. See [`H1B_FLAG_BONSAI_TQ2`] for
+    /// the flag rationale. Mutually exclusive with [`Self::is_bonsai_q1`].
+    pub fn is_bonsai_tq2(&self) -> bool {
+        (self.reserved & H1B_FLAG_BONSAI_TQ2) != 0
+            && (self.reserved & H1B_FLAG_BONSAI_Q1) == 0
     }
 }
 
@@ -463,10 +633,16 @@ impl H1bFile {
             // The real ffn_sub_norm, length `is`.
             let ffn_sub_norm = alloc(&mut cursor, is_ * 4)?;
 
+            let fmt_inline_scales = fmt.has_inline_block_scales();
             let mut ternary = |rows: usize, cols: usize| -> Result<(Span, Span), HaloError> {
                 let row_bytes = fmt.row_bytes(cols)?;
                 let packed = alloc(&mut cursor, rows * row_bytes)?;
-                let scales = alloc(&mut cursor, rows * 4)?;
+                // Bonsai formats store per-group FP16 scales inline inside
+                // each 18 B / 34 B block, so the trailing `[rows] f32`
+                // scales tensor is zero-length. Halo / Sherry / TQ1 all
+                // still write the per-row scale payload.
+                let scales_bytes = if fmt_inline_scales { 0 } else { rows * 4 };
+                let scales = alloc(&mut cursor, scales_bytes)?;
                 Ok((packed, scales))
             };
 
@@ -623,12 +799,17 @@ pub fn serialize(
             ("up", &layer.up, is_, hs),
             ("down", &layer.down, hs, is_),
         ];
+        let fmt_inline_scales = fmt.has_inline_block_scales();
         for (name, t, rows, cols) in tensors {
             let row_bytes = fmt.row_bytes(cols)?;
             if t.packed.len() != rows * row_bytes {
                 return Err(HaloError::InvalidConfig(static_str_from_name(name)));
             }
-            if t.scales.len() != rows * 4 {
+            // Bonsai formats carry FP16 scales inside each block, so the
+            // trailing `[rows] f32` scales buffer must be empty. Every
+            // other format expects exactly `rows * 4` bytes.
+            let expected_scales = if fmt_inline_scales { 0 } else { rows * 4 };
+            if t.scales.len() != expected_scales {
                 return Err(HaloError::InvalidConfig(static_str_from_name(name)));
             }
             out.extend_from_slice(t.packed);
@@ -990,6 +1171,102 @@ mod tests {
         // TQ1: cols rounded up to mult of 20, then /5.
         assert_eq!(H1bWeightFormat::TQ1V4.row_bytes(20).unwrap(), 4);
         assert_eq!(H1bWeightFormat::TQ1V4.row_bytes(21).unwrap(), 8);
+        // BonsaiQ1: 18 bytes per g128 block.
+        let bq1 = H1bWeightFormat::BonsaiQ1 { group_size: 128 };
+        assert_eq!(bq1.row_bytes(128).unwrap(), 18);
+        assert_eq!(bq1.row_bytes(256).unwrap(), 36);
+        assert!(bq1.row_bytes(127).is_err()); // not divisible by group
+        // BonsaiTQ2: 34 bytes per g128 block.
+        let btq2 = H1bWeightFormat::BonsaiTQ2 { group_size: 128 };
+        assert_eq!(btq2.row_bytes(128).unwrap(), 34);
+        assert_eq!(btq2.row_bytes(2048).unwrap(), 544);
+        assert!(btq2.row_bytes(129).is_err());
+        // Inline-scales marker: Bonsai formats yes, everyone else no.
+        assert!(bq1.has_inline_block_scales());
+        assert!(btq2.has_inline_block_scales());
+        assert!(!H1bWeightFormat::HaloV2.has_inline_block_scales());
+        assert!(!H1bWeightFormat::SherryV3.has_inline_block_scales());
+        assert!(!H1bWeightFormat::SherryFp16.has_inline_block_scales());
+        assert!(!H1bWeightFormat::TQ1V4.has_inline_block_scales());
+    }
+
+    /// `H1B_FLAG_BONSAI_Q1` / `H1B_FLAG_BONSAI_TQ2` take precedence across
+    /// every supported version, carry their own block-interleaved row-byte
+    /// math (no per-row scale tensor afterwards), and are mutually
+    /// exclusive. This is what lets a Bonsai Qwen3 GGUF land in an `.h1b`
+    /// framing without a version bump.
+    #[test]
+    fn bonsai_flags_roundtrip_via_from_version_and_flags() {
+        // TQ2 bit set on v2 file → BonsaiTQ2 wins over the v2 default.
+        let f = H1bWeightFormat::from_version_and_flags(2, H1B_FLAG_BONSAI_TQ2).unwrap();
+        assert_eq!(f, H1bWeightFormat::BonsaiTQ2 { group_size: 128 });
+        // Q1 bit set on v4 file → BonsaiQ1 wins over the v4/TQ1 default.
+        let f = H1bWeightFormat::from_version_and_flags(4, H1B_FLAG_BONSAI_Q1).unwrap();
+        assert_eq!(f, H1bWeightFormat::BonsaiQ1 { group_size: 128 });
+        // Both set → error.
+        assert!(H1bWeightFormat::from_version_and_flags(
+            2,
+            H1B_FLAG_BONSAI_Q1 | H1B_FLAG_BONSAI_TQ2,
+        )
+        .is_err());
+        // Zero → status quo per-version dispatch.
+        assert_eq!(
+            H1bWeightFormat::from_version_and_flags(2, 0).unwrap(),
+            H1bWeightFormat::HaloV2
+        );
+        // Bonsai flag composes with Hadamard-rotated flag (unrelated bits
+        // must not interfere with the dispatch).
+        let f = H1bWeightFormat::from_version_and_flags(
+            2,
+            H1B_FLAG_BONSAI_TQ2 | H1B_FLAG_HADAMARD_ROTATED,
+        )
+        .unwrap();
+        assert_eq!(f, H1bWeightFormat::BonsaiTQ2 { group_size: 128 });
+    }
+
+    /// Config accessors honour the mutual-exclusion rule: if both flags
+    /// are set simultaneously (caller error), neither accessor returns
+    /// `true`, matching the dispatcher's refusal to produce a variant.
+    #[test]
+    fn bonsai_accessors_follow_mutual_exclusion() {
+        let mut cfg = H1bConfig {
+            version: 2,
+            hidden_size: 2048,
+            intermediate_size: 6144,
+            num_layers: 1,
+            num_heads: 16,
+            num_kv_heads: 8,
+            vocab_size: 151669,
+            max_seq_len: 32768,
+            tie_embeddings: 1,
+            reserved: 0,
+            rope_theta: 1_000_000.0,
+            rms_norm_eps: 1e-6,
+        };
+        assert!(!cfg.is_bonsai_q1());
+        assert!(!cfg.is_bonsai_tq2());
+
+        cfg.reserved = H1B_FLAG_BONSAI_TQ2;
+        assert!(cfg.is_bonsai_tq2());
+        assert!(!cfg.is_bonsai_q1());
+        assert_eq!(
+            cfg.weight_format().unwrap(),
+            H1bWeightFormat::BonsaiTQ2 { group_size: 128 }
+        );
+
+        cfg.reserved = H1B_FLAG_BONSAI_Q1;
+        assert!(cfg.is_bonsai_q1());
+        assert!(!cfg.is_bonsai_tq2());
+        assert_eq!(
+            cfg.weight_format().unwrap(),
+            H1bWeightFormat::BonsaiQ1 { group_size: 128 }
+        );
+
+        // Both set — weight_format() errors, accessors stay false.
+        cfg.reserved = H1B_FLAG_BONSAI_Q1 | H1B_FLAG_BONSAI_TQ2;
+        assert!(!cfg.is_bonsai_q1());
+        assert!(!cfg.is_bonsai_tq2());
+        assert!(cfg.weight_format().is_err());
     }
 
     /// `H1B_FLAG_SHERRY_FP16` lives in bit 1 of the `reserved` cfg slot

@@ -12,6 +12,28 @@
 extern "C" {
 #endif
 
+// .h1b flag bits (live in cfg[8] — formerly "reserved"). Compose via bit-or.
+//   0x1 : H-BitLinear Hadamard-rotation bake-in (activations must be pre-rotated).
+//   0x2 : Sherry 1.25-bpw weights routed through the fp16-in/fp16-out kernel
+//         (sherry_ternary_gemv_launch) instead of the int8-act sherry decoder.
+#define H1B_FLAG_HADAMARD_ROTATED 0x1u
+#define H1B_FLAG_SHERRY_FP16      0x2u
+
+// Dispatch tag for the per-layer ternary GEMV. Driven by file version + flags
+// at load time; inference loop reads this instead of re-parsing the header.
+//   HALO_V2   : halo v2 packing (2 bpw, uint8 [rows, (cols+3)/4])
+//   SHERRY_I8 : halo-1bit v3 Sherry (1.25 bpw) with int8 acts + per-row scales
+//   TQ1       : halo-1bit v4 base-3 TQ1 (1.6 bpw, lossless)
+//   SHERRY_FP16: same pack as SHERRY_I8 but dispatched to the pure fp16 kernel
+//                (sherry_ternary_gemv_launch) — no int8 quant, post-row-scale
+//                folded in by the caller.
+typedef enum {
+    RCPP_WEIGHT_FORMAT_HALO_V2    = 0,
+    RCPP_WEIGHT_FORMAT_SHERRY_I8  = 1,
+    RCPP_WEIGHT_FORMAT_TQ1        = 2,
+    RCPP_WEIGHT_FORMAT_SHERRY_FP16 = 3,
+} rcpp_weight_format_t;
+
 typedef struct {
     // RMSNorm weights (FP16). BitNet-b1.58 has four per layer:
     //   input_norm    [hs] — pre Q/K/V
@@ -47,7 +69,14 @@ typedef struct {
     float rope_theta;
     float rms_norm_eps;
 
-    int format_version;      // 1/2 = halo v2 (2 bpw); 3 = Sherry v3 (1.25 bpw)
+    int format_version;      // 1/2 = halo v2 (2 bpw); 3 = Sherry v3 (1.25 bpw); 4 = TQ1 (1.6 bpw)
+
+    // .h1b flag bits (see H1B_FLAG_* above). Parsed from cfg[8] at load time.
+    unsigned int flags;
+
+    // Resolved dispatch tag for the per-layer ternary GEMV. Inference code
+    // branches on this instead of re-deriving from (version, flags).
+    rcpp_weight_format_t weight_format;
 
     void* embedding_dev;            // FP16 [vocab, hidden]
     void* final_norm_weight_dev;    // FP16 [hidden]

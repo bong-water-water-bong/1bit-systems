@@ -124,7 +124,24 @@ rcpp_bitnet_load_h1b(const char* path, rcpp_bitnet_model_t* out_model) {
     out_model->vocab_size        = cfg[5];
     out_model->max_seq_len       = cfg[6];
     out_model->tie_embeddings    = cfg[7];
-    // cfg[8] reserved
+    // cfg[8] — formerly "reserved", now flag bits. H1B_FLAG_* live in
+    // include/rocm_cpp/bitnet_model.h. Legacy v1/v2 writers zero this field.
+    out_model->flags             = static_cast<unsigned int>(cfg[8]);
+
+    const bool sherry_fp16 = use_sherry
+        && (out_model->flags & H1B_FLAG_SHERRY_FP16) != 0;
+
+    // Resolve the dispatch tag once at load — the inference loop reads this
+    // rather than replaying the (version, flags) logic on every GEMV call.
+    if (use_tq1) {
+        out_model->weight_format = RCPP_WEIGHT_FORMAT_TQ1;
+    } else if (sherry_fp16) {
+        out_model->weight_format = RCPP_WEIGHT_FORMAT_SHERRY_FP16;
+    } else if (use_sherry) {
+        out_model->weight_format = RCPP_WEIGHT_FORMAT_SHERRY_I8;
+    } else {
+        out_model->weight_format = RCPP_WEIGHT_FORMAT_HALO_V2;
+    }
 
     // v1 .h1b files don't carry rope_theta / rms_norm_eps — fall back to the
     // BitNet-b1.58-2B-4T defaults. v2 adds them explicitly so variants with
@@ -139,14 +156,16 @@ rcpp_bitnet_load_h1b(const char* path, rcpp_bitnet_model_t* out_model) {
         out_model->rope_theta   = 500000.0f;
         out_model->rms_norm_eps = 1e-5f;
     }
-    if (use_sherry) {
-        fprintf(stderr, "[rocm-cpp] .h1b v3 (Sherry 1.25 bpw) — dispatching ternary GEMVs through sherry kernel.\n");
+    if (sherry_fp16) {
+        fprintf(stderr, "[rocm-cpp] .h1b v3 + SHERRY_FP16 flag — dispatching through fp16-in/fp16-out sherry_ternary_gemv_launch.\n");
+    } else if (use_sherry) {
+        fprintf(stderr, "[rocm-cpp] .h1b v3 (Sherry 1.25 bpw, int8-act) — dispatching ternary GEMVs through sherry decoder.\n");
     }
     if (use_tq1) {
         fprintf(stderr, "[rocm-cpp] .h1b v4 (TQ1 base-3, 1.6 bpw, lossless) — dispatching through tq1-halo kernel.\n");
     }
-    fprintf(stderr, "[rocm-cpp] .h1b v%d: rope_theta=%.1f rms_norm_eps=%.1e\n",
-            version, out_model->rope_theta, out_model->rms_norm_eps);
+    fprintf(stderr, "[rocm-cpp] .h1b v%d flags=0x%x: rope_theta=%.1f rms_norm_eps=%.1e\n",
+            version, out_model->flags, out_model->rope_theta, out_model->rms_norm_eps);
 
     const int hs  = out_model->hidden_size;
     const int is_ = out_model->intermediate_size;

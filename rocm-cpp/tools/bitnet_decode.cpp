@@ -19,6 +19,7 @@
 
 #include "rocm_cpp/ck_gemm.h"
 #include "rocm_cpp/bitnet_model.h"
+#include "rocm_cpp/sherry.h"
 #include "rocm_cpp/tokenizer.h"
 #include "rocm_cpp/kv_rotorquant.h"
 
@@ -45,6 +46,75 @@
 #define HIP_OK(e) do { auto _s=(e); if(_s!=hipSuccess){fprintf(stderr,"HIP %d %s:%d\n",_s,__FILE__,__LINE__); return 1;}} while(0)
 #define RC_OK(e)  do { auto _s=(e); if(_s!=RCPP_OK){fprintf(stderr,"rcpp err %d at %s:%d\n",(int)_s,__FILE__,__LINE__); return 1;}} while(0)
 
+namespace {
+
+// Post-scale for the fp16-Sherry GEMV path.
+//
+// The clean-room sherry_ternary_gemv_launch kernel emits pure signed-sum fp16
+// — it does NOT fold the per-row fp32 scale that lives on the .h1b layer. The
+// halo-1bit decoder does fold that scale in (it's INT8-input with per-row
+// scale baked into the accumulator). Here we apply it as a tiny post-pass so
+// both paths produce comparable magnitudes.
+//
+// out[n] := clamp_fp16(fp32(out[n]) * row_scales[n]).
+//
+// One thread per row; N is always small (hidden_size, intermediate_size, or
+// head-count * head-dim — all ≤ 6912 on the 2B model). A single wave-round
+// block is plenty; no reduction needed.
+__global__ void sherry_fp16_apply_row_scale_kernel(
+    __half*          __restrict__ y,           // [N]  inout
+    const float*     __restrict__ row_scales,  // [N]  in
+    int N)
+{
+    const int n = blockIdx.x * blockDim.x + threadIdx.x;
+    if (n >= N) return;
+    const float v = (float)y[n] * row_scales[n];
+    // Match the in-kernel clamp in src/sherry_gemv.hip — downstream RMSNorm
+    // / softmax NaN-poisons on ±Inf.
+    constexpr float FP16_MAX = 65504.0f;
+    float vc = v;
+    if (vc >  FP16_MAX) vc =  FP16_MAX;
+    if (vc < -FP16_MAX) vc = -FP16_MAX;
+    y[n] = __float2half(vc);
+}
+
+// Dispatch helper: fp16 activations + packed Sherry weights -> fp16 output,
+// with per-row fp32 scale applied as a fused post-pass. Signature mirrors the
+// integer-input path so bitnet_decode's forward lambda can use a single call
+// site per projection.
+//
+// Returns RCPP_OK unconditionally — sherry_ternary_gemv_launch early-returns
+// silently on malformed (N, K). The constraint K % 32 == 0 is validated at
+// model-load time (read_ternary_sherry) and matches BitNet-2B shapes
+// (hs=2560, is=6912).
+rcpp_status_t bitnet_sherry_fp16_gemv(
+    const void* packed_weights_dev,
+    const void* act_fp16_dev,
+    const void* row_scales_dev,
+    void*       out_fp16_dev,
+    int N, int K,
+    hipStream_t stream)
+{
+    sherry_ternary_gemv_launch(
+        static_cast<const uint8_t*>(packed_weights_dev),
+        static_cast<const uint16_t*>(act_fp16_dev),
+        static_cast<uint16_t*>(out_fp16_dev),
+        N, K,
+        static_cast<void*>(stream));
+
+    const int BLOCK = 128;
+    dim3 grid((unsigned)((N + BLOCK - 1) / BLOCK), 1, 1);
+    dim3 block((unsigned)BLOCK, 1, 1);
+    hipLaunchKernelGGL(sherry_fp16_apply_row_scale_kernel,
+                       grid, block, 0, stream,
+                       static_cast<__half*>(out_fp16_dev),
+                       static_cast<const float*>(row_scales_dev),
+                       N);
+    return RCPP_OK;
+}
+
+}  // namespace
+
 // Load a whitespace-separated list of token IDs from a stream.
 // Used when --prompt arg starts with @ (file path) or "-" (stdin).
 static std::vector<int> read_token_ids(std::istream& in) {
@@ -58,15 +128,40 @@ int main(int argc, char** argv) {
     // CLI:
     //   bitnet_decode <model.h1b> <prompt> <num_new_tokens> [tokenizer.htok]
     //   bitnet_decode <model.h1b>                                 # defaults
+    //   bitnet_decode --model <model.h1b> --ctx <N> --iters <N>   # bench mode
     //
     // <prompt> forms:
     //   --text "your prompt"      — encode via librocm_cpp tokenizer (.htok)
     //   @file.toks                — whitespace-separated ints from file
     //   -                         — whitespace-separated ints from stdin
     //   <int>                     — single start_tok (legacy)
-    const char* path = argc > 1 ? argv[1] : "/home/bcloud/halo-1bit/models/halo-1bit-2b.h1b";
-    const char* prompt_arg = argc > 2 ? argv[2] : "1";
-    int num_tokens = 16;
+    //
+    // Bench mode (--model + --ctx + --iters): runs --iters new tokens after
+    // a ctx-sized warmup prefill, prints ONE LAST LINE of "<tok/s>" to stdout.
+    // sherry-bench.sh parses this; no other output goes to stdout in this mode.
+
+    // Peek for --model / --ctx / --iters up front; if present, drive the
+    // positional/prompt machinery from those flags. Leaves every other CLI
+    // mode (--text, --chat, --repl, --server, --ppl, positional) untouched.
+    const char* bench_model = nullptr;
+    int bench_ctx   = 0;
+    int bench_iters = 0;
+    for (int i = 1; i < argc; ++i) {
+        std::string a = argv[i];
+        if      (a == "--model" && i + 1 < argc) { bench_model = argv[++i]; }
+        else if (a == "--ctx"   && i + 1 < argc) { bench_ctx   = std::atoi(argv[++i]); }
+        else if (a == "--iters" && i + 1 < argc) { bench_iters = std::atoi(argv[++i]); }
+    }
+    const bool bench_mode =
+        (bench_model != nullptr && bench_ctx > 0 && bench_iters > 0);
+
+    const char* path = bench_model ? bench_model
+                     : (argc > 1   ? argv[1]
+                                   : "/home/bcloud/halo-1bit/models/halo-1bit-2b.h1b");
+    const char* prompt_arg = bench_mode      ? "1"
+                           : (argc > 2       ? argv[2]
+                                             : "1");
+    int num_tokens = bench_mode ? bench_iters : 16;
     // Default tokenizer: same dir as model, .h1b -> .htok. Makes the binary
     // relocatable — no more build-time $HOME leak. Overridable via --tokenizer
     // flag or (in --text mode) the trailing positional arg.
@@ -247,6 +342,12 @@ int main(int argc, char** argv) {
     } else if (std::string(prompt_arg) == "-") {
         num_tokens = argc > 3 ? std::atoi(argv[3]) : 16;
         prompt_ids = read_token_ids(std::cin);
+    } else if (bench_mode) {
+        // Bench mode: synthesize a bench_ctx-token prompt (BOS repeated). We
+        // measure tok/s on the DECODE loop, which the run_turn helper reports
+        // after prefill. bench_iters is already stamped into num_tokens above.
+        num_tokens = bench_iters;
+        prompt_ids.assign((size_t)bench_ctx, 1);
     } else {
         num_tokens = argc > 3 ? std::atoi(argv[3]) : 16;
         prompt_ids = { std::atoi(prompt_arg) };
@@ -260,18 +361,25 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // halo-ai Lane B/B': select ternary GEMV by file format version.
-    //   v1/v2 → halo kernel (2 bpw packing)
-    //   v3    → sherry kernel (1.25 bpw, 3:4 sparsity, lossy on post-hoc requant)
-    //   v4    → tq1-halo kernel (1.6 bpw base-3, lossless for ternary)
-    const auto ternary_gemv = (m.format_version == 4)
-        ? rcpp_ternary_gemv_tq1_halo_f16
-        : (m.format_version == 3)
-            ? rcpp_ternary_gemv_sherry_f16
-            : rcpp_ternary_gemv_halo_f16;
+    // halo-ai Lane B/B'/B'': select ternary GEMV by resolved weight_format.
+    //   HALO_V2      → halo kernel (2 bpw packing, int8 acts)
+    //   SHERRY_I8    → sherry int8-act decoder (1.25 bpw, per-row scale baked in)
+    //   TQ1          → tq1-halo kernel (1.6 bpw base-3, lossless for ternary)
+    //   SHERRY_FP16  → clean-room fp16-in/fp16-out sherry kernel + post-scale
+    //                  (bitnet_sherry_fp16_gemv above). Activations stay fp16,
+    //                  no INT8 quant in that path.
+    const bool is_sherry_fp16 = (m.weight_format == RCPP_WEIGHT_FORMAT_SHERRY_FP16);
+
+    // Int8-activation dispatch (HALO_V2 / SHERRY_I8 / TQ1). Unused on the
+    // SHERRY_FP16 path — forward lambda branches on `is_sherry_fp16` before
+    // invoking.
+    const auto ternary_gemv_i8 =
+        (m.weight_format == RCPP_WEIGHT_FORMAT_TQ1)       ? rcpp_ternary_gemv_tq1_halo_f16
+      : (m.weight_format == RCPP_WEIGHT_FORMAT_SHERRY_I8) ? rcpp_ternary_gemv_sherry_f16
+                                                          : rcpp_ternary_gemv_halo_f16;
     // TQ1 expects K padded to multiple of 20 (u32-aligned row bytes). Other
     // formats use K directly — align_k becomes a no-op for them.
-    const int k_pad_unit = (m.format_version == 4) ? 20 : 1;
+    const int k_pad_unit = (m.weight_format == RCPP_WEIGHT_FORMAT_TQ1) ? 20 : 1;
     auto align_k = [&](int k) { return ((k + k_pad_unit - 1) / k_pad_unit) * k_pad_unit; };
 
     const int hs  = m.hidden_size;
@@ -476,6 +584,22 @@ int main(int argc, char** argv) {
         return V - 1;
     };
 
+    // Ternary GEMV dispatcher. In the int8 paths (HALO_V2/SHERRY_I8/TQ1) this
+    // forwards the (packed, x_i8, x_scale, row_scales, out, N, K) args to the
+    // int8-act kernel. In the SHERRY_FP16 path it ignores x_i8/x_scale and
+    // drives the fp16-in/fp16-out clean-room kernel off `normed` directly,
+    // then applies row_scales in the post-pass helper.
+    auto ternary_gemv = [&](const void* packed, const int8_t* x_i8_in, float x_scale,
+                            const float* row_scales, const void* normed_fp16,
+                            void* out_fp16, int N, int K) -> rcpp_status_t {
+        if (is_sherry_fp16) {
+            return bitnet_sherry_fp16_gemv(packed, normed_fp16, row_scales,
+                                           out_fp16, N, K, /*stream=*/nullptr);
+        }
+        return ternary_gemv_i8(packed, x_i8_in, x_scale, row_scales,
+                               out_fp16, N, K, /*stream=*/nullptr);
+    };
+
     // ---- Forward pass for one token at position pos ----
     auto forward_token = [&](int token_id, int pos) -> int {
         // Seed the FP32 residual stream from the FP16 embedding.
@@ -489,14 +613,20 @@ int main(int argc, char** argv) {
             // --- Attention block ---
             RC_OK(rcpp_rmsnorm_fp32_in_fp16_out(x_fp32, ly.input_norm_dev, normed,
                                                 m.rms_norm_eps, hs, nullptr));
+            // INT8 quant only matters for the int8 paths; the SHERRY_FP16 path
+            // reads `normed` directly. We still run it so x_i8 / x_scale are
+            // valid if we ever hop formats mid-decode (we don't today, but the
+            // cost is one small kernel per layer — negligible vs 7 GEMVs).
             RC_OK(rcpp_quantize_fp16_to_i8(normed, x_i8, x_scale_dev, hs, nullptr));
-            float x_scale;
-            HIP_OK(hipMemcpy(&x_scale, x_scale_dev, 4, hipMemcpyDeviceToHost));
+            float x_scale = 0.0f;
+            if (!is_sherry_fp16) {
+                HIP_OK(hipMemcpy(&x_scale, x_scale_dev, 4, hipMemcpyDeviceToHost));
+            }
 
             // Q/K/V projections — fused FP16 output (halo-ai Lane A)
-            RC_OK(ternary_gemv(ly.q_packed_dev, x_i8, x_scale, ly.q_scales_dev, q_fp16, nh*hd,  hs_k, nullptr));
-            RC_OK(ternary_gemv(ly.k_packed_dev, x_i8, x_scale, ly.k_scales_dev, k_fp16, nkv*hd, hs_k, nullptr));
-            RC_OK(ternary_gemv(ly.v_packed_dev, x_i8, x_scale, ly.v_scales_dev, v_fp16, nkv*hd, hs_k, nullptr));
+            RC_OK(ternary_gemv(ly.q_packed_dev, x_i8, x_scale, ly.q_scales_dev, normed, q_fp16, nh*hd,  hs_k));
+            RC_OK(ternary_gemv(ly.k_packed_dev, x_i8, x_scale, ly.k_scales_dev, normed, k_fp16, nkv*hd, hs_k));
+            RC_OK(ternary_gemv(ly.v_packed_dev, x_i8, x_scale, ly.v_scales_dev, normed, v_fp16, nkv*hd, hs_k));
 
             // RoPE on Q and K
             RC_OK(rcpp_rope_fp16(q_fp16, pos, m.rope_theta, nh,  hd, nullptr));
@@ -546,22 +676,28 @@ int main(int argc, char** argv) {
                                                    o_fp16, nh, nkv, hd, pos+1, scale, nullptr));
             }
 
-            // BitNet b1.58: attn_sub_norm on attention output before O proj
+            // BitNet b1.58: attn_sub_norm on attention output before O proj.
+            // Reuse `normed` as the sub-norm output; on the fp16 path the GEMV
+            // consumes it directly, on the int8 path we quantize one more time.
             RC_OK(rcpp_rmsnorm_fp16(o_fp16, ly.attn_sub_norm_dev, normed,
                                     m.rms_norm_eps, hs, nullptr));
             RC_OK(rcpp_quantize_fp16_to_i8(normed, x_i8, x_scale_dev, hs, nullptr));
-            HIP_OK(hipMemcpy(&x_scale, x_scale_dev, 4, hipMemcpyDeviceToHost));
-            RC_OK(ternary_gemv(ly.o_packed_dev, x_i8, x_scale, ly.o_scales_dev, o_fp16, hs, align_k(nh*hd), nullptr));
+            if (!is_sherry_fp16) {
+                HIP_OK(hipMemcpy(&x_scale, x_scale_dev, 4, hipMemcpyDeviceToHost));
+            }
+            RC_OK(ternary_gemv(ly.o_packed_dev, x_i8, x_scale, ly.o_scales_dev, normed, o_fp16, hs, align_k(nh*hd)));
             RC_OK(rcpp_residual_add_fp32_from_fp16(x_fp32, o_fp16, hs, nullptr));
 
             // --- FFN block ---
             RC_OK(rcpp_rmsnorm_fp32_in_fp16_out(x_fp32, ly.post_attn_norm_dev, normed,
                                                 m.rms_norm_eps, hs, nullptr));
             RC_OK(rcpp_quantize_fp16_to_i8(normed, x_i8, x_scale_dev, hs, nullptr));
-            HIP_OK(hipMemcpy(&x_scale, x_scale_dev, 4, hipMemcpyDeviceToHost));
+            if (!is_sherry_fp16) {
+                HIP_OK(hipMemcpy(&x_scale, x_scale_dev, 4, hipMemcpyDeviceToHost));
+            }
 
-            RC_OK(ternary_gemv(ly.gate_packed_dev, x_i8, x_scale, ly.gate_scales_dev, gate_fp16, is, hs_k, nullptr));
-            RC_OK(ternary_gemv(ly.up_packed_dev,   x_i8, x_scale, ly.up_scales_dev,   up_fp16,   is, hs_k, nullptr));
+            RC_OK(ternary_gemv(ly.gate_packed_dev, x_i8, x_scale, ly.gate_scales_dev, normed, gate_fp16, is, hs_k));
+            RC_OK(ternary_gemv(ly.up_packed_dev,   x_i8, x_scale, ly.up_scales_dev,   normed, up_fp16,   is, hs_k));
 
             // BitNet-b1.58 FFN activation: relu²(gate) * up — fused with
             // ffn_sub_norm in FP32 to avoid FP16 overflow of the raw product
@@ -569,10 +705,12 @@ int main(int argc, char** argv) {
             RC_OK(rcpp_relu2_glu_rmsnorm_fp16(gate_fp16, up_fp16, ly.ffn_sub_norm_dev,
                                               silu_out, m.rms_norm_eps, is, nullptr));
             RC_OK(rcpp_quantize_fp16_to_i8(silu_out, silu_i8, silu_scale_dev, is, nullptr));
-            float silu_scale;
-            HIP_OK(hipMemcpy(&silu_scale, silu_scale_dev, 4, hipMemcpyDeviceToHost));
+            float silu_scale = 0.0f;
+            if (!is_sherry_fp16) {
+                HIP_OK(hipMemcpy(&silu_scale, silu_scale_dev, 4, hipMemcpyDeviceToHost));
+            }
 
-            RC_OK(ternary_gemv(ly.down_packed_dev, silu_i8, silu_scale, ly.down_scales_dev, down_fp16, hs, is_k, nullptr));
+            RC_OK(ternary_gemv(ly.down_packed_dev, silu_i8, silu_scale, ly.down_scales_dev, silu_out, down_fp16, hs, is_k));
             RC_OK(rcpp_residual_add_fp32_from_fp16(x_fp32, down_fp16, hs, nullptr));
         }
 
@@ -610,6 +748,8 @@ int main(int argc, char** argv) {
     // Turn state — advances across REPL turns.
     int cache_pos  = 0;          // next free slot in the KV cache
     int last_tok   = 0;          // last token processed (prefill tail)
+    double last_decode_ms     = 0.0;   // bench-mode handle on decode latency
+    size_t last_decode_tokens = 0;     // bench-mode handle on decode count
     std::vector<char> tail_buf(8192);
     std::vector<char> stream_buf(16 * 1024);
 
@@ -709,6 +849,8 @@ int main(int argc, char** argv) {
             fprintf(stderr, "[bitnet_decode] decode %zu tok in %.2f ms (%.2f ms/tok, %.1f tok/s)\n",
                     generated.size(), decode_ms, decode_ms/generated.size(),
                     1000.0 * generated.size() / decode_ms);
+        last_decode_ms     = decode_ms;
+        last_decode_tokens = generated.size();
         return 0;
     };
 
@@ -766,6 +908,18 @@ int main(int argc, char** argv) {
     // the loop below drive real generation once the user / HTTP
     // request arrives.
     (void)run_turn(prompt_ids, (repl_mode || server_mode) ? 0 : num_tokens);
+
+    if (bench_mode) {
+        // Emit just the tok/s number as the LAST stdout line so the bench
+        // script (tail -1) captures a clean float. Other output went to
+        // stderr.
+        const double tok_s = (last_decode_ms > 0 && last_decode_tokens > 0)
+            ? (1000.0 * (double)last_decode_tokens / last_decode_ms)
+            : 0.0;
+        printf("%.2f\n", tok_s);
+        fflush(stdout);
+        return 0;
+    }
 
     // REPL loop: read stdin, wrap in chat template, feed + decode. Keep
     // going until EOF or "quit".

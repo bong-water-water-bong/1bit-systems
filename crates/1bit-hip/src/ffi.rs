@@ -591,6 +591,53 @@ unsafe extern "C" {
     );
 
     pub fn rcpp_sherry_pack(ternary: *const i8, out: *mut u8, count: c_int);
+
+    // -------------------------------------------------------------------------
+    // Bonsai Q1_0_g128 / TQ2_0_g128 ternary GEMV — FP16-in / FP16-out.
+    //
+    // Status 2026-04-20: **not yet implemented** in rocm-cpp. Forward
+    // declarations + stubs land here so scaffolding + safe wrappers compile
+    // while the HIP port agent writes the actual .hip kernels. Until the
+    // kernel is in place the `link-rocm` build will fail to link these
+    // symbols; the safe wrappers in `lib.rs` short-circuit before
+    // dispatching (see the TODO gate there).
+    //
+    // On-disk packing (matches oxibonsai, block-interleaved):
+    //   Q1_0_g128  : 18 B per g128 block = [FP16 d : 2][sign_bits : 16]
+    //                  128 sign bits LSB-first; w[i] = bit ? +d : -d.
+    //   TQ2_0_g128 : 34 B per g128 block = [codes : 32][FP16 d : 2]
+    //                  2 bits per weight, 4 per byte LSB-first;
+    //                  00→-1, 01→0, 10→+1, 11→0(reserved).
+    //
+    // Shapes:
+    //   packed_weights : row-major, row_bytes = (K_in / 128) * {18, 34}
+    //   act_fp16       : K_in fp16 elements on device
+    //   out_fp16       : N_out fp16 writable elements on device
+    //
+    // Preconditions (enforced in safe wrappers, not in the launchers):
+    //   N_out > 0; K_in > 0; K_in % 128 == 0.
+    //
+    // Returns `void` — launchers do not carry rcpp_status_t. Callers check
+    // hipGetLastError() at the next synchronization boundary for kernel
+    // launch failures. Shape violations pre-validate in Rust.
+    // -------------------------------------------------------------------------
+    pub fn bonsai_q1_gemv_launch(
+        packed_weights: *const u8,
+        act_fp16: *const u16,
+        out_fp16: *mut u16,
+        N_out: c_int,
+        K_in: c_int,
+        stream: *mut c_void,
+    );
+
+    pub fn bonsai_tq2_gemv_launch(
+        packed_weights: *const u8,
+        act_fp16: *const u16,
+        out_fp16: *mut u16,
+        N_out: c_int,
+        K_in: c_int,
+        stream: *mut c_void,
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -872,6 +919,33 @@ mod stub {
         ternary: *const i8,
         out: *mut u8,
         count: c_int,
+    ) {
+    }
+
+    // Bonsai Q1 / TQ2 GEMV launchers: void return — no-op in stub mode.
+    // Safe wrappers in `lib.rs` short-circuit to `Unsupported` before
+    // reaching these shims (see the TODO note above the FFI declarations).
+    #[inline]
+    #[allow(unused_variables, non_snake_case)]
+    pub unsafe extern "C" fn bonsai_q1_gemv_launch(
+        packed_weights: *const u8,
+        act_fp16: *const u16,
+        out_fp16: *mut u16,
+        N_out: c_int,
+        K_in: c_int,
+        stream: *mut c_void,
+    ) {
+    }
+
+    #[inline]
+    #[allow(unused_variables, non_snake_case)]
+    pub unsafe extern "C" fn bonsai_tq2_gemv_launch(
+        packed_weights: *const u8,
+        act_fp16: *const u16,
+        out_fp16: *mut u16,
+        N_out: c_int,
+        K_in: c_int,
+        stream: *mut c_void,
     ) {
     }
 }

@@ -1111,6 +1111,131 @@ pub fn sherry_gemv_fp16_scalar_ref(
 }
 
 // -----------------------------------------------------------------------------
+// Bonsai Q1_0_g128 / TQ2_0_g128 — fp16-in / fp16-out GEMV
+//
+// Status 2026-04-20: **no HIP kernel yet.** These wrappers pre-validate the
+// shape contract and return `RcppError::Unsupported` unconditionally — both
+// in the `link-rocm` build (no kernel landed) and in the default build (no
+// FFI symbols to call). The scaffolding exists so `.h1b` loader + model
+// registry work can land without being blocked on kernel authorship. The
+// HIP port agent will (a) implement `bonsai_q1_gemv_launch` +
+// `bonsai_tq2_gemv_launch` in `rocm-cpp/kernels/` and (b) delete the
+// "short-circuit to Unsupported" gate below.
+// -----------------------------------------------------------------------------
+
+/// Fixed group size shared by both Bonsai formats (oxibonsai
+/// `QK1_0_G128` / `QK_TQ2_0_G128`). `K_in` must be divisible by this.
+pub const BONSAI_GROUP_SIZE: usize = 128;
+
+/// Bytes per Q1_0_g128 block (2 bytes FP16 scale + 16 bytes sign bits).
+pub const BONSAI_Q1_BLOCK_BYTES: usize = 18;
+
+/// Bytes per TQ2_0_g128 block (32 bytes 2-bit codes + 2 bytes FP16 scale).
+pub const BONSAI_TQ2_BLOCK_BYTES: usize = 34;
+
+/// Packed byte count for `count` Bonsai Q1_0_g128 weights.
+/// `count` must be a multiple of [`BONSAI_GROUP_SIZE`].
+#[inline]
+pub const fn bonsai_q1_packed_bytes(count: usize) -> usize {
+    (count / BONSAI_GROUP_SIZE) * BONSAI_Q1_BLOCK_BYTES
+}
+
+/// Packed byte count for `count` Bonsai TQ2_0_g128 weights.
+/// `count` must be a multiple of [`BONSAI_GROUP_SIZE`].
+#[inline]
+pub const fn bonsai_tq2_packed_bytes(count: usize) -> usize {
+    (count / BONSAI_GROUP_SIZE) * BONSAI_TQ2_BLOCK_BYTES
+}
+
+/// Bonsai Q1_0_g128 1-bit GEMV with FP16 activations and FP16 output.
+///
+/// Computes `out_fp16[n] = sum_{k=0..K_in} w[n,k] * act_fp16[k]` where
+/// `w[n,k] = sign_bit ? +d : -d` comes from the 18-byte-per-block packed
+/// weight buffer (`N_out * K_in / 128 * 18` bytes). Per-block FP16 scale
+/// `d` is embedded in each block (no external scales tensor).
+///
+/// Preconditions:
+/// - `k_in > 0` and `k_in % 128 == 0`
+/// - `n_out > 0`
+/// - `packed.0` points to at least `n_out * k_in / 128 * 18` device bytes
+/// - `act.0` points to at least `k_in` fp16 elements on device
+/// - `out.0` points to at least `n_out` fp16 writable elements on device
+///
+/// **Status 2026-04-20: unconditionally returns [`RcppError::Unsupported`].**
+/// The HIP kernel has not yet been authored (see
+/// `docs/wiki/Bonsai-Kernel-Spec.md`). This wrapper validates shapes and
+/// exercises the safe-wrapper pattern so higher-level code can depend on
+/// the signature before the kernel lands.
+pub fn bonsai_q1_gemv_fp16(
+    packed: DevicePtr<u8>,
+    act: DevicePtr<u16>,
+    out: DeviceMutPtr<u16>,
+    n_out: i32,
+    k_in: i32,
+    stream: Option<HipStream>,
+) -> Result<(), RcppError> {
+    if n_out <= 0 {
+        return Err(RcppError::Precondition(
+            "bonsai_q1_gemv_fp16: n_out must be positive",
+        ));
+    }
+    if k_in <= 0 || (k_in as usize) % BONSAI_GROUP_SIZE != 0 {
+        return Err(RcppError::Precondition(
+            "bonsai_q1_gemv_fp16: k_in must be a positive multiple of 128",
+        ));
+    }
+    // Silence warnings until the kernel lands.
+    let _ = (packed, act, out, stream);
+    // Kernel not yet implemented — see module header.
+    Err(RcppError::Unsupported)
+}
+
+/// Bonsai TQ2_0_g128 ternary GEMV with FP16 activations and FP16 output.
+///
+/// Computes `out_fp16[n] = sum_{k=0..K_in} w[n,k] * act_fp16[k]` where
+/// `w[n,k] = code ∈ {-1, 0, +1}` times the block's FP16 scale `d`, sourced
+/// from the 34-byte-per-block packed weight buffer
+/// (`N_out * K_in / 128 * 34` bytes). The 2-bit codes map
+/// `00→-1, 01→0, 10→+1, 11→0(reserved)`, 4 per byte LSB-first, matching
+/// oxibonsai's `BlockTQ2_0_g128` and the Metal reference kernel.
+///
+/// Preconditions:
+/// - `k_in > 0` and `k_in % 128 == 0`
+/// - `n_out > 0`
+/// - `packed.0` points to at least `n_out * k_in / 128 * 34` device bytes
+/// - `act.0` points to at least `k_in` fp16 elements on device
+/// - `out.0` points to at least `n_out` fp16 writable elements on device
+///
+/// **Status 2026-04-20: unconditionally returns [`RcppError::Unsupported`].**
+/// The HIP kernel has not yet been authored (see
+/// `docs/wiki/Bonsai-Kernel-Spec.md`). This wrapper validates shapes and
+/// exercises the safe-wrapper pattern so higher-level code can depend on
+/// the signature before the kernel lands.
+pub fn bonsai_tq2_gemv_fp16(
+    packed: DevicePtr<u8>,
+    act: DevicePtr<u16>,
+    out: DeviceMutPtr<u16>,
+    n_out: i32,
+    k_in: i32,
+    stream: Option<HipStream>,
+) -> Result<(), RcppError> {
+    if n_out <= 0 {
+        return Err(RcppError::Precondition(
+            "bonsai_tq2_gemv_fp16: n_out must be positive",
+        ));
+    }
+    if k_in <= 0 || (k_in as usize) % BONSAI_GROUP_SIZE != 0 {
+        return Err(RcppError::Precondition(
+            "bonsai_tq2_gemv_fp16: k_in must be a positive multiple of 128",
+        ));
+    }
+    // Silence warnings until the kernel lands.
+    let _ = (packed, act, out, stream);
+    // Kernel not yet implemented — see module header.
+    Err(RcppError::Unsupported)
+}
+
+// -----------------------------------------------------------------------------
 // BitNet v2 — Hadamard rotation (H-BitLinear)
 // -----------------------------------------------------------------------------
 
@@ -1794,5 +1919,59 @@ mod tests {
             // Silence unused warning on c_char.
             let _: *const c_char = core::ptr::null();
         }
+    }
+
+    /// Bonsai Q1_0_g128 GEMV wrapper rejects bad shapes BEFORE dispatching.
+    /// Runs on every host (no GPU required) because the wrapper
+    /// short-circuits to `Unsupported` once shape validation passes — the
+    /// HIP kernel does not yet exist.
+    #[test]
+    fn bonsai_q1_gemv_fp16_preconditions() {
+        // Dummy pointers — never dereferenced because validation fires first.
+        let packed: DevicePtr<u8> = DevicePtr(core::ptr::null());
+        let act: DevicePtr<u16> = DevicePtr(core::ptr::null());
+        let out: DeviceMutPtr<u16> = DeviceMutPtr(core::ptr::null_mut());
+
+        // K must be a positive multiple of 128.
+        let err = bonsai_q1_gemv_fp16(packed, act, out, 16, 64, None).unwrap_err();
+        assert!(matches!(err, RcppError::Precondition(_)));
+        let err = bonsai_q1_gemv_fp16(packed, act, out, 16, 0, None).unwrap_err();
+        assert!(matches!(err, RcppError::Precondition(_)));
+        // N_out must be positive.
+        let err = bonsai_q1_gemv_fp16(packed, act, out, 0, 128, None).unwrap_err();
+        assert!(matches!(err, RcppError::Precondition(_)));
+        // Valid shape — wrapper passes validation, then returns Unsupported
+        // because the kernel has not yet been authored.
+        let err = bonsai_q1_gemv_fp16(packed, act, out, 16, 128, None).unwrap_err();
+        assert!(matches!(err, RcppError::Unsupported));
+
+        // Packed-byte accounting math is exposed as a const fn.
+        assert_eq!(bonsai_q1_packed_bytes(128), 18);
+        assert_eq!(bonsai_q1_packed_bytes(2048), 16 * 18);
+    }
+
+    /// Bonsai TQ2_0_g128 GEMV wrapper rejects bad shapes BEFORE dispatching.
+    /// Same rationale as the Q1 test above.
+    #[test]
+    fn bonsai_tq2_gemv_fp16_preconditions() {
+        let packed: DevicePtr<u8> = DevicePtr(core::ptr::null());
+        let act: DevicePtr<u16> = DevicePtr(core::ptr::null());
+        let out: DeviceMutPtr<u16> = DeviceMutPtr(core::ptr::null_mut());
+
+        // K must be a positive multiple of 128.
+        let err = bonsai_tq2_gemv_fp16(packed, act, out, 16, 127, None).unwrap_err();
+        assert!(matches!(err, RcppError::Precondition(_)));
+        let err = bonsai_tq2_gemv_fp16(packed, act, out, 16, -1, None).unwrap_err();
+        assert!(matches!(err, RcppError::Precondition(_)));
+        // N_out must be positive.
+        let err = bonsai_tq2_gemv_fp16(packed, act, out, -5, 128, None).unwrap_err();
+        assert!(matches!(err, RcppError::Precondition(_)));
+        // Valid shape — wrapper returns Unsupported until the kernel lands.
+        let err = bonsai_tq2_gemv_fp16(packed, act, out, 32, 256, None).unwrap_err();
+        assert!(matches!(err, RcppError::Unsupported));
+
+        // Packed-byte accounting math is exposed as a const fn.
+        assert_eq!(bonsai_tq2_packed_bytes(128), 34);
+        assert_eq!(bonsai_tq2_packed_bytes(2048), 16 * 34);
     }
 }
