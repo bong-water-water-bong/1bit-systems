@@ -75,6 +75,9 @@ add_library(rocm_cpp SHARED
     src/ternary_gemm_smallm_scalar_ref.hip
     src/sherry_gemv.hip
     src/sherry_gemv_scalar_ref.hip
+    src/bonsai_q1_gemv.hip
+    src/bonsai_tq2_gemv.hip
+    src/bonsai_gemv_scalar_ref.hip
     kernels/ternary_gemv_phase5_dot4.hip
     kernels/ternary_gemv_phase5_halo.hip
     kernels/ternary_gemv_sherry.hip
@@ -94,6 +97,9 @@ set_source_files_properties(
     src/ternary_gemm_smallm_scalar_ref.hip
     src/sherry_gemv.hip
     src/sherry_gemv_scalar_ref.hip
+    src/bonsai_q1_gemv.hip
+    src/bonsai_tq2_gemv.hip
+    src/bonsai_gemv_scalar_ref.hip
     kernels/ternary_gemv_phase5_dot4.hip
     kernels/ternary_gemv_phase5_halo.hip
     kernels/ternary_gemv_sherry.hip
@@ -150,6 +156,14 @@ target_compile_options(test_sherry_gemv PRIVATE
 target_link_libraries(test_sherry_gemv PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(test_sherry_gemv PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
+# -- tests/test_bonsai_gemv : Bonsai Q1 / TQ2 GEMV differential test ---------
+add_executable(test_bonsai_gemv tests/test_bonsai_gemv.cpp)
+set_source_files_properties(tests/test_bonsai_gemv.cpp PROPERTIES LANGUAGE HIP)
+target_compile_options(test_bonsai_gemv PRIVATE
+    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_link_libraries(test_bonsai_gemv PRIVATE rocm_cpp hip::host hip::device)
+set_target_properties(test_bonsai_gemv PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+
 # -- tests/test_sherry_e2e : fp16-Sherry loader + decode smoke test -----------
 # Loads the real halo-1bit-2b-sherry-v4.h1b file, runs one decode token
 # through the fp16-Sherry dispatch path, asserts finite + non-trivial logits.
@@ -160,6 +174,20 @@ target_compile_options(test_sherry_e2e PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
 target_link_libraries(test_sherry_e2e PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(test_sherry_e2e PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+
+# -- tests/test_bonsai_e2e : Bonsai (Qwen3) loader + decode smoke test --------
+# Loads bonsai-1.7b-tq2.h1b + sidecar GGUF, runs one decode token through
+# the Qwen3-flavored dispatch path (per-head q/k norms, SwiGLU, tied LM
+# head via the dequantized TQ2 embedding). Asserts no launch error + non-
+# zero + finite logits. Works even when the sibling HIP kernel pass hasn't
+# landed — the bonsai_*_gemv_launch symbols are weak, dispatch short-
+# circuits to zeros, and the test still validates the loader + sidecar.
+add_executable(test_bonsai_e2e tests/test_bonsai_e2e.cpp)
+set_source_files_properties(tests/test_bonsai_e2e.cpp PROPERTIES LANGUAGE HIP)
+target_compile_options(test_bonsai_e2e PRIVATE
+    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_link_libraries(test_bonsai_e2e PRIVATE rocm_cpp hip::host hip::device)
+set_target_properties(test_bonsai_e2e PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
 # -- tools/bitnet_decode : end-to-end MVP decode CLI ---------------------------
 add_executable(bitnet_decode tools/bitnet_decode.cpp)

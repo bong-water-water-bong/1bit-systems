@@ -18,6 +18,7 @@ members = [
     "crates/1bit-whisper",
     "tools/h1b-sherry",
     "tools/gguf-to-h1b",
+    "tools/bitnet-to-tq2",
 ]
 
 [workspace.package]

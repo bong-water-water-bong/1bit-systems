@@ -43,6 +43,24 @@
 #include <httplib.h>
 #include <nlohmann/json.hpp>
 
+// Bonsai Q1_0_g128 / TQ2_0_g128 ternary GEMV launchers — forward-declared
+// here (the HIP port agent's rocm_cpp/bonsai.h hasn't landed yet).
+// `__attribute__((weak))` lets us link even when the kernels haven't been
+// built into librocm_cpp.so yet — the Bonsai dispatch path checks the
+// symbol pointer for null and reports a clean error instead of SEGV.
+extern "C" void bonsai_q1_gemv_launch(
+    const uint8_t* packed_weights,
+    const uint16_t* act_fp16,
+    uint16_t* out_fp16,
+    int N_out, int K_in,
+    void* stream) __attribute__((weak));
+extern "C" void bonsai_tq2_gemv_launch(
+    const uint8_t* packed_weights,
+    const uint16_t* act_fp16,
+    uint16_t* out_fp16,
+    int N_out, int K_in,
+    void* stream) __attribute__((weak));
+
 #define HIP_OK(e) do { auto _s=(e); if(_s!=hipSuccess){fprintf(stderr,"HIP %d %s:%d\n",_s,__FILE__,__LINE__); return 1;}} while(0)
 #define RC_OK(e)  do { auto _s=(e); if(_s!=RCPP_OK){fprintf(stderr,"rcpp err %d at %s:%d\n",(int)_s,__FILE__,__LINE__); return 1;}} while(0)
 
@@ -113,6 +131,41 @@ rcpp_status_t bitnet_sherry_fp16_gemv(
     return RCPP_OK;
 }
 
+// Bonsai Q1 / TQ2 GEMV dispatch. fp16-in / fp16-out, no row_scales tensor
+// (scales are inline per-128-weight block). When the kernel is not linked
+// in (weak symbol resolved to null), memset the output to zero and warn.
+rcpp_status_t bonsai_gemv_dispatch(
+    rcpp_weight_format_t fmt,
+    const void* packed_weights_dev,
+    const void* act_fp16_dev,
+    void*       out_fp16_dev,
+    int N, int K,
+    hipStream_t stream)
+{
+    using Fn = void (*)(const uint8_t*, const uint16_t*, uint16_t*,
+                        int, int, void*);
+    Fn fn = nullptr;
+    if      (fmt == RCPP_WEIGHT_FORMAT_BONSAI_TQ2) fn = &bonsai_tq2_gemv_launch;
+    else if (fmt == RCPP_WEIGHT_FORMAT_BONSAI_Q1)  fn = &bonsai_q1_gemv_launch;
+    if (!fn) {
+        static bool once = false;
+        if (!once) {
+            fprintf(stderr,
+                "[bitnet_decode] bonsai_*_gemv_launch not linked — HIP kernel pass has not landed yet.\n"
+                "  Zeroing output; logits will be meaningless until librocm_cpp.so re-exports the symbol.\n");
+            once = true;
+        }
+        (void)hipMemsetAsync(out_fp16_dev, 0, (size_t)N * sizeof(uint16_t), stream);
+        return RCPP_OK;
+    }
+    fn(static_cast<const uint8_t*>(packed_weights_dev),
+       static_cast<const uint16_t*>(act_fp16_dev),
+       static_cast<uint16_t*>(out_fp16_dev),
+       N, K,
+       static_cast<void*>(stream));
+    return RCPP_OK;
+}
+
 }  // namespace
 
 // Load a whitespace-separated list of token IDs from a stream.
@@ -140,17 +193,24 @@ int main(int argc, char** argv) {
     // a ctx-sized warmup prefill, prints ONE LAST LINE of "<tok/s>" to stdout.
     // sherry-bench.sh parses this; no other output goes to stdout in this mode.
 
-    // Peek for --model / --ctx / --iters up front; if present, drive the
-    // positional/prompt machinery from those flags. Leaves every other CLI
-    // mode (--text, --chat, --repl, --server, --ppl, positional) untouched.
+    // Peek for --model / --ctx / --iters / --prompt / --max-tokens up front;
+    // if present, drive the positional/prompt machinery from those flags.
+    // --prompt / --max-tokens are flag-form aliases for the positional
+    // (<prompt> <num_new>) triple and let orchestration scripts use a
+    // uniform `--model X --prompt Y --max-tokens N` invocation across
+    // BitNet / Sherry / Bonsai models.
     const char* bench_model = nullptr;
     int bench_ctx   = 0;
     int bench_iters = 0;
+    const char* cli_prompt = nullptr;
+    int cli_max_tokens = -1;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
-        if      (a == "--model" && i + 1 < argc) { bench_model = argv[++i]; }
-        else if (a == "--ctx"   && i + 1 < argc) { bench_ctx   = std::atoi(argv[++i]); }
-        else if (a == "--iters" && i + 1 < argc) { bench_iters = std::atoi(argv[++i]); }
+        if      (a == "--model"      && i + 1 < argc) { bench_model    = argv[++i]; }
+        else if (a == "--ctx"        && i + 1 < argc) { bench_ctx      = std::atoi(argv[++i]); }
+        else if (a == "--iters"      && i + 1 < argc) { bench_iters    = std::atoi(argv[++i]); }
+        else if (a == "--prompt"     && i + 1 < argc) { cli_prompt     = argv[++i]; }
+        else if (a == "--max-tokens" && i + 1 < argc) { cli_max_tokens = std::atoi(argv[++i]); }
     }
     const bool bench_mode =
         (bench_model != nullptr && bench_ctx > 0 && bench_iters > 0);
@@ -158,10 +218,16 @@ int main(int argc, char** argv) {
     const char* path = bench_model ? bench_model
                      : (argc > 1   ? argv[1]
                                    : "/home/bcloud/halo-1bit/models/halo-1bit-2b.h1b");
+    // --prompt "..." routes through the same --text code path below.
+    // Signal it by swapping prompt_arg to "--text"; the --text branch reads
+    // cli_prompt / cli_max_tokens when argc_use < 4.
     const char* prompt_arg = bench_mode      ? "1"
+                           : cli_prompt      ? "--text"
                            : (argc > 2       ? argv[2]
                                              : "1");
-    int num_tokens = bench_mode ? bench_iters : 16;
+    int num_tokens = bench_mode ? bench_iters
+                   : cli_max_tokens > 0 ? cli_max_tokens
+                   : 16;
     // Default tokenizer: same dir as model, .h1b -> .htok. Makes the binary
     // relocatable — no more build-time $HOME leak. Overridable via --tokenizer
     // flag or (in --text mode) the trailing positional arg.
@@ -224,20 +290,33 @@ int main(int argc, char** argv) {
     std::vector<int> prompt_ids;
     if (std::string(prompt_arg) == "--text") {
         // layout: bitnet_decode <model> --text "<prompt>" <num_new> [tokenizer.htok]
-        if (argc_use < 4) { fprintf(stderr, "usage: --text \"<prompt text>\" <num_new> [tokenizer.htok]\n"); return 1; }
-        const char* text = argv[3];
-        num_tokens = argc_use > 4 ? std::atoi(argv[4]) : 32;
-        if (argc_use > 5) tok_path = argv[5];
+        //     or: bitnet_decode --model <m> --prompt "<text>" --max-tokens N
+        const char* text = nullptr;
+        if (cli_prompt) {
+            text = cli_prompt;
+            if (cli_max_tokens > 0) num_tokens = cli_max_tokens;
+        } else {
+            if (argc_use < 4) { fprintf(stderr, "usage: --text \"<prompt text>\" <num_new> [tokenizer.htok]\n"); return 1; }
+            text = argv[3];
+            num_tokens = argc_use > 4 ? std::atoi(argv[4]) : 32;
+            if (argc_use > 5) tok_path = argv[5];
+        }
         rcpp_tokenizer_t* tok = nullptr;
         if (rcpp_tokenizer_load(tok_path, &tok) != RCPP_OK) {
-            fprintf(stderr, "cannot load tokenizer .htok: %s\n", tok_path); return 1;
+            // Models without a .htok sidecar (Bonsai today) can still drive
+            // a smoke run with BOS alone. Emit a loud warning + downgrade to
+            // single-token-start so the decode pipe still runs.
+            fprintf(stderr,
+                "[tokenizer] WARN cannot load %s — falling back to BOS-only prompt. "
+                "Actual text prompt discarded.\n", tok_path);
+            prompt_ids.push_back(1);  // BOS in every tokenizer we've seen
+        } else {
+            prompt_ids.push_back(rcpp_tokenizer_bos_id(tok));
+            auto text_ids = tokenize(tok, text);
+            prompt_ids.insert(prompt_ids.end(), text_ids.begin(), text_ids.end());
+            rcpp_tokenizer_free(tok);
+            fprintf(stderr, "[tokenizer] \"%s\" -> %zu tokens\n", text, prompt_ids.size());
         }
-        // Add BOS then tokenize text.
-        prompt_ids.push_back(rcpp_tokenizer_bos_id(tok));
-        auto text_ids = tokenize(tok, text);
-        prompt_ids.insert(prompt_ids.end(), text_ids.begin(), text_ids.end());
-        rcpp_tokenizer_free(tok);
-        fprintf(stderr, "[tokenizer] \"%s\" -> %zu tokens\n", text, prompt_ids.size());
     } else if (std::string(prompt_arg) == "--chat") {
         // layout: bitnet_decode <model> --chat "<user msg>" <num_new> [system_msg]
         // Applies BitNet's chat template: "User: msg<|eot_id|>Assistant: "
@@ -369,10 +448,13 @@ int main(int argc, char** argv) {
     //                  (bitnet_sherry_fp16_gemv above). Activations stay fp16,
     //                  no INT8 quant in that path.
     const bool is_sherry_fp16 = (m.weight_format == RCPP_WEIGHT_FORMAT_SHERRY_FP16);
+    const bool is_bonsai_q1   = (m.weight_format == RCPP_WEIGHT_FORMAT_BONSAI_Q1);
+    const bool is_bonsai_tq2  = (m.weight_format == RCPP_WEIGHT_FORMAT_BONSAI_TQ2);
+    const bool is_bonsai      = is_bonsai_q1 || is_bonsai_tq2;
+    const bool is_qwen3       = (m.is_qwen3 != 0);
 
     // Int8-activation dispatch (HALO_V2 / SHERRY_I8 / TQ1). Unused on the
-    // SHERRY_FP16 path — forward lambda branches on `is_sherry_fp16` before
-    // invoking.
+    // SHERRY_FP16 / BONSAI_* paths — forward lambda branches before calling.
     const auto ternary_gemv_i8 =
         (m.weight_format == RCPP_WEIGHT_FORMAT_TQ1)       ? rcpp_ternary_gemv_tq1_halo_f16
       : (m.weight_format == RCPP_WEIGHT_FORMAT_SHERRY_I8) ? rcpp_ternary_gemv_sherry_f16
@@ -592,6 +674,10 @@ int main(int argc, char** argv) {
     auto ternary_gemv = [&](const void* packed, const int8_t* x_i8_in, float x_scale,
                             const float* row_scales, const void* normed_fp16,
                             void* out_fp16, int N, int K) -> rcpp_status_t {
+        if (is_bonsai) {
+            return bonsai_gemv_dispatch(m.weight_format, packed, normed_fp16,
+                                        out_fp16, N, K, /*stream=*/nullptr);
+        }
         if (is_sherry_fp16) {
             return bitnet_sherry_fp16_gemv(packed, normed_fp16, row_scales,
                                            out_fp16, N, K, /*stream=*/nullptr);
@@ -627,6 +713,25 @@ int main(int argc, char** argv) {
             RC_OK(ternary_gemv(ly.q_packed_dev, x_i8, x_scale, ly.q_scales_dev, normed, q_fp16, nh*hd,  hs_k));
             RC_OK(ternary_gemv(ly.k_packed_dev, x_i8, x_scale, ly.k_scales_dev, normed, k_fp16, nkv*hd, hs_k));
             RC_OK(ternary_gemv(ly.v_packed_dev, x_i8, x_scale, ly.v_scales_dev, normed, v_fp16, nkv*hd, hs_k));
+
+            // Qwen3 attention preamble — per-head RMSNorm on Q and K, applied
+            // BEFORE RoPE (matches HuggingFace qwen3/modeling_qwen3.py
+            // `Qwen3Attention.forward`: `q = self.q_norm(q.view(B, -1, nh, hd))`
+            // then rope). BitNet / Sherry skip this block.
+            if (is_qwen3 && ly.attn_q_norm_dev) {
+                for (int h = 0; h < nh; ++h) {
+                    _Float16* qh = q_fp16 + (size_t)h * hd;
+                    RC_OK(rcpp_rmsnorm_fp16(qh, ly.attn_q_norm_dev, qh,
+                                            m.rms_norm_eps, hd, nullptr));
+                }
+            }
+            if (is_qwen3 && ly.attn_k_norm_dev) {
+                for (int h = 0; h < nkv; ++h) {
+                    _Float16* kh = k_fp16 + (size_t)h * hd;
+                    RC_OK(rcpp_rmsnorm_fp16(kh, ly.attn_k_norm_dev, kh,
+                                            m.rms_norm_eps, hd, nullptr));
+                }
+            }
 
             // RoPE on Q and K
             RC_OK(rcpp_rope_fp16(q_fp16, pos, m.rope_theta, nh,  hd, nullptr));
@@ -676,17 +781,28 @@ int main(int argc, char** argv) {
                                                    o_fp16, nh, nkv, hd, pos+1, scale, nullptr));
             }
 
-            // BitNet b1.58: attn_sub_norm on attention output before O proj.
-            // Reuse `normed` as the sub-norm output; on the fp16 path the GEMV
-            // consumes it directly, on the int8 path we quantize one more time.
-            RC_OK(rcpp_rmsnorm_fp16(o_fp16, ly.attn_sub_norm_dev, normed,
-                                    m.rms_norm_eps, hs, nullptr));
-            RC_OK(rcpp_quantize_fp16_to_i8(normed, x_i8, x_scale_dev, hs, nullptr));
-            if (!is_sherry_fp16) {
-                HIP_OK(hipMemcpy(&x_scale, x_scale_dev, 4, hipMemcpyDeviceToHost));
+            if (is_qwen3) {
+                // Qwen3 has no attn_sub_norm — attention output feeds O proj
+                // directly. Reuse `normed` as the O-proj output buffer so we
+                // don't trample o_fp16 mid-compute when residual-adds it.
+                RC_OK(rcpp_quantize_fp16_to_i8(o_fp16, x_i8, x_scale_dev, hs, nullptr));
+                if (!is_sherry_fp16 && !is_bonsai) {
+                    HIP_OK(hipMemcpy(&x_scale, x_scale_dev, 4, hipMemcpyDeviceToHost));
+                }
+                RC_OK(ternary_gemv(ly.o_packed_dev, x_i8, x_scale, ly.o_scales_dev,
+                                   o_fp16, normed, hs, align_k(nh*hd)));
+                RC_OK(rcpp_residual_add_fp32_from_fp16(x_fp32, normed, hs, nullptr));
+            } else {
+                // BitNet b1.58: attn_sub_norm on attention output before O proj.
+                RC_OK(rcpp_rmsnorm_fp16(o_fp16, ly.attn_sub_norm_dev, normed,
+                                        m.rms_norm_eps, hs, nullptr));
+                RC_OK(rcpp_quantize_fp16_to_i8(normed, x_i8, x_scale_dev, hs, nullptr));
+                if (!is_sherry_fp16) {
+                    HIP_OK(hipMemcpy(&x_scale, x_scale_dev, 4, hipMemcpyDeviceToHost));
+                }
+                RC_OK(ternary_gemv(ly.o_packed_dev, x_i8, x_scale, ly.o_scales_dev, normed, o_fp16, hs, align_k(nh*hd)));
+                RC_OK(rcpp_residual_add_fp32_from_fp16(x_fp32, o_fp16, hs, nullptr));
             }
-            RC_OK(ternary_gemv(ly.o_packed_dev, x_i8, x_scale, ly.o_scales_dev, normed, o_fp16, hs, align_k(nh*hd)));
-            RC_OK(rcpp_residual_add_fp32_from_fp16(x_fp32, o_fp16, hs, nullptr));
 
             // --- FFN block ---
             RC_OK(rcpp_rmsnorm_fp32_in_fp16_out(x_fp32, ly.post_attn_norm_dev, normed,
@@ -699,14 +815,21 @@ int main(int argc, char** argv) {
             RC_OK(ternary_gemv(ly.gate_packed_dev, x_i8, x_scale, ly.gate_scales_dev, normed, gate_fp16, is, hs_k));
             RC_OK(ternary_gemv(ly.up_packed_dev,   x_i8, x_scale, ly.up_scales_dev,   normed, up_fp16,   is, hs_k));
 
-            // BitNet-b1.58 FFN activation: relu²(gate) * up — fused with
-            // ffn_sub_norm in FP32 to avoid FP16 overflow of the raw product
-            // (magnitude reaches ~1e9 on real weights; FP16 max is 6.5e4).
-            RC_OK(rcpp_relu2_glu_rmsnorm_fp16(gate_fp16, up_fp16, ly.ffn_sub_norm_dev,
-                                              silu_out, m.rms_norm_eps, is, nullptr));
+            if (is_qwen3) {
+                // Qwen3 FFN activation: SwiGLU = silu(gate) * up. No
+                // ffn_sub_norm between GLU and down_proj. rcpp_silu_glu_fp16
+                // takes (up, gate, y) — note the arg order on the C API.
+                RC_OK(rcpp_silu_glu_fp16(up_fp16, gate_fp16, silu_out, is, nullptr));
+            } else {
+                // BitNet-b1.58 FFN activation: relu²(gate) * up — fused with
+                // ffn_sub_norm in FP32 to avoid FP16 overflow of the raw
+                // product (magnitude ~1e9 on real weights; FP16 max 6.5e4).
+                RC_OK(rcpp_relu2_glu_rmsnorm_fp16(gate_fp16, up_fp16, ly.ffn_sub_norm_dev,
+                                                  silu_out, m.rms_norm_eps, is, nullptr));
+            }
             RC_OK(rcpp_quantize_fp16_to_i8(silu_out, silu_i8, silu_scale_dev, is, nullptr));
             float silu_scale = 0.0f;
-            if (!is_sherry_fp16) {
+            if (!is_sherry_fp16 && !is_bonsai) {
                 HIP_OK(hipMemcpy(&silu_scale, silu_scale_dev, 4, hipMemcpyDeviceToHost));
             }
 

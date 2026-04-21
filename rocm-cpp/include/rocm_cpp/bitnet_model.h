@@ -16,22 +16,36 @@ extern "C" {
 //   0x1 : H-BitLinear Hadamard-rotation bake-in (activations must be pre-rotated).
 //   0x2 : Sherry 1.25-bpw weights routed through the fp16-in/fp16-out kernel
 //         (sherry_ternary_gemv_launch) instead of the int8-act sherry decoder.
+//   0x4 : Bonsai Q1_0_g128 weights (1.0 bpw info / 1.125 bpw on-disk; 18 B / block).
+//   0x8 : Bonsai TQ2_0_g128 weights (~1.585 bpw info / 2.125 bpw on-disk; 34 B / block).
+//         Both Bonsai flags imply Qwen3 architecture with per-head q/k norms
+//         and plain SwiGLU (no attn_sub_norm / ffn_sub_norm). See
+//         docs/wiki/Bonsai-Kernel-Spec.md for the byte-exact layout.
 #define H1B_FLAG_HADAMARD_ROTATED 0x1u
 #define H1B_FLAG_SHERRY_FP16      0x2u
+#define H1B_FLAG_BONSAI_Q1        0x4u
+#define H1B_FLAG_BONSAI_TQ2       0x8u
 
 // Dispatch tag for the per-layer ternary GEMV. Driven by file version + flags
 // at load time; inference loop reads this instead of re-parsing the header.
-//   HALO_V2   : halo v2 packing (2 bpw, uint8 [rows, (cols+3)/4])
-//   SHERRY_I8 : halo-1bit v3 Sherry (1.25 bpw) with int8 acts + per-row scales
-//   TQ1       : halo-1bit v4 base-3 TQ1 (1.6 bpw, lossless)
+//   HALO_V2    : halo v2 packing (2 bpw, uint8 [rows, (cols+3)/4])
+//   SHERRY_I8  : halo-1bit v3 Sherry (1.25 bpw) with int8 acts + per-row scales
+//   TQ1        : halo-1bit v4 base-3 TQ1 (1.6 bpw, lossless)
 //   SHERRY_FP16: same pack as SHERRY_I8 but dispatched to the pure fp16 kernel
 //                (sherry_ternary_gemv_launch) — no int8 quant, post-row-scale
 //                folded in by the caller.
+//   BONSAI_Q1  : Bonsai 1-bit g128 block-interleaved (oxibonsai layout).
+//                Dispatched to bonsai_q1_gemv_launch, fp16-in/fp16-out, inline
+//                per-block fp16 scales, no row_scales tensor on the layer.
+//   BONSAI_TQ2 : Bonsai ternary 2-bit g128 block-interleaved. Dispatched to
+//                bonsai_tq2_gemv_launch. Same fp16-in/fp16-out, inline scales.
 typedef enum {
     RCPP_WEIGHT_FORMAT_HALO_V2    = 0,
     RCPP_WEIGHT_FORMAT_SHERRY_I8  = 1,
     RCPP_WEIGHT_FORMAT_TQ1        = 2,
     RCPP_WEIGHT_FORMAT_SHERRY_FP16 = 3,
+    RCPP_WEIGHT_FORMAT_BONSAI_Q1  = 4,
+    RCPP_WEIGHT_FORMAT_BONSAI_TQ2 = 5,
 } rcpp_weight_format_t;
 
 typedef struct {
@@ -40,10 +54,19 @@ typedef struct {
     //   attn_sub_norm [hs] — on attn output, before O proj
     //   post_attn_norm[hs] — pre gate/up
     //   ffn_sub_norm  [is] — on silu(gate)*up, before down proj
+    //
+    // Qwen3 / Bonsai carries two additional per-head RMSNorms that BitNet
+    // doesn't have, both shape [head_dim]:
+    //   attn_q_norm   [head_dim] — applied per head on Q before RoPE
+    //   attn_k_norm   [head_dim] — applied per head on K before RoPE
+    // These are nullptr on BitNet models; the Bonsai GGUF sidecar loader
+    // fills them when the H1B_FLAG_BONSAI_* bits are set.
     void* input_norm_dev;
     void* post_attn_norm_dev;
     void* attn_sub_norm_dev;
     void* ffn_sub_norm_dev;
+    void* attn_q_norm_dev;
+    void* attn_k_norm_dev;
 
     // Ternary linear layers — halo-encoded uint8 packed (reinterpret as uint32
     // bytewise for rcpp_ternary_gemv_halo) + per-row FP32 scales.
@@ -77,6 +100,12 @@ typedef struct {
     // Resolved dispatch tag for the per-layer ternary GEMV. Inference code
     // branches on this instead of re-deriving from (version, flags).
     rcpp_weight_format_t weight_format;
+
+    // Non-zero when the loader detected a Qwen3-flavored model (any of the
+    // H1B_FLAG_BONSAI_* bits). The forward pass uses this to skip the BitNet
+    // sub-norms and run the Qwen3 attention preamble (per-head q/k norms)
+    // + plain SwiGLU FFN. Zero for every BitNet / halo family model.
+    int is_qwen3;
 
     void* embedding_dev;            // FP16 [vocab, hidden]
     void* final_norm_weight_dev;    // FP16 [hidden]

@@ -1113,14 +1113,12 @@ pub fn sherry_gemv_fp16_scalar_ref(
 // -----------------------------------------------------------------------------
 // Bonsai Q1_0_g128 / TQ2_0_g128 — fp16-in / fp16-out GEMV
 //
-// Status 2026-04-20: **no HIP kernel yet.** These wrappers pre-validate the
-// shape contract and return `RcppError::Unsupported` unconditionally — both
-// in the `link-rocm` build (no kernel landed) and in the default build (no
-// FFI symbols to call). The scaffolding exists so `.h1b` loader + model
-// registry work can land without being blocked on kernel authorship. The
-// HIP port agent will (a) implement `bonsai_q1_gemv_launch` +
-// `bonsai_tq2_gemv_launch` in `rocm-cpp/kernels/` and (b) delete the
-// "short-circuit to Unsupported" gate below.
+// HIP kernels live in `rocm-cpp/src/bonsai_{q1,tq2}_gemv.hip`. Both
+// consume the AoS on-disk layout directly (no host-side SoA repack) and
+// embed the per-block FP16 scale inline per oxibonsai's format. Status
+// 2026-04-21: kernels correctness-gated by
+// `rocm-cpp/tests/test_bonsai_gemv.cpp` (differential against scalar
+// reference, 50 seeds × {2048, 6912}² × both formats, ≤ 3 fp16 ULP).
 // -----------------------------------------------------------------------------
 
 /// Fixed group size shared by both Bonsai formats (oxibonsai
@@ -1161,11 +1159,7 @@ pub const fn bonsai_tq2_packed_bytes(count: usize) -> usize {
 /// - `act.0` points to at least `k_in` fp16 elements on device
 /// - `out.0` points to at least `n_out` fp16 writable elements on device
 ///
-/// **Status 2026-04-20: unconditionally returns [`RcppError::Unsupported`].**
-/// The HIP kernel has not yet been authored (see
-/// `docs/wiki/Bonsai-Kernel-Spec.md`). This wrapper validates shapes and
-/// exercises the safe-wrapper pattern so higher-level code can depend on
-/// the signature before the kernel lands.
+/// Returns [`RcppError::Unsupported`] when `link-rocm` is off.
 pub fn bonsai_q1_gemv_fp16(
     packed: DevicePtr<u8>,
     act: DevicePtr<u16>,
@@ -1184,10 +1178,31 @@ pub fn bonsai_q1_gemv_fp16(
             "bonsai_q1_gemv_fp16: k_in must be a positive multiple of 128",
         ));
     }
-    // Silence warnings until the kernel lands.
-    let _ = (packed, act, out, stream);
-    // Kernel not yet implemented — see module header.
-    Err(RcppError::Unsupported)
+
+    let stream = stream.unwrap_or(HipStream::DEFAULT);
+
+    #[cfg(not(feature = "link-rocm"))]
+    {
+        let _ = (packed, act, out, stream);
+        return Err(RcppError::Unsupported);
+    }
+
+    // SAFETY: device-pointer contract upheld by caller (see `DevicePtr`
+    // docs); shape divisibility pre-checked above; the launcher only
+    // reads `packed`/`act` and writes `out`.
+    #[cfg(feature = "link-rocm")]
+    unsafe {
+        ffi::bonsai_q1_gemv_launch(
+            packed.0,
+            act.0,
+            out.0,
+            n_out as c_int,
+            k_in as c_int,
+            stream.as_raw(),
+        );
+    }
+    #[cfg_attr(not(feature = "link-rocm"), allow(unreachable_code))]
+    Ok(())
 }
 
 /// Bonsai TQ2_0_g128 ternary GEMV with FP16 activations and FP16 output.
@@ -1206,11 +1221,7 @@ pub fn bonsai_q1_gemv_fp16(
 /// - `act.0` points to at least `k_in` fp16 elements on device
 /// - `out.0` points to at least `n_out` fp16 writable elements on device
 ///
-/// **Status 2026-04-20: unconditionally returns [`RcppError::Unsupported`].**
-/// The HIP kernel has not yet been authored (see
-/// `docs/wiki/Bonsai-Kernel-Spec.md`). This wrapper validates shapes and
-/// exercises the safe-wrapper pattern so higher-level code can depend on
-/// the signature before the kernel lands.
+/// Returns [`RcppError::Unsupported`] when `link-rocm` is off.
 pub fn bonsai_tq2_gemv_fp16(
     packed: DevicePtr<u8>,
     act: DevicePtr<u16>,
@@ -1229,10 +1240,29 @@ pub fn bonsai_tq2_gemv_fp16(
             "bonsai_tq2_gemv_fp16: k_in must be a positive multiple of 128",
         ));
     }
-    // Silence warnings until the kernel lands.
-    let _ = (packed, act, out, stream);
-    // Kernel not yet implemented — see module header.
-    Err(RcppError::Unsupported)
+
+    let stream = stream.unwrap_or(HipStream::DEFAULT);
+
+    #[cfg(not(feature = "link-rocm"))]
+    {
+        let _ = (packed, act, out, stream);
+        return Err(RcppError::Unsupported);
+    }
+
+    // SAFETY: same as `bonsai_q1_gemv_fp16`.
+    #[cfg(feature = "link-rocm")]
+    unsafe {
+        ffi::bonsai_tq2_gemv_launch(
+            packed.0,
+            act.0,
+            out.0,
+            n_out as c_int,
+            k_in as c_int,
+            stream.as_raw(),
+        );
+    }
+    #[cfg_attr(not(feature = "link-rocm"), allow(unreachable_code))]
+    Ok(())
 }
 
 // -----------------------------------------------------------------------------
@@ -1922,12 +1952,17 @@ mod tests {
     }
 
     /// Bonsai Q1_0_g128 GEMV wrapper rejects bad shapes BEFORE dispatching.
-    /// Runs on every host (no GPU required) because the wrapper
-    /// short-circuits to `Unsupported` once shape validation passes — the
-    /// HIP kernel does not yet exist.
+    /// Runs on every host (no GPU required) because the default build has
+    /// `link-rocm` off: the valid-shape path short-circuits to `Unsupported`
+    /// without dereferencing the (null) device pointers. On `link-rocm`
+    /// builds the valid-shape path actually dispatches the HIP kernel, so
+    /// this test is gated off for that feature combination.
+    #[cfg(not(feature = "link-rocm"))]
     #[test]
     fn bonsai_q1_gemv_fp16_preconditions() {
-        // Dummy pointers — never dereferenced because validation fires first.
+        // Dummy pointers — never dereferenced because validation fires first
+        // on bad shapes, and on the valid-shape case the `link-rocm`-off
+        // branch returns Unsupported before any FFI call.
         let packed: DevicePtr<u8> = DevicePtr(core::ptr::null());
         let act: DevicePtr<u16> = DevicePtr(core::ptr::null());
         let out: DeviceMutPtr<u16> = DeviceMutPtr(core::ptr::null_mut());
@@ -1940,8 +1975,8 @@ mod tests {
         // N_out must be positive.
         let err = bonsai_q1_gemv_fp16(packed, act, out, 0, 128, None).unwrap_err();
         assert!(matches!(err, RcppError::Precondition(_)));
-        // Valid shape — wrapper passes validation, then returns Unsupported
-        // because the kernel has not yet been authored.
+        // Valid shape — on the non-link-rocm build the wrapper returns
+        // Unsupported after validation.
         let err = bonsai_q1_gemv_fp16(packed, act, out, 16, 128, None).unwrap_err();
         assert!(matches!(err, RcppError::Unsupported));
 
@@ -1950,8 +1985,29 @@ mod tests {
         assert_eq!(bonsai_q1_packed_bytes(2048), 16 * 18);
     }
 
+    /// Shape-validation subset of [`bonsai_q1_gemv_fp16_preconditions`] that
+    /// stays live under `link-rocm` (the valid-shape branch dispatches the
+    /// kernel, so we don't cover it here).
+    #[cfg(feature = "link-rocm")]
+    #[test]
+    fn bonsai_q1_gemv_fp16_precondition_errors() {
+        let packed: DevicePtr<u8> = DevicePtr(core::ptr::null());
+        let act: DevicePtr<u16> = DevicePtr(core::ptr::null());
+        let out: DeviceMutPtr<u16> = DeviceMutPtr(core::ptr::null_mut());
+
+        let err = bonsai_q1_gemv_fp16(packed, act, out, 16, 64, None).unwrap_err();
+        assert!(matches!(err, RcppError::Precondition(_)));
+        let err = bonsai_q1_gemv_fp16(packed, act, out, 0, 128, None).unwrap_err();
+        assert!(matches!(err, RcppError::Precondition(_)));
+
+        assert_eq!(bonsai_q1_packed_bytes(128), 18);
+        assert_eq!(bonsai_q1_packed_bytes(2048), 16 * 18);
+    }
+
     /// Bonsai TQ2_0_g128 GEMV wrapper rejects bad shapes BEFORE dispatching.
-    /// Same rationale as the Q1 test above.
+    /// Default-features (non `link-rocm`) path: the valid-shape branch
+    /// returns Unsupported without calling FFI.
+    #[cfg(not(feature = "link-rocm"))]
     #[test]
     fn bonsai_tq2_gemv_fp16_preconditions() {
         let packed: DevicePtr<u8> = DevicePtr(core::ptr::null());
@@ -1966,11 +2022,30 @@ mod tests {
         // N_out must be positive.
         let err = bonsai_tq2_gemv_fp16(packed, act, out, -5, 128, None).unwrap_err();
         assert!(matches!(err, RcppError::Precondition(_)));
-        // Valid shape — wrapper returns Unsupported until the kernel lands.
+        // Valid shape on non-link-rocm: Unsupported after validation.
         let err = bonsai_tq2_gemv_fp16(packed, act, out, 32, 256, None).unwrap_err();
         assert!(matches!(err, RcppError::Unsupported));
 
         // Packed-byte accounting math is exposed as a const fn.
+        assert_eq!(bonsai_tq2_packed_bytes(128), 34);
+        assert_eq!(bonsai_tq2_packed_bytes(2048), 16 * 34);
+    }
+
+    /// `link-rocm` variant of the TQ2 precondition test — shape-validation
+    /// only. The valid-shape branch dispatches the real kernel, which
+    /// would dereference the null device pointers, so we skip it here.
+    #[cfg(feature = "link-rocm")]
+    #[test]
+    fn bonsai_tq2_gemv_fp16_precondition_errors() {
+        let packed: DevicePtr<u8> = DevicePtr(core::ptr::null());
+        let act: DevicePtr<u16> = DevicePtr(core::ptr::null());
+        let out: DeviceMutPtr<u16> = DeviceMutPtr(core::ptr::null_mut());
+
+        let err = bonsai_tq2_gemv_fp16(packed, act, out, 16, 127, None).unwrap_err();
+        assert!(matches!(err, RcppError::Precondition(_)));
+        let err = bonsai_tq2_gemv_fp16(packed, act, out, -5, 128, None).unwrap_err();
+        assert!(matches!(err, RcppError::Precondition(_)));
+
         assert_eq!(bonsai_tq2_packed_bytes(128), 34);
         assert_eq!(bonsai_tq2_packed_bytes(2048), 16 * 34);
     }

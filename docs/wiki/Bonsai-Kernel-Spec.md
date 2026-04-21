@@ -51,8 +51,8 @@ Each block = **34 bytes**, 128 weights per block.
 
 ```
  offset   bytes   field
- 0x00     32      qs[32]         128 × 2-bit codes, 4 per byte LSB-first
- 0x20     2       d : FP16       group scale
+ 0x00     2       d : FP16       group scale (shared by all 128 weights)
+ 0x02     32      qs[32]         128 × 2-bit codes, 4 per byte LSB-first
  ─── total 34 B ─────────────────────────────────────────────────────
 ```
 
@@ -68,18 +68,22 @@ Code → ternary value map:
 Extraction of the `j`-th weight in the block:
 
 ```
-  byte_idx = j / 4
+  byte_idx = 2 + j / 4
   lane     = j % 4                 // 0..3
-  code     = (qs[byte_idx] >> (lane * 2)) & 0b11
+  code     = (blk[byte_idx] >> (lane * 2)) & 0b11
   value    = {-1, 0, +1, 0}[code] * d
 ```
 
 Row bytes (K weights per row): `(K / 128) * 34`.
 
-**Note on scale position:** PrismML's g128 variant puts `d` AFTER the
-codes, not before — distinct from the GGML canonical TQ2_0 (g256, 66 B,
-`d` first). This is because oxibonsai chose the layout to match their
-`repr(C)` struct, not because llama.cpp does it this way.
+**Note on scale position (corrected 2026-04-20):** PrismML's g128 variant
+puts `d` FIRST at offset 0x00, matching the Q1_0_g128 ordering and the
+GGML canonical TQ2_0. Earlier revisions of this doc (and the first cut of
+`bonsai_{tq2,q1}_gemv.hip`) claimed the opposite (`d` last); empirical
+dumps of the PrismML `Ternary-Bonsai-1.7B-Q2_0.gguf` file show d@0 with
+zero reserved 0b11 codes across every sampled block, versus d@32 showing
+1–2 reserved codes per block and scales varying across 10 orders of
+magnitude — d@32 is garbage. Fixed in the 2026-04-20 pass.
 
 **Source:** oxibonsai `BlockTQ2_0_g128`
 (`crates/oxibonsai-core/src/quant_ternary.rs:62-69`). Verified layout
