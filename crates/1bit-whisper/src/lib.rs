@@ -33,6 +33,10 @@ pub mod stub;
 #[cfg(feature = "real-whisper")]
 pub mod real;
 
+pub mod stream;
+
+pub use stream::WhisperStream;
+
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::Path;
@@ -169,6 +173,21 @@ impl WhisperEngine {
             EngineImpl::Real(e) => e.drain_partials(),
             #[cfg(all(feature = "stub", not(feature = "real-whisper")))]
             EngineImpl::Stub(e) => e.drain_partials(),
+        }
+    }
+
+    /// Test-only constructor that yields a `WhisperEngine` wrapping a
+    /// `StubEngine` directly — bypasses the normal `new` error path so
+    /// the streaming tests can exercise the feed/drain plumbing under
+    /// the default `stub` feature without touching libwhisper.
+    ///
+    /// Not part of the public API; doc-hidden + gated on the `stub`
+    /// feature so it never ships in `real-whisper` builds.
+    #[cfg(all(feature = "stub", not(feature = "real-whisper")))]
+    #[doc(hidden)]
+    pub fn new_stub_for_tests() -> Self {
+        Self {
+            inner: EngineImpl::Stub(stub::StubEngine),
         }
     }
 }

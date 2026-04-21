@@ -70,6 +70,34 @@ pub const H1B_MAGIC: [u8; 4] = *b"H1B\0";
 /// Other bits of `reserved` remain unassigned — future flags compose.
 pub const H1B_FLAG_HADAMARD_ROTATED: i32 = 0x1;
 
+/// Bit flag (in `H1bConfig::reserved` / `cfg[8]`) marking a checkpoint whose
+/// ternary weights are packed in the **clean-room fp16 Sherry 1.25-bit
+/// layout** consumed by the new `sherry_ternary_gemv_launch` kernel
+/// (`rocm-cpp/include/rocm_cpp/sherry.h`).
+///
+/// Byte layout on disk is identical to `H1bWeightFormat::SherryV3` —
+/// `N * K * 5 / 32` bytes per tensor plus `[N] f32` scales — so the flag
+/// only flips dispatch, not row-byte math. The distinction is runtime:
+///   * `SherryV3` (halo-v3 path): INT8 activations + per-row FP32 scales
+///     baked into the kernel (`rcpp_ternary_gemv_sherry_f16`).
+///   * `SherryFp16` (this flag, fp16 path): FP16 activations, no scale
+///     baked in — the caller multiplies externally if the model needs it
+///     (`sherry_ternary_gemv_launch`).
+///
+/// **Flag bit, not a version bump** — same reasoning as
+/// [`H1B_FLAG_HADAMARD_ROTATED`]:
+///   * No on-disk layout changes; row bytes are identical to v3.
+///   * Backward-compat: existing v3 loaders that predate this flag read
+///     `reserved` as zero (no fp16 path) which is the correct fallback
+///     on halo-v3 weights.
+///   * The requantizer (separate follow-up) emits v3 files with this bit
+///     set; everyone else leaves it at zero.
+///
+/// The per-file flag composes with [`H1B_FLAG_HADAMARD_ROTATED`]: a BitNet
+/// v2 checkpoint can ship Hadamard-rotated activations AND request the
+/// fp16 Sherry kernel in the same file (`reserved = 0x3`).
+pub const H1B_FLAG_SHERRY_FP16: i32 = 0x2;
+
 /// Fixed-size header sizes, for offset arithmetic.
 const CFG_BYTES: usize = 9 * 4;
 const EXTRAS_BYTES: usize = 2 * 4;
@@ -78,14 +106,24 @@ const HEADER_V2: usize = HEADER_V1 + EXTRAS_BYTES;
 
 /// Which ternary packing scheme a given `.h1b` version uses.
 ///
-/// The three formats carry the same scale layout (`[rows] f32`) but differ
-/// in how the sign values are packed.
+/// All formats carry the same scale layout (`[rows] f32`) but differ in
+/// how the sign values are packed and which kernel the dispatcher reaches
+/// for at runtime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum H1bWeightFormat {
     /// halo v2: `uint8[rows, (cols + 3) / 4]`, 2 bpw.
     HaloV2,
     /// Sherry v3: `uint8[rows * cols * 5 / 32]`, 1.25 bpw. `cols % 32 == 0`.
+    /// Dispatches through `rcpp_ternary_gemv_sherry_f16` (INT8 activations
+    /// + per-row FP32 scale baked in).
     SherryV3,
+    /// Sherry fp16: byte-identical packing to [`Self::SherryV3`], but the
+    /// runtime dispatcher routes to the clean-room fp16 launcher
+    /// (`sherry_ternary_gemv_launch`). Selected via the
+    /// [`H1B_FLAG_SHERRY_FP16`] flag bit on a v3 file — the disk layout
+    /// does not change, so a v3 loader that predates this flag reads the
+    /// file as [`Self::SherryV3`] (correct halo-v3 fallback).
+    SherryFp16,
     /// TQ1 v4: `uint8[rows * cols_padded / 5]`, 1.6 bpw. `cols` padded to mult. 20.
     TQ1V4,
 }
@@ -95,10 +133,10 @@ impl H1bWeightFormat {
     pub fn row_bytes(self, cols: usize) -> Result<usize, HaloError> {
         match self {
             H1bWeightFormat::HaloV2 => Ok(cols.div_ceil(4)),
-            H1bWeightFormat::SherryV3 => {
+            H1bWeightFormat::SherryV3 | H1bWeightFormat::SherryFp16 => {
                 if cols % 32 != 0 {
                     return Err(HaloError::InvalidConfig(
-                        "Sherry v3 requires cols divisible by 32",
+                        "Sherry packing requires cols divisible by 32",
                     ));
                 }
                 Ok(cols * 5 / 32)
@@ -110,10 +148,21 @@ impl H1bWeightFormat {
         }
     }
 
-    fn from_version(v: i32) -> Result<Self, HaloError> {
+    /// Resolve the packing format given a file version AND the `reserved`
+    /// flag word. The `H1B_FLAG_SHERRY_FP16` bit promotes a v3 file from
+    /// [`Self::SherryV3`] (the halo-v3 INT8-activation kernel) to
+    /// [`Self::SherryFp16`] (the clean-room fp16 kernel). Other flag bits
+    /// (e.g. `H1B_FLAG_HADAMARD_ROTATED`) compose independently.
+    fn from_version_and_flags(v: i32, flags: i32) -> Result<Self, HaloError> {
         match v {
             1 | 2 => Ok(H1bWeightFormat::HaloV2),
-            3 => Ok(H1bWeightFormat::SherryV3),
+            3 => {
+                if (flags & H1B_FLAG_SHERRY_FP16) != 0 {
+                    Ok(H1bWeightFormat::SherryFp16)
+                } else {
+                    Ok(H1bWeightFormat::SherryV3)
+                }
+            }
             4 => Ok(H1bWeightFormat::TQ1V4),
             _ => Err(HaloError::UnsupportedVersion {
                 version: v,
@@ -122,6 +171,7 @@ impl H1bWeightFormat {
             }),
         }
     }
+
 }
 
 /// Parsed `.h1b` config header. Mirrors `rcpp_bitnet_model_t`'s scalar fields.
@@ -165,8 +215,13 @@ impl H1bConfig {
         Ok(self.hidden_size / self.num_heads)
     }
 
+    /// Resolve the packing format, honouring the flag bits in
+    /// `reserved`. In particular, a v3 file with
+    /// [`H1B_FLAG_SHERRY_FP16`] set returns
+    /// [`H1bWeightFormat::SherryFp16`] (clean-room fp16 kernel) instead
+    /// of [`H1bWeightFormat::SherryV3`] (INT8-activation halo-v3 kernel).
     pub fn weight_format(&self) -> Result<H1bWeightFormat, HaloError> {
-        H1bWeightFormat::from_version(self.version)
+        H1bWeightFormat::from_version_and_flags(self.version, self.reserved)
     }
 
     /// Whether this checkpoint ships Hadamard-rotated activations per
@@ -178,6 +233,16 @@ impl H1bConfig {
     /// whether to dispatch the online rotation kernel.
     pub fn is_hadamard_rotated(&self) -> bool {
         (self.reserved & H1B_FLAG_HADAMARD_ROTATED) != 0
+    }
+
+    /// Whether this checkpoint's ternary weights are packed for the
+    /// clean-room fp16 Sherry kernel (`sherry_ternary_gemv_launch`)
+    /// rather than the halo-v3 INT8-activation path. See
+    /// [`H1B_FLAG_SHERRY_FP16`] for the flag rationale. Flag is only
+    /// meaningful on v3 files; returns `false` otherwise even if the bit
+    /// happens to be set.
+    pub fn is_sherry_fp16(&self) -> bool {
+        self.version == 3 && (self.reserved & H1B_FLAG_SHERRY_FP16) != 0
     }
 }
 
@@ -925,6 +990,62 @@ mod tests {
         // TQ1: cols rounded up to mult of 20, then /5.
         assert_eq!(H1bWeightFormat::TQ1V4.row_bytes(20).unwrap(), 4);
         assert_eq!(H1bWeightFormat::TQ1V4.row_bytes(21).unwrap(), 8);
+    }
+
+    /// `H1B_FLAG_SHERRY_FP16` lives in bit 1 of the `reserved` cfg slot
+    /// and only takes effect on v3 files. Zero-reserved → halo-v3 kernel
+    /// (status quo). Bit 1 set on a v3 file → fp16 kernel. On non-v3
+    /// files the flag is inert and the accessor returns `false` even
+    /// when the bit is set, so a requantizer can't accidentally flip a
+    /// halo-v2 file into an unreachable code path.
+    #[test]
+    fn is_sherry_fp16_reads_reserved_bit1_on_v3_only() {
+        let mut cfg = H1bConfig {
+            version: 3,
+            hidden_size: 128,
+            intermediate_size: 128,
+            num_layers: 1,
+            num_heads: 1,
+            num_kv_heads: 1,
+            vocab_size: 4,
+            max_seq_len: 8,
+            tie_embeddings: 0,
+            reserved: 0,
+            rope_theta: DEFAULT_ROPE_THETA,
+            rms_norm_eps: DEFAULT_RMS_NORM_EPS,
+        };
+
+        // Default: halo-v3 kernel path.
+        assert!(!cfg.is_sherry_fp16());
+        assert_eq!(cfg.weight_format().unwrap(), H1bWeightFormat::SherryV3);
+
+        // Bit 1 set on a v3 file → fp16 kernel path.
+        cfg.reserved = H1B_FLAG_SHERRY_FP16;
+        assert!(cfg.is_sherry_fp16());
+        assert_eq!(cfg.weight_format().unwrap(), H1bWeightFormat::SherryFp16);
+
+        // Composes with Hadamard flag.
+        cfg.reserved = H1B_FLAG_SHERRY_FP16 | H1B_FLAG_HADAMARD_ROTATED;
+        assert!(cfg.is_sherry_fp16());
+        assert!(cfg.is_hadamard_rotated());
+        assert_eq!(cfg.weight_format().unwrap(), H1bWeightFormat::SherryFp16);
+
+        // Unrelated reserved bits don't trip the accessor.
+        cfg.reserved = 0x1000_0000;
+        assert!(!cfg.is_sherry_fp16());
+        assert_eq!(cfg.weight_format().unwrap(), H1bWeightFormat::SherryV3);
+
+        // Flag is inert on non-v3 files — v2 with the bit set stays HaloV2.
+        cfg.version = 2;
+        cfg.reserved = H1B_FLAG_SHERRY_FP16;
+        assert!(!cfg.is_sherry_fp16());
+        assert_eq!(cfg.weight_format().unwrap(), H1bWeightFormat::HaloV2);
+
+        // And on v4 (TQ1).
+        cfg.version = 4;
+        cfg.reserved = H1B_FLAG_SHERRY_FP16;
+        assert!(!cfg.is_sherry_fp16());
+        assert_eq!(cfg.weight_format().unwrap(), H1bWeightFormat::TQ1V4);
     }
 
     /// `H1B_FLAG_HADAMARD_ROTATED` lives in bit 0 of the `reserved` cfg

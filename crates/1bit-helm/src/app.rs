@@ -1120,7 +1120,6 @@ fn draw_bearer_modal(ctx: &egui::Context, app: &mut HelmApp) {
 mod tests {
     use super::*;
     use crate::conv_log::read_session;
-    use onebit_agents::skills::format::Skill;
     use tempfile::TempDir;
 
     fn cfg() -> SessionConfig {

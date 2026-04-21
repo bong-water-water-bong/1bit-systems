@@ -772,6 +772,345 @@ pub fn fp32_to_fp16(
 }
 
 // -----------------------------------------------------------------------------
+// Medusa — small-M ternary GEMM (M ∈ [1, 16]).
+// -----------------------------------------------------------------------------
+
+/// Medusa-plan shape bounds. Native kernel silently no-ops out of these.
+///
+/// Public so the router-side scaffolding (and its tests) can use the same
+/// constants without re-hardcoding them and drifting from the kernel.
+pub const MEDUSA_GEMM_MAX_M: i32 = 16;
+/// N must be a multiple of the kernel's BLOCK_N tile.
+pub const MEDUSA_GEMM_BLOCK_N: i32 = 64;
+/// K must be a multiple of the kernel's BLOCK_K tile.
+pub const MEDUSA_GEMM_BLOCK_K: i32 = 64;
+
+/// Scaffold wrapper around the `onebit_ternary_gemm_smallm_launch` kernel.
+///
+/// This is **boundary-validation scaffolding**, not the production dispatch
+/// path. Medusa speculative decoding needs a small-M ternary GEMM to verify
+/// tree-expanded candidate tokens in one backbone pass (see
+/// `docs/wiki/Medusa-Integration-Plan.md`). The live decode loop will call
+/// the kernel through `DevicePtr<T>` / `DeviceMutPtr<T>` buffers owned by
+/// the router's scratch, same as every other GEMV in this crate — this
+/// host-slice wrapper exists so the router scaffold + tests can exercise
+/// the arg-validation boundary without standing up a HipBackend.
+///
+/// Arguments:
+///   * `codes` — packed ternary weights, treated as `u32 [K/16, N]` bytes.
+///     We accept `&[i32]` so the caller can source them from a type-erased
+///     loader without a byte-reinterpret cast on every call site; the
+///     memory representation of `i32` and `u32` are identical on every
+///     supported platform.
+///   * `act` — activations, treated as `u16 [M, K]` on the host. Accepted
+///     as `&[u16]` for symmetry with the fp16/bf16 output buffer; the
+///     scaffold treats the byte length as authoritative, not the element
+///     interpretation.
+///   * `out` — bf16 `[M, N]` output buffer, as `&mut [u16]`. Same
+///     reasoning as `act`.
+///   * `m`, `n`, `k` — GEMM dimensions, with the architect-pinned shape
+///     contract: `m ∈ [1, 16]`, `n % 64 == 0`, `k % 64 == 0`.
+///   * `stream` — optional HIP stream. `None` = default (null) stream.
+///
+/// Behaviour:
+///   * Shape validation runs before anything else; invalid shapes return
+///     `Err(RcppError::InvalidArg)` without touching the FFI boundary.
+///     This is the property the unit tests cover on CI hosts without ROCm.
+///   * On a real ROCm build (feature `link-rocm`), the wrapper currently
+///     returns `Err(RcppError::Unsupported)` — the host-slice path is
+///     *scaffolding*. The retrained-weights follow-up pass will replace
+///     this body with a device-pointer form that takes pre-allocated
+///     `DeviceBuffer<T>` arguments (matching every other GEMV wrapper in
+///     this file). Keeping the symbol here now locks the call site in so
+///     `1bit-router::medusa` can be written against it without a future
+///     churn.
+///
+/// The underlying FFI symbol is always defined — either as the real kernel
+/// launcher (`link-rocm` on) or as a no-op stub (`link-rocm` off). The
+/// `Unsupported` return on real builds is a deliberate scaffolding choice,
+/// not a linkage gap.
+pub fn ternary_gemm_smallm(
+    codes: &[i32],
+    act: &[u16],
+    out: &mut [u16],
+    m: i32,
+    n: i32,
+    k: i32,
+    stream: Option<HipStream>,
+) -> Result<(), RcppError> {
+    // Shape contract — architect-pinned; `ternary_gemm_smallm.hip` silently
+    // no-ops if these are violated, so we validate in Rust and surface a
+    // structured error instead.
+    if m < 1 || m > MEDUSA_GEMM_MAX_M {
+        return Err(RcppError::Precondition(
+            "ternary_gemm_smallm: M must be in [1, 16]",
+        ));
+    }
+    if n <= 0 || n % MEDUSA_GEMM_BLOCK_N != 0 {
+        return Err(RcppError::Precondition(
+            "ternary_gemm_smallm: N must be a positive multiple of 64",
+        ));
+    }
+    if k <= 0 || k % MEDUSA_GEMM_BLOCK_K != 0 {
+        return Err(RcppError::Precondition(
+            "ternary_gemm_smallm: K must be a positive multiple of 64",
+        ));
+    }
+
+    // Length cross-check against the declared shape. `codes` is treated as
+    // u32 [K/16, N] — one u32 per 16 codes per output column. `act` is
+    // M × K int8 elements re-sliced as u16 for a 2:1 element ratio. `out`
+    // is M × N bf16 elements (= u16).
+    let expected_codes_words = ((k as usize) / 16) * (n as usize);
+    if codes.len() != expected_codes_words {
+        return Err(RcppError::Precondition(
+            "ternary_gemm_smallm: codes.len() must equal K/16 * N",
+        ));
+    }
+    let expected_act_u16 = ((m as usize) * (k as usize)).div_ceil(2);
+    if act.len() != expected_act_u16 {
+        return Err(RcppError::Precondition(
+            "ternary_gemm_smallm: act.len() must equal ceil(M*K / 2) u16 (i.e. M*K int8 bytes)",
+        ));
+    }
+    let expected_out = (m as usize) * (n as usize);
+    if out.len() != expected_out {
+        return Err(RcppError::Precondition(
+            "ternary_gemm_smallm: out.len() must equal M * N (bf16 elements)",
+        ));
+    }
+
+    let _stream = stream.unwrap_or(HipStream::DEFAULT);
+
+    // Scaffold path: shape is valid, but the host-slice body isn't wired
+    // through H2D copies yet. The retrained-weights follow-up pass lands
+    // the DeviceBuffer-form dispatch and removes this early return.
+    //
+    // Touch the FFI symbol so link errors surface here (rather than lazily
+    // inside `1bit-router::medusa`) on real builds. We pass every argument
+    // as a null / zero so no kernel launch fires — the launcher's own
+    // bounds check (`M <= 0 || M > 16 || N % 64 != 0 || K % 64 != 0`)
+    // filters it into a no-op.
+    #[cfg(feature = "link-rocm")]
+    {
+        // SAFETY: all pointers are null; the native launcher early-outs on
+        // the M/N/K = 0 guard before touching any of them. This is only a
+        // symbol-resolution touch to force a link error if the kernel is
+        // missing from librocm_cpp.so, not a real dispatch.
+        unsafe {
+            ffi::onebit_ternary_gemm_smallm_launch(
+                core::ptr::null(),
+                0.0,
+                core::ptr::null(),
+                core::ptr::null(),
+                core::ptr::null_mut(),
+                0,
+                0,
+                0,
+                core::ptr::null_mut(),
+            );
+        }
+    }
+
+    Err(RcppError::Unsupported)
+}
+
+// -----------------------------------------------------------------------------
+// Sherry 1.25-bit ternary GEMV — clean-room fp16-in/fp16-out path.
+// -----------------------------------------------------------------------------
+
+/// Sherry group size along K: every 4 consecutive weights → one 5-bit group
+/// (2 bits `zero_pos` + 3 bits `signs`). Must match the C side contract in
+/// `rocm-cpp/include/rocm_cpp/sherry.h`.
+pub const SHERRY_GROUP_SIZE: usize = 4;
+
+/// Sherry bits per group — 5 (2 `zero_pos` + 3 `signs`).
+pub const SHERRY_BITS_PER_GROUP: usize = 5;
+
+/// Byte-alignment constraint on `K_in` (= 32). A multiple of 32 weights
+/// encodes to `32 * 5 / 8 = 20` whole bytes; short K aligns to bit boundaries
+/// within a partial byte and the launcher rejects it.
+pub const SHERRY_K_ALIGNMENT: usize = 32;
+
+/// Packed byte count for `count` ternary weights.
+///
+/// The byte total is `count * 5 / 32`; `count` must be a multiple of 32 so
+/// this is an exact division.
+#[inline]
+pub const fn sherry_packed_bytes(count: usize) -> usize {
+    count * SHERRY_BITS_PER_GROUP / (8 * SHERRY_GROUP_SIZE)
+}
+
+/// Host-side Sherry 1.25-bit packer.
+///
+/// Input is a contiguous `i8` array of ternary values in `{-1, 0, +1}`, laid
+/// out as consecutive groups of 4. For each group, exactly one lane is zero
+/// (Sherry's structured-sparsity contract); the other three carry ±1 signs.
+/// The packer emits 5 bits per group: `[zero_pos : 2][signs : 3]`, LSB-first
+/// across output bytes.
+///
+/// Preconditions:
+/// - `ternary.len() % 4 == 0` (group size)
+/// - `out.len() == ternary.len() * 5 / 32` (byte-aligned output)
+///
+/// The native packer is pure host C code, thread-safe, and never touches the
+/// GPU. Behaviour on a group with 0 or ≥2 zeros is deterministic but produces
+/// a WRONG encoding — it's a caller bug (the requantizer's zero-choice
+/// heuristic is responsible for enforcing the one-zero-per-group invariant).
+///
+/// Returns [`RcppError::Unsupported`] when the `link-rocm` feature is off
+/// (symbol is a no-op stub in that build mode).
+pub fn sherry_pack(ternary: &[i8], out: &mut [u8]) -> Result<(), RcppError> {
+    if ternary.len() % SHERRY_GROUP_SIZE != 0 {
+        return Err(RcppError::Precondition(
+            "sherry_pack: ternary.len() must be a multiple of 4",
+        ));
+    }
+    let expected = sherry_packed_bytes(ternary.len());
+    if out.len() != expected {
+        return Err(RcppError::Precondition(
+            "sherry_pack: out.len() must equal ternary.len() * 5 / 32",
+        ));
+    }
+
+    // No `link-rocm` → we don't have the native packer on this build.
+    // Return `Unsupported` so callers that accidentally wire the packer
+    // into a CI host observe a structured error rather than silent
+    // no-op output.
+    #[cfg(not(feature = "link-rocm"))]
+    {
+        return Err(RcppError::Unsupported);
+    }
+
+    // SAFETY: slices are borrowed disjointly (`&` vs `&mut`), lengths are
+    // validated above to match what the C packer reads (`count` i8 bytes)
+    // and writes (`count * 5 / 32` u8 bytes). The native packer does no
+    // HIP calls — pure CPU.
+    #[cfg(feature = "link-rocm")]
+    unsafe {
+        ffi::rcpp_sherry_pack(
+            ternary.as_ptr(),
+            out.as_mut_ptr(),
+            ternary.len() as c_int,
+        );
+    }
+    #[cfg_attr(not(feature = "link-rocm"), allow(unreachable_code))]
+    Ok(())
+}
+
+/// Sherry 1.25-bit ternary GEMV with FP16 activations and FP16 output.
+///
+/// Computes `out_fp16[n] = sum_{k=0..K_in} sign(W[n,k]) * act_fp16[k]` where
+/// `sign(W[n,k]) ∈ {-1, 0, +1}` comes from the 1.25-bit packed weight
+/// buffer (`N_out * K_in * 5 / 32` bytes). No per-row scale is baked in —
+/// caller multiplies externally if the model needs one.
+///
+/// Preconditions:
+/// - `k_in % 32 == 0` (byte-aligned row stride; launcher rejects otherwise)
+/// - `packed.0` points to at least `n_out * k_in * 5 / 32` device bytes
+/// - `act.0` points to at least `k_in` fp16 elements on device
+/// - `out.0` points to at least `n_out` fp16 writable elements on device
+///
+/// The launcher returns `void`; kernel-launch failures surface at the next
+/// synchronization boundary (via `hipGetLastError`). Shape violations
+/// pre-validate in Rust and return [`RcppError::Precondition`] without
+/// dispatching.
+///
+/// Returns [`RcppError::Unsupported`] when `link-rocm` is off.
+pub fn sherry_gemv_fp16(
+    packed: DevicePtr<u8>,
+    act: DevicePtr<u16>,
+    out: DeviceMutPtr<u16>,
+    n_out: i32,
+    k_in: i32,
+    stream: Option<HipStream>,
+) -> Result<(), RcppError> {
+    if n_out <= 0 {
+        return Err(RcppError::Precondition(
+            "sherry_gemv_fp16: n_out must be positive",
+        ));
+    }
+    if k_in <= 0 || (k_in as usize) % SHERRY_K_ALIGNMENT != 0 {
+        return Err(RcppError::Precondition(
+            "sherry_gemv_fp16: k_in must be a positive multiple of 32",
+        ));
+    }
+
+    let stream = stream.unwrap_or(HipStream::DEFAULT);
+
+    #[cfg(not(feature = "link-rocm"))]
+    {
+        let _ = (packed, act, out, stream);
+        return Err(RcppError::Unsupported);
+    }
+
+    // SAFETY: device-pointer contract upheld by caller (see `DevicePtr`
+    // docs); shape divisibility pre-checked above; the launcher only
+    // reads `packed`/`act` and writes `out`.
+    #[cfg(feature = "link-rocm")]
+    unsafe {
+        ffi::sherry_ternary_gemv_launch(
+            packed.0,
+            act.0,
+            out.0,
+            n_out as c_int,
+            k_in as c_int,
+            stream.as_raw(),
+        );
+    }
+    #[cfg_attr(not(feature = "link-rocm"), allow(unreachable_code))]
+    Ok(())
+}
+
+/// Scalar-reference variant of [`sherry_gemv_fp16`] — one HIP thread per
+/// output row, bit-identical fp32 accumulation order as the fast kernel.
+/// Exists for differential testing; **do not benchmark**.
+///
+/// Same preconditions and error handling as [`sherry_gemv_fp16`].
+pub fn sherry_gemv_fp16_scalar_ref(
+    packed: DevicePtr<u8>,
+    act: DevicePtr<u16>,
+    out: DeviceMutPtr<u16>,
+    n_out: i32,
+    k_in: i32,
+    stream: Option<HipStream>,
+) -> Result<(), RcppError> {
+    if n_out <= 0 {
+        return Err(RcppError::Precondition(
+            "sherry_gemv_fp16_scalar_ref: n_out must be positive",
+        ));
+    }
+    if k_in <= 0 || (k_in as usize) % SHERRY_K_ALIGNMENT != 0 {
+        return Err(RcppError::Precondition(
+            "sherry_gemv_fp16_scalar_ref: k_in must be a positive multiple of 32",
+        ));
+    }
+
+    let stream = stream.unwrap_or(HipStream::DEFAULT);
+
+    #[cfg(not(feature = "link-rocm"))]
+    {
+        let _ = (packed, act, out, stream);
+        return Err(RcppError::Unsupported);
+    }
+
+    // SAFETY: same as `sherry_gemv_fp16`.
+    #[cfg(feature = "link-rocm")]
+    unsafe {
+        ffi::sherry_ternary_gemv_scalar_ref_launch(
+            packed.0,
+            act.0,
+            out.0,
+            n_out as c_int,
+            k_in as c_int,
+            stream.as_raw(),
+        );
+    }
+    #[cfg_attr(not(feature = "link-rocm"), allow(unreachable_code))]
+    Ok(())
+}
+
+// -----------------------------------------------------------------------------
 // BitNet v2 — Hadamard rotation (H-BitLinear)
 // -----------------------------------------------------------------------------
 

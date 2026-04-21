@@ -73,6 +73,8 @@ add_library(rocm_cpp SHARED
     src/tokenizer.cpp
     src/ternary_gemm_smallm.hip
     src/ternary_gemm_smallm_scalar_ref.hip
+    src/sherry_gemv.hip
+    src/sherry_gemv_scalar_ref.hip
     kernels/ternary_gemv_phase5_dot4.hip
     kernels/ternary_gemv_phase5_halo.hip
     kernels/ternary_gemv_sherry.hip
@@ -90,6 +92,8 @@ set_source_files_properties(
     src/kv_cache_attn_fd_rotor.hip
     src/ternary_gemm_smallm.hip
     src/ternary_gemm_smallm_scalar_ref.hip
+    src/sherry_gemv.hip
+    src/sherry_gemv_scalar_ref.hip
     kernels/ternary_gemv_phase5_dot4.hip
     kernels/ternary_gemv_phase5_halo.hip
     kernels/ternary_gemv_sherry.hip
@@ -137,6 +141,14 @@ target_compile_options(test_ternary_gemm_smallm PRIVATE
     $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
 target_link_libraries(test_ternary_gemm_smallm PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(test_ternary_gemm_smallm PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+
+# -- tests/test_sherry_gemv : Sherry 1.25-bpw GEMV differential test ----------
+add_executable(test_sherry_gemv tests/test_sherry_gemv.cpp)
+set_source_files_properties(tests/test_sherry_gemv.cpp PROPERTIES LANGUAGE HIP)
+target_compile_options(test_sherry_gemv PRIVATE
+    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_link_libraries(test_sherry_gemv PRIVATE rocm_cpp hip::host hip::device)
+set_target_properties(test_sherry_gemv PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
 # -- tools/bitnet_decode : end-to-end MVP decode CLI ---------------------------
 add_executable(bitnet_decode tools/bitnet_decode.cpp)

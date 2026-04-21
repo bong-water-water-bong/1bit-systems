@@ -34,6 +34,8 @@
 pub mod backend_impl;
 pub mod cpu_lane;
 pub mod detect;
+pub mod medusa;
+pub mod sampler;
 pub mod tokenizer;
 pub mod xdna_flm;
 
@@ -54,8 +56,12 @@ use onebit_core::types::TokenId;
 use tokio::sync::Mutex;
 
 pub use backend_impl::{BackendError, HipBackend, ModelFormat, sniff_model_format};
-pub use cpu_lane::{CpuLane, CpuLaneError, SAMPLER_MODE_ENV, SamplerMode, sampler_mode_from_env};
 pub use detect::{BackendKind, detect};
+// Re-exports from the sampler lane. `cpu_lane::` still works as a
+// back-compat path for `1bit-server`'s benches — the shim module just
+// re-exports these same items.
+pub use sampler::cpu::{CpuLane, CpuLaneError, CpuSampler, PipelinedOutcome};
+pub use sampler::{SAMPLER_MODE_ENV, SamplerMode, sampler_mode_from_env};
 
 // Re-exported below once the type is declared — see PerplexityResult.
 
@@ -225,17 +231,30 @@ pub struct Router {
     /// *detected* hardware); `backend` is what the operator asked for via
     /// `HALO_BACKEND` / [`RouterConfig`].
     backend: Backend,
-    /// Sampler dispatch path — inline (on the same blocking task as
-    /// forward_token, today's default) or parallel (offloaded to the
-    /// CPU lane's rayon pool). See [`SamplerMode`] + the CPU-Lane-Plan
-    /// wiki page.
+    /// Sampler dispatch path. [`SamplerMode::Cpu`] (default) runs the
+    /// sampler on the [`CpuLane`]'s rayon pool via
+    /// [`CpuSampler::sample_pipelined`] — a `flume::bounded(1)` handoff
+    /// that moves the logits buffer off the GPU-dispatch thread and
+    /// onto a persistent `halo-sampler-pipe` worker, freeing the
+    /// dispatch thread to start the next `forward_token`'s GPU staging
+    /// while the sampler math runs on Zen5. [`SamplerMode::Inline`] is
+    /// the legacy path retained for A/B comparison + rollback via
+    /// `HALO_SAMPLER=inline`. See the `sampler` module docs for the
+    /// 2026-04-20 flip rationale.
     sampler_mode: SamplerMode,
     /// CPU lane. Always constructed — the pool is cheap — but only
-    /// dispatched through when `sampler_mode == SamplerMode::Parallel`.
+    /// dispatched through when `sampler_mode == SamplerMode::Cpu`.
     /// Held behind an `Arc` so `generate_blocking` can clone a handle
     /// into the spawn_blocking closure without taking a reference to
     /// `self`.
     cpu_lane: Arc<CpuLane>,
+    /// Pipelined sampler — the bounded-channel handoff. Always
+    /// constructed but only driven when
+    /// `sampler_mode == SamplerMode::Cpu`. Held behind an `Arc` so
+    /// both `generate` and `generate_stream` can hand a handle into
+    /// their respective `spawn_blocking` closures. The worker thread
+    /// it owns sticks around for the lifetime of the router.
+    cpu_sampler: Arc<CpuSampler>,
 }
 
 struct Inner {
@@ -299,13 +318,20 @@ impl Router {
             BackendKind::Hip => {
                 let backend = HipBackend::new(h1b_path, htok_path, model_id.clone(), max_context)?;
                 // Build the CPU lane once and keep it on the router so
-                // `HALO_SAMPLER=parallel` doesn't race to construct a
-                // pool per request. Constructing with the default
-                // policy honours `HALO_CPU_THREADS` automatically.
+                // `HALO_SAMPLER=cpu` doesn't race to construct a pool
+                // per request. Constructing with the default policy
+                // honours `HALO_CPU_THREADS` automatically.
                 let cpu_lane = Arc::new(
                     CpuLane::new()
                         .map_err(|e| BackendError::Other(format!("cpu lane init: {e}")))?,
                 );
+                // Pipelined sampler — persistent `halo-sampler-pipe`
+                // worker fed by a `flume::bounded(1)` queue. Only
+                // dispatched through when `sampler_mode == Cpu`, but
+                // constructed unconditionally: the worker thread is
+                // ~1 MB RSS and spawning it lazily would race with
+                // the first decode request. See `sampler::cpu::CpuSampler`.
+                let cpu_sampler = Arc::new(CpuSampler::new(cpu_lane.clone()));
                 tracing::info!(
                     model_id,
                     hw = %kind.label(),
@@ -322,6 +348,7 @@ impl Router {
                     backend: cfg.backend,
                     sampler_mode: cfg.sampler_mode,
                     cpu_lane,
+                    cpu_sampler,
                 })
             }
             BackendKind::Mlx => {
@@ -368,9 +395,18 @@ impl Router {
         let backend = self.backend;
         let sampler_mode = self.sampler_mode;
         let cpu_lane = self.cpu_lane.clone();
+        let cpu_sampler = self.cpu_sampler.clone();
         tokio::task::spawn_blocking(move || {
             let mut guard = inner.blocking_lock();
-            generate_blocking(&mut guard, req, None, backend, sampler_mode, &cpu_lane)
+            generate_blocking(
+                &mut guard,
+                req,
+                None,
+                backend,
+                sampler_mode,
+                &cpu_lane,
+                &cpu_sampler,
+            )
         })
         .await
         .map_err(|e| BackendError::Other(format!("blocking task join: {e}")))?
@@ -392,6 +428,7 @@ impl Router {
         let backend = self.backend;
         let sampler_mode = self.sampler_mode;
         let cpu_lane = self.cpu_lane.clone();
+        let cpu_sampler = self.cpu_sampler.clone();
         let (tx, rx) = tokio::sync::mpsc::channel::<Result<String, BackendError>>(64);
         tokio::task::spawn_blocking(move || {
             let mut guard = inner.blocking_lock();
@@ -407,6 +444,7 @@ impl Router {
                 backend,
                 sampler_mode,
                 &cpu_lane,
+                &cpu_sampler,
             ) {
                 let _ = tx.blocking_send(Err(e));
             }
@@ -596,7 +634,15 @@ fn generate_blocking(
     backend: Backend,
     sampler_mode: SamplerMode,
     cpu_lane: &CpuLane,
+    cpu_sampler: &CpuSampler,
 ) -> Result<RouterResponse, BackendError> {
+    // `cpu_lane` is currently reserved for future use (parallel top-k
+    // reductions beyond the `Sampler::sample` path). The `CpuSampler`
+    // handoff already owns a clone of the `Arc<CpuLane>` and schedules
+    // its worker inside that pool. Keeping the reference on the
+    // signature so a future top-k-on-lane path doesn't need another
+    // plumbing churn.
+    let _ = cpu_lane;
     // ---- Tokenize prompt ----
     let prompt_ids: Vec<TokenId> = inner.backend.tokenize(&req.prompt);
     if prompt_ids.is_empty() {
@@ -665,18 +711,37 @@ fn generate_blocking(
         let pos = inner.pos + step as i32;
         let argmax_next = inner.backend.forward_token(cur, pos, &mut logits_scratch)?;
 
-        // Optional host-side sampling path. `SamplerMode::Inline`
-        // takes the direct call (today's default). `SamplerMode::Parallel`
-        // routes through the CPU lane so the sampler cycles land on a
-        // named `halo-cpu-<idx>` thread — bit-identical output, see
-        // `CpuLane::sample` for the why. Greedy (temp<=0) short-circuits
-        // to the GPU-returned argmax in both modes since there's no
-        // scalar work to do.
+        // Optional host-side sampling path. [`SamplerMode::Inline`]
+        // takes the direct call (legacy, `HALO_SAMPLER=inline`).
+        // [`SamplerMode::Cpu`] (default as of 2026-04-20) routes through
+        // [`CpuSampler::sample_pipelined`] — a `flume::bounded(1)`
+        // handoff onto a persistent `halo-sampler-pipe` worker pinned
+        // to the [`CpuLane`]'s rayon pool. Semantics are bit-identical
+        // (same `Sampler::sample` code, same RNG state, just a
+        // different executing thread). Greedy (`temp <= 0`)
+        // short-circuits to the GPU-returned argmax in both modes
+        // since there's no scalar work to do.
         let next = if req.sampler.temperature > 0.0 {
             match sampler_mode {
                 SamplerMode::Inline => sampler.sample(&mut logits_scratch, &history)?,
-                SamplerMode::Parallel => {
-                    cpu_lane.sample(&mut sampler, &mut logits_scratch, &history)?
+                SamplerMode::Cpu => {
+                    // Move the scratch buffers into the worker via
+                    // flume; receive them back on the reply so we keep
+                    // the allocation alive across decode steps. The
+                    // `std::mem::take` swap replaces `logits_scratch`
+                    // with an empty Vec — the next `forward_token`
+                    // call will `extend_from_slice` / `resize` into
+                    // whichever Vec we put back.
+                    let logits_out = std::mem::take(&mut logits_scratch);
+                    let history_out = std::mem::take(&mut history);
+                    let out = cpu_sampler
+                        .sample_pipelined(&mut sampler, logits_out, history_out)
+                        .map_err(|e| BackendError::Other(format!("cpu sampler: {e}")))?;
+                    // Put the buffers back even on sampler-error so
+                    // the allocation sticks with the decode loop.
+                    logits_scratch = out.logits;
+                    history = out.history;
+                    out.outcome?
                 }
             }
         } else {

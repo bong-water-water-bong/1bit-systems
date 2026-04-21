@@ -487,6 +487,38 @@ unsafe extern "C" {
     ) -> rcpp_status_t;
 
     // -------------------------------------------------------------------------
+    // Medusa speculative decoding — small-M ternary GEMM (M ∈ [1, 16]).
+    //
+    // Kernel source: `rocm-cpp/src/ternary_gemm_smallm.hip`.
+    // ABI is pinned by the `onebit_ternary_gemm_smallm_launch` signature in
+    // that file. Shapes:
+    //   x_i8           : [M, K]       int8, row-major.
+    //   x_scale        :               float32 per-tensor activation scale.
+    //   w_packed       : [K/16, N]     uint32, 16 halo-codes packed per u32.
+    //   w_row_scales   : [N]           float32, per-column weight scale.
+    //   y_out          : [M, N]        hip_bfloat16, row-major.
+    // Preconditions: M ∈ [1, 16], N % 64 == 0, K % 64 == 0. The native
+    // launcher silently no-ops on shape violations; safe wrappers in
+    // `lib.rs` pre-check the contract and return `InvalidArg`.
+    //
+    // Returns `void` — no rcpp_status_t (matches the Hadamard launcher and
+    // every other direct-kernel entry point). Callers that need error
+    // reporting must check `hipGetLastError()` at the next synchronization
+    // boundary.
+    // -------------------------------------------------------------------------
+    pub fn onebit_ternary_gemm_smallm_launch(
+        x_i8: *const c_void,
+        x_scale: c_float,
+        w_packed: *const c_void,
+        w_row_scales: *const c_void,
+        y_out: *mut c_void,
+        M: c_int,
+        N: c_int,
+        K: c_int,
+        stream: *mut c_void,
+    );
+
+    // -------------------------------------------------------------------------
     // BitNet v2 — H-BitLinear Hadamard activation rotation.
     //
     // `K` is the total fp16 element count (= n_blocks * 128). Device-side
@@ -515,6 +547,50 @@ unsafe extern "C" {
         K: c_int,
         stream: *mut c_void,
     ) -> rcpp_status_t;
+
+    // -------------------------------------------------------------------------
+    // Sherry 1.25-bit ternary GEMV — clean-room fp16-in/fp16-out path.
+    //
+    // Header: `include/rocm_cpp/sherry.h` (standalone, distinct from the
+    // `rcpp_ternary_gemv_sherry_f16` entry point in ck_gemm.h, which takes
+    // INT8 activations + per-row FP32 scales and targets the halo-v3
+    // decode loop). This path takes FP16 activations directly and does
+    // NOT bake a per-row scale — the caller multiplies externally if
+    // needed.
+    //
+    // Packing (matches project_sherry_spike.md):
+    //   Every 4 consecutive weights along K form one group; one lane is
+    //   zero, the other three carry ±1 signs. 5 bits per group:
+    //   [zero_pos : 2][signs : 3]. Row bytes = K_in * 5 / 32; K_in must
+    //   be a multiple of 32 for byte alignment (launcher enforces).
+    //
+    // Returns `void` — launcher has no rcpp_status_t. Callers check
+    // hipGetLastError() at the next synchronization boundary for launch
+    // failures. Shape violations early-return as no-ops inside the
+    // launcher, so the safe wrappers in `lib.rs` pre-validate.
+    //
+    // `rcpp_sherry_pack` is a pure host packer (no HIP) — safe from any
+    // thread, no stream argument.
+    // -------------------------------------------------------------------------
+    pub fn sherry_ternary_gemv_launch(
+        packed_weights: *const u8,
+        act_fp16: *const u16,
+        out_fp16: *mut u16,
+        N_out: c_int,
+        K_in: c_int,
+        stream: *mut c_void,
+    );
+
+    pub fn sherry_ternary_gemv_scalar_ref_launch(
+        packed_weights: *const u8,
+        act_fp16: *const u16,
+        out_fp16: *mut u16,
+        N_out: c_int,
+        K_in: c_int,
+        stream: *mut c_void,
+    );
+
+    pub fn rcpp_sherry_pack(ternary: *const i8, out: *mut u8, count: c_int);
 }
 
 // -----------------------------------------------------------------------------
@@ -739,6 +815,63 @@ mod stub {
         y_out: *mut c_void,
         K: c_int,
         stream: *mut c_void,
+    ) {
+    }
+
+    // Medusa small-M ternary GEMM: void return — no-op in stub mode. Safe
+    // wrappers in `lib.rs` pre-check the shape contract and return
+    // `RcppStatus::Unsupported` when `link-rocm` is off, so callers never
+    // observe this no-op directly.
+    #[inline]
+    #[allow(unused_variables, non_snake_case)]
+    pub unsafe extern "C" fn onebit_ternary_gemm_smallm_launch(
+        x_i8: *const c_void,
+        x_scale: c_float,
+        w_packed: *const c_void,
+        w_row_scales: *const c_void,
+        y_out: *mut c_void,
+        M: c_int,
+        N: c_int,
+        K: c_int,
+        stream: *mut c_void,
+    ) {
+    }
+
+    // Sherry fp16-in/fp16-out GEMV: void return — no-op in stub mode. Safe
+    // wrappers in `lib.rs` validate shape and return `Unsupported` when
+    // `link-rocm` is off, so the no-op is never observed directly.
+    #[inline]
+    #[allow(unused_variables, non_snake_case)]
+    pub unsafe extern "C" fn sherry_ternary_gemv_launch(
+        packed_weights: *const u8,
+        act_fp16: *const u16,
+        out_fp16: *mut u16,
+        N_out: c_int,
+        K_in: c_int,
+        stream: *mut c_void,
+    ) {
+    }
+
+    #[inline]
+    #[allow(unused_variables, non_snake_case)]
+    pub unsafe extern "C" fn sherry_ternary_gemv_scalar_ref_launch(
+        packed_weights: *const u8,
+        act_fp16: *const u16,
+        out_fp16: *mut u16,
+        N_out: c_int,
+        K_in: c_int,
+        stream: *mut c_void,
+    ) {
+    }
+
+    // Host-only packer: no-op in stub mode. Safe wrapper in `lib.rs`
+    // returns `Unsupported` before reaching this shim.
+    #[inline]
+    #[allow(unused_variables)]
+    pub unsafe extern "C" fn rcpp_sherry_pack(
+        ternary: *const i8,
+        out: *mut u8,
+        count: c_int,
     ) {
     }
 }

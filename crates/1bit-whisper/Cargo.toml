@@ -36,6 +36,12 @@ bytes      = { workspace = true }
 tokio      = { workspace = true }
 tracing    = { workspace = true }
 serde      = { workspace = true }
+# Bounded MPMC channel used by the streaming worker thread. Already in
+# the workspace graph via `1bit-router`; tiny (~200 LOC, spin +
+# pin-project-lite transitive deps already present via axum/tokio). We
+# picked flume over crossbeam-channel for consistency with the sampler
+# handoff pattern in 1bit-router (see its Cargo.toml comment).
+flume      = "0.11"
 
 [build-dependencies]
 cc = "1.2"
