@@ -50,18 +50,49 @@ FetchContent_MakeAvailable(cpp_httplib nlohmann_json ftxui)
 # phases 1-4 will replace that; once they land, this find_package goes away too.
 find_package(composable_kernel REQUIRED CONFIG PATHS "${ROCM_ROOT}")
 
-# GPU arch(es) to build for. Default is Strix Halo; override with
-#   -DCMAKE_HIP_ARCHITECTURES="gfx1151;gfx1201" for a multi-arch build,
-#   or "gfx1201" alone for RX 9070 XT (Navi 48 / RDNA4) only.
+# GPU arch(es) to build for. Default covers every AMD consumer arch with
+# Wave32 WMMA — RDNA3, RDNA3.5, and RDNA4 — so one fat binary Just Works
+# across the mainstream Radeon + APU lineup:
 #
-# gfx1201 port status (2026-04-22):
-#   PORTED    — wmma_peak_probe.hip (via src/wmma_compat.hpp)
-#               sdot4/sudot4 kernels (arch-independent builtins)
-#               prefill_standalone.hip (all 14 kernels; bit-exact vs CK on both arches)
-#   Track any further per-arch dispatch in src/wmma_compat.hpp.
+#   RDNA3   (half16, __builtin_amdgcn_wmma_*_w32):
+#     gfx1100  Navi 31      RX 7900 XTX / 7900 XT / W7900
+#     gfx1101  Navi 32      RX 7800 XT / 7700 XT
+#     gfx1102  Navi 33      RX 7600 / 7600 XT / 7700S
+#     gfx1103  Phoenix      Radeon 780M / 760M (Ryzen 7040/8040 iGPU)
 #
-# HIP packs code objects per-arch into one fat binary; runtime picks by device.
-set(CMAKE_HIP_ARCHITECTURES "gfx1151" CACHE STRING "GPU arch(es) to build")
+#   RDNA3.5 (half16, __builtin_amdgcn_wmma_*_w32):
+#     gfx1150  Strix Point  Radeon 880M / 890M (Ryzen AI 9 HX 370)
+#     gfx1151  Strix Halo   Radeon 8060S (Ryzen AI Max+ 395)  <-- reference
+#
+#   RDNA4   (half8, __builtin_amdgcn_wmma_*_w32_gfx12):
+#     gfx1200  Navi 44      RX 9060 (expected)
+#     gfx1201  Navi 48      RX 9070 / RX 9070 XT              <-- 2nd target
+#
+# All eight share the WMMA family src/wmma_compat.hpp already dispatches:
+# the RDNA3/3.5 block uses the original `_w32` builtin with half16, the
+# RDNA4 block uses the `_w32_gfx12` builtin with half8 + the blocked C
+# accumulator mapping. HIP bundles code objects per-arch into one fat
+# binary; runtime picks by device.
+#
+# Override for a narrower slice when disk/build-time matters:
+#   -DCMAKE_HIP_ARCHITECTURES="gfx1151"              # Strix Halo only
+#   -DCMAKE_HIP_ARCHITECTURES="gfx1151;gfx1201"      # both our hosts
+#   -DCMAKE_HIP_ARCHITECTURES="gfx1201"              # RX 9070 XT only
+#
+# Not on the default list (and why):
+#   gfx1030-1036 (RDNA2)   — no WMMA; would need a wave64 / no-WMMA fallback.
+#   gfx90a / gfx942 (CDNA) — MFMA, not WMMA; separate port via mfma_compat.hpp.
+#   gfx900-906 (GCN)       — too old, no ternary-GEMV ISA win.
+#
+# Port status (2026-04-22):
+#   PORTED    — wmma_peak_probe.hip
+#             — prefill_standalone.hip (all 14 kernels, bit-exact vs CK on
+#               both gfx1151 + gfx1201)
+#             — sdot4/sudot4 kernels (arch-independent builtins, no changes)
+#   Track per-arch dispatch in src/wmma_compat.hpp.
+set(CMAKE_HIP_ARCHITECTURES
+    "gfx1100;gfx1101;gfx1102;gfx1103;gfx1150;gfx1151;gfx1200;gfx1201"
+    CACHE STRING "GPU arch(es) to build")
 
 # -- librocm_cpp : shared library exposing the C API ----------------------------
 # Host packer is pure C++ (no CK). Device kernel uses CK headers only — no
