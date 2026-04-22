@@ -53,6 +53,9 @@ pub use dialectic::{
 
 pub mod watch;
 
+pub mod specialists;
+pub use specialists::{LlmSpecialist, default_base_url, default_model_id};
+
 /// The 17 specialists. Ordering matches agent-cpp/specialists/ for easy diff.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Name {
@@ -240,20 +243,55 @@ pub struct Registry {
 }
 
 impl Registry {
-    /// Build the default registry. Seeded with all 17 stubs, except
-    /// `Anvil` which is swapped for the [`AnvilSpecialist`] typed demo so
-    /// MCP clients see a real input schema out of the box. Callers replace
-    /// the remaining stubs with real impls via `insert`.
+    /// Build the default registry. Seeded with all 17 stubs, then
+    /// swaps in:
+    ///
+    /// * `Anvil` → [`AnvilSpecialist`] typed demo so MCP clients see a
+    ///   real input schema out of the box.
+    /// * `Herald` / `Sentinel` / `Magistrate` / `Quartermaster` →
+    ///   [`LlmSpecialist`]s pointed at 1bit-halo-server
+    ///   (`http://127.0.0.1:8180`). These are the four specialists the
+    ///   Discord + GitHub watchers currently route to; each returns a
+    ///   JSON `{"text": ...}` payload that `1bit-watch-discord` relays
+    ///   through echo's Discord client.
+    ///
+    /// Callers can still replace any slot via `insert`. Tests that
+    /// don't want HTTP side-effects use [`Registry::all_stubs`].
     pub fn default_stubs() -> Self {
+        let mut r = Self::all_stubs();
+        r.insert(Typed::arc(AnvilSpecialist));
+        r.install_live_triage(&specialists::default_base_url(), &specialists::default_model_id());
+        r
+    }
+
+    /// Registry seeded with plain [`Stub`]s for every specialist. No
+    /// HTTP, no side-effects. Useful for routing / dispatch tests that
+    /// don't want a live halo-server dependency.
+    pub fn all_stubs() -> Self {
         let mut map: HashMap<Name, Boxed> = HashMap::new();
         for n in Name::ALL {
             map.insert(*n, Arc::new(Stub(*n)));
         }
-        // Typed demo: Anvil is the first specialist to publish a real
-        // JsonSchema via `Typed<AnvilSpecialist>`. Everything else stays a
-        // Stub until a real TypedSpecialist impl lands.
-        map.insert(Name::Anvil, Typed::arc(AnvilSpecialist));
         Self { map }
+    }
+
+    /// Install the four LLM-backed triage specialists (Herald /
+    /// Sentinel / Magistrate / Quartermaster) pointed at the given
+    /// halo-server base URL + model id. Exposed so integration tests
+    /// can point at a mock server.
+    pub fn install_live_triage(&mut self, base_url: &str, model_id: &str) {
+        self.insert(Arc::new(specialists::LlmSpecialist::herald(
+            base_url, model_id,
+        )));
+        self.insert(Arc::new(specialists::LlmSpecialist::sentinel(
+            base_url, model_id,
+        )));
+        self.insert(Arc::new(specialists::LlmSpecialist::magistrate(
+            base_url, model_id,
+        )));
+        self.insert(Arc::new(specialists::LlmSpecialist::quartermaster(
+            base_url, model_id,
+        )));
     }
 
     pub fn insert(&mut self, s: Boxed) {
