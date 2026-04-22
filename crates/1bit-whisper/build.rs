@@ -13,9 +13,12 @@
 //!      install on this box provides `/usr/lib/libwhisper.so.1.8.3` plus
 //!      `/usr/include/whisper.h`.
 //!
-//! There is no header-search-path override: we assume whisper.h is on the
-//! default compiler include path (`/usr/include`). If that breaks on a host,
-//! set `CXXFLAGS=-I/path/to/whisper/include` before `cargo build`.
+//! By default we assume whisper.h is on the compiler include path
+//! (`/usr/include`). Set `ONEBIT_WHISPER_PREFIX=/path/to/install` to point
+//! at a non-default install — used on sliger where whisper.cpp is built
+//! with `-DGGML_VULKAN=ON` into `/opt/whisper-vulkan/` for the Arc B580
+//! audio pipeline. The `vulkan` Cargo feature is a signal to downstream
+//! services; the actual backend is chosen at whisper.cpp build time.
 
 use std::env;
 
@@ -25,6 +28,8 @@ fn main() {
     println!("cargo:rerun-if-changed=cpp/shim.h");
     println!("cargo:rerun-if-changed=cpp/segment_ring.hpp");
     println!("cargo:rerun-if-env-changed=CARGO_FEATURE_REAL_WHISPER");
+    println!("cargo:rerun-if-env-changed=CARGO_FEATURE_VULKAN");
+    println!("cargo:rerun-if-env-changed=ONEBIT_WHISPER_PREFIX");
 
     let real_whisper = env::var_os("CARGO_FEATURE_REAL_WHISPER").is_some();
     if !real_whisper {
@@ -32,18 +37,29 @@ fn main() {
         return;
     }
 
+    // Optional install-prefix override for non-default whisper.cpp installs
+    // (e.g. a Vulkan-enabled build at `/opt/whisper-vulkan` on sliger).
+    let prefix = env::var_os("ONEBIT_WHISPER_PREFIX")
+        .map(std::path::PathBuf::from);
+
     // 1. Build the C-linkage shim over whisper.h.
-    cc::Build::new()
+    let mut build = cc::Build::new();
+    build
         .cpp(true)
         .std("c++17")
         .file("cpp/shim.cpp")
         .flag_if_supported("-Wall")
         .flag_if_supported("-Wextra")
-        .flag_if_supported("-Wno-unused-parameter")
-        .compile("onebit_whisper_shim");
+        .flag_if_supported("-Wno-unused-parameter");
+    if let Some(p) = &prefix {
+        build.include(p.join("include"));
+    }
+    build.compile("onebit_whisper_shim");
 
     // 2. Link against system libwhisper. /usr/lib is on the default linker
-    //    search path, so no extra `-L` is needed; if packaging moves it we
-    //    can add `cargo:rustc-link-search=native=/path`.
+    //    search path. If a prefix was provided we add its lib dir too.
+    if let Some(p) = &prefix {
+        println!("cargo:rustc-link-search=native={}", p.join("lib").display());
+    }
     println!("cargo:rustc-link-lib=whisper");
 }

@@ -30,6 +30,16 @@ default       = ["stub"]
 stub          = []
 real-whisper  = []
 
+# Signals to build.rs + downstream services that the system libwhisper was
+# compiled with GGML_VULKAN=ON. Pure metadata — system whisper.cpp picks
+# the backend at its own build time. On sliger (Intel Arc B580 / Xe2) this
+# is the supported path; on strixhalo (gfx1151) we fall back to Vulkan or
+# HIP per whisper.cpp install.
+vulkan        = ["real-whisper"]
+# Analogous signal for hipBLAS-free HIP backend (whisper.cpp GGML_HIPBLAS).
+# Not used on the serving path today per Rule C; kept for parity.
+hip           = ["real-whisper"]
+
 [dependencies]
 anyhow     = { workspace = true }
 bytes      = { workspace = true }
