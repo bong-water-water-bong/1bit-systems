@@ -309,7 +309,26 @@ mod tests {
     use super::*;
 
     fn server() -> StdioServer {
-        StdioServer::with_default_agents()
+        // Tests should never depend on a live 1bit-halo-server; use the
+        // pure-Stub registry + only overlay the typed AnvilSpecialist
+        // (matches production `default_stubs` minus the LLM triage
+        // install). Without this, Herald/Sentinel/Magistrate/
+        // Quartermaster would dispatch via HTTP to a dead localhost and
+        // return `({name} down)`, breaking the roundtrip assertion.
+        use onebit_agents::{AnvilSpecialist, Registry, Typed};
+        let mut r = Registry::all_stubs();
+        r.insert(Typed::arc(AnvilSpecialist));
+        let agents = Arc::new(r);
+        let mut tools = ToolRegistry::from_agents_registry(&agents);
+        tools.push(skill_tool::tool());
+        tools.push(memory_tool::tool());
+        let tmp = std::env::temp_dir().join("1bit-mcp-test-skills");
+        let mem = std::env::temp_dir().join("1bit-mcp-test-memory");
+        let skills = Arc::new(Mutex::new(SkillStore::with_root(tmp)));
+        let memory = Arc::new(Mutex::new(
+            MemoryStore::with_root(mem).expect("tempdir memory"),
+        ));
+        StdioServer::new(tools, agents, skills, memory)
     }
 
     #[tokio::test]
