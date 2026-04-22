@@ -20,29 +20,26 @@
 #include <cstdint>
 
 #include "rocm_cpp/ck_gemm.h"   // C API — shared between CK and standalone backends
+#include "wmma_compat.hpp"      // per-arch WMMA dispatch (gfx11 / gfx12)
 
-// RDNA4 (gfx1200/1201) WMMA has a different lane layout + fragment size than
-// RDNA3 (gfx1151). The kernels in this TU were written against the RDNA3
-// layout (lanes 0-15 duplicate 16-31 for A/B fragments; half16_t per lane).
-// Porting requires structural changes, not just intrinsic dispatch —
-// tracked in src/wmma_compat.hpp.
+// RDNA3 (gfx1151) and RDNA4 (gfx1201) WMMA fragments differ in two ways:
+//   (1) K tile per lane: 16 halves on gfx11, 8 halves on gfx12 (lanes 0-15
+//       and 16-31 now own disjoint K halves instead of duplicating).
+//   (2) C row mapping: gfx11 interleaves rows 2*r+(i>>4), gfx12 blocks
+//       rows (i>>4)*8+r.
 //
-// We skip the whole TU on gfx12 device compiles; the CMake rule in
-// CMakeLists.txt pins `HIP_SOURCE_PROPERTY_HIP_ARCHITECTURES=gfx1151` for
-// this file, so gfx12-only builds don't include prefill symbols at all.
-// Multi-arch (gfx1151 + gfx1201) builds keep the gfx1151 slice and skip the
-// gfx1201 device pass here — the host-side launchers are still produced
-// because host compilation doesn't define any __gfxN__ macros.
-//
-// If the CMake guard is removed or misses, this `#if` stops the gfx12
-// device compile with a clear message rather than emitting wrong-result
-// kernels silently.
-#define ROCM_CPP_PREFILL_GFX11 \
-    (!(defined(__gfx1200__) || defined(__gfx1201__) || defined(__gfx12__)))
-
-#if ROCM_CPP_PREFILL_GFX11 || !defined(__HIP_DEVICE_COMPILE__)
+// We abstract both via wmma_compat.hpp:
+//   - WMMA_K_ELEMS (16 or 8) + wmma_k_lane_base(lane) for A/B load loops
+//   - wmma_c_row_for_slot(lane, r) for every C store
+//   - wmma_half_frag_t / wmma_f32_acc_t (per-arch vector types)
+//   - wmma_f32_f16(a, b, c) (dispatches to the right builtin)
+// After the swap the same kernel source compiles + runs correctly on both.
 
 namespace {
+
+using half16_t = wmma_half_frag_t;   // alias matches legacy naming in this TU;
+                                     // on gfx12 this is actually ext_vector_type(8).
+using float8_t = wmma_f32_acc_t;
 
 constexpr int K1       = 32;  // KPerBlock in CK parlance
 constexpr int K1_BYTES = K1 / 2;
@@ -228,11 +225,7 @@ void standalone_ternary_gemm_lds(
 //     lane i, slot r in 0..7 -> C[2*r + (i >= 16), i % 16]
 //     (interleaved rows: lanes 0..15 own even rows, lanes 16..31 own odd rows.)
 //
-// Builtin:
-//   float8_t __builtin_amdgcn_wmma_f32_16x16x16_f16_w32(half16_t A, half16_t B, float8_t C);
-using half16_t  = __attribute__((ext_vector_type(16))) __fp16;
-using float8_t  = __attribute__((ext_vector_type(8))) float;
-
+// Builtin: see wmma_compat.hpp::wmma_f32_f16.
 __global__ __launch_bounds__(32)
 void standalone_ternary_gemm_wmma(
     const __half* __restrict__ A,
@@ -246,7 +239,7 @@ void standalone_ternary_gemm_wmma(
 
     const int lane = threadIdx.x;      // 0..31
     const int row_lane = lane & 15;    // 0..15 — row index for A / col index for B
-    const int half = lane >> 4;        // 0 or 1 — duplicate half
+    const int k_base   = wmma_k_lane_base(lane);  // 0 on gfx11; {0,8} on gfx12
 
     const int m0 = blockIdx.y * TILE_M;
     const int n0 = blockIdx.x * TILE_N;
@@ -256,9 +249,8 @@ void standalone_ternary_gemm_wmma(
 
     const int K0 = K / K1;             // number of j blocks
     const int steps_per_block = K1 / WMMA_K;  // 2 WMMA steps per K1-block
-    const int jj_per_step     = WMMA_K;       // 16 original K per step
 
-    const int forward_perm[8] = {2, 0, 6, 4, 3, 1, 7, 5};
+    const int inv_perm[8] = {1, 5, 0, 4, 3, 7, 2, 6};
 
     for(int j = 0; j < K0; ++j) {
         // Each K1 block (32 elements along K axis) = 2 WMMA steps of 16.
@@ -267,68 +259,61 @@ void standalone_ternary_gemm_wmma(
             // Original K range for this step: [j*K1 + jj_lo, j*K1 + jj_lo + 16)
 
             // ------- Build A fragment -------
-            // Each of 32 lanes holds row (lane % 16) of A, all 16 cols for
-            // this K step. Lanes 16..31 duplicate lanes 0..15.
+            // gfx11: each lane holds row (lane&15), ALL 16 cols of this step (lanes 16-31 duplicate).
+            // gfx12: each lane holds row (lane&15), cols [k_base, k_base+8) — lanes 0-15 own K[0..7],
+            //        lanes 16-31 own K[8..15].
             half16_t A_frag;
             {
                 const int m_row = m0 + row_lane;
                 if(m_row < M) {
                     #pragma unroll
-                    for(int c = 0; c < 16; ++c) {
-                        const int k_orig = j * K1 + jj_lo + c;
-                        A_frag[c] = (__fp16)(float)A[m_row * K + k_orig];
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e) {
+                        const int k_orig = j * K1 + jj_lo + k_base + e;
+                        A_frag[e] = (__fp16)(float)A[m_row * K + k_orig];
                     }
                 } else {
                     #pragma unroll
-                    for(int c = 0; c < 16; ++c) A_frag[c] = (__fp16)0;
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e) A_frag[e] = (__fp16)0;
                 }
             }
 
             // ------- Build B fragment -------
-            // Each of 32 lanes holds col (lane % 16) of B for this K step.
-            // B on device: for block j, col (n0 + row_lane), 16 bytes per col.
+            // Same per-arch K split as A. Each lane brings WMMA_K_ELEMS nibbles
+            // for its (col, K-half) pair. Reverse the within-8 permute to find
+            // each desired original-K nibble inside the packed byte stream.
             half16_t B_frag;
             {
                 const int n_col = n0 + row_lane;
                 if(n_col < N) {
                     const int b_base = j * N * K1_BYTES + n_col * K1_BYTES;
-                    // We need the 16 original-K values [jj_lo, jj_lo+16) from the
-                    // permuted bytes. Reverse the within-8 permute.
                     #pragma unroll
-                    for(int r = 0; r < 16; ++r) {
-                        const int jj_orig  = jj_lo + r;                     // 0..31
-                        const int grp_base = (jj_orig / 8) * 8;
-                        const int slot_out = jj_orig & 7;
-                        const int orig_s   = forward_perm[slot_out];        // WRONG direction; see below
-                        (void)orig_s;
-                        // B_lds we built in Phase 2 used forward_perm (output->input). Here
-                        // we want: given desired ORIGINAL position jj_orig, where is it in
-                        // the permuted byte buffer?
-                        const int inv_perm[8] = {1, 5, 0, 4, 3, 7, 2, 6};
-                        const int perm_slot = inv_perm[slot_out];
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e) {
+                        const int jj_orig   = jj_lo + k_base + e;           // 0..31
+                        const int grp_base  = (jj_orig / 8) * 8;
+                        const int perm_slot = inv_perm[jj_orig & 7];
                         const int perm_jj   = grp_base + perm_slot;         // position in permuted bytes
                         const uint8_t byte  = B[b_base + (perm_jj >> 1)];
                         const uint8_t nib   = ((perm_jj & 1) == 0)
                             ? ((byte >> 4) & 0xF)
                             : (byte & 0xF);
-                        B_frag[r] = (__fp16)((float)((int)nib - 8));
+                        B_frag[e] = (__fp16)((float)((int)nib - 8));
                     }
                 } else {
                     #pragma unroll
-                    for(int r = 0; r < 16; ++r) B_frag[r] = (__fp16)0;
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e) B_frag[e] = (__fp16)0;
                 }
             }
 
             // ------- WMMA step -------
-            acc = __builtin_amdgcn_wmma_f32_16x16x16_f16_w32(A_frag, B_frag, acc);
+            acc = wmma_f32_f16(A_frag, B_frag, acc);
         }
     }
 
     // ------- Store C -------
-    // lane i slot r in 0..7 -> C[r + 8*(i >= 16), i % 16]
+    // Row mapping is per-arch (see wmma_c_row_for_slot); col is always (lane & 15).
     #pragma unroll
     for(int r = 0; r < 8; ++r) {
-        const int m_out = m0 + 2 * r + half;
+        const int m_out = m0 + wmma_c_row_for_slot(lane, r);
         const int n_out = n0 + row_lane;
         if(m_out < M && n_out < N) {
             C[m_out * N + n_out] = __float2half(acc[r]);
@@ -355,15 +340,13 @@ void standalone_ternary_gemm_wmma_4x(
 
     const int lane     = threadIdx.x;
     const int row_lane = lane & 15;
-    const int half     = lane >> 4;
+    const int k_base   = wmma_k_lane_base(lane);
 
     const int m0 = blockIdx.y * TILE_M;
     const int n0 = blockIdx.x * TILE_N;
 
     float8_t acc[4] = {};  // four 16x16 accumulators along N
 
-    const int forward_perm[8] = {2, 0, 6, 4, 3, 1, 7, 5};
-    (void)forward_perm;
     const int inv_perm[8] = {1, 5, 0, 4, 3, 7, 2, 6};
 
     const int K0 = K / K1;
@@ -379,12 +362,12 @@ void standalone_ternary_gemm_wmma_4x(
                 const int m_row = m0 + row_lane;
                 if(m_row < M) {
                     #pragma unroll
-                    for(int c = 0; c < 16; ++c) {
-                        A_frag[c] = (__fp16)(float)A[m_row * K + j * K1 + jj_lo + c];
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e) {
+                        A_frag[e] = (__fp16)(float)A[m_row * K + j * K1 + jj_lo + k_base + e];
                     }
                 } else {
                     #pragma unroll
-                    for(int c = 0; c < 16; ++c) A_frag[c] = (__fp16)0;
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e) A_frag[e] = (__fp16)0;
                 }
             }
 
@@ -397,23 +380,22 @@ void standalone_ternary_gemm_wmma_4x(
                 if(n_col < N) {
                     const int b_base = j * N * K1_BYTES + n_col * K1_BYTES;
                     #pragma unroll
-                    for(int r = 0; r < 16; ++r) {
-                        const int jj_orig  = jj_lo + r;
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e) {
+                        const int jj_orig  = jj_lo + k_base + e;
                         const int grp_base = (jj_orig / 8) * 8;
-                        const int slot_out = jj_orig & 7;
-                        const int perm_slot = inv_perm[slot_out];
+                        const int perm_slot = inv_perm[jj_orig & 7];
                         const int perm_jj   = grp_base + perm_slot;
                         const uint8_t byte  = B[b_base + (perm_jj >> 1)];
                         const uint8_t nib   = ((perm_jj & 1) == 0)
                             ? ((byte >> 4) & 0xF)
                             : (byte & 0xF);
-                        B_frag[r] = (__fp16)((float)((int)nib - 8));
+                        B_frag[e] = (__fp16)((float)((int)nib - 8));
                     }
                 } else {
                     #pragma unroll
-                    for(int r = 0; r < 16; ++r) B_frag[r] = (__fp16)0;
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e) B_frag[e] = (__fp16)0;
                 }
-                acc[sub] = __builtin_amdgcn_wmma_f32_16x16x16_f16_w32(A_frag, B_frag, acc[sub]);
+                acc[sub] = wmma_f32_f16(A_frag, B_frag, acc[sub]);
             }
         }
     }
@@ -424,7 +406,7 @@ void standalone_ternary_gemm_wmma_4x(
         const int n_sub = n0 + sub * 16;
         #pragma unroll
         for(int r = 0; r < 8; ++r) {
-            const int m_out = m0 + 2 * r + half;
+            const int m_out = m0 + wmma_c_row_for_slot(lane, r);
             const int n_out = n_sub + row_lane;
             if(m_out < M && n_out < N) {
                 C[m_out * N + n_out] = __float2half(acc[sub][r]);
@@ -450,7 +432,7 @@ void standalone_ternary_gemm_wmma_2x4(
 
     const int lane     = threadIdx.x;
     const int row_lane = lane & 15;
-    const int half     = lane >> 4;
+    const int k_base   = wmma_k_lane_base(lane);
 
     const int m0 = blockIdx.y * TILE_M;
     const int n0 = blockIdx.x * TILE_N;
@@ -472,12 +454,12 @@ void standalone_ternary_gemm_wmma_2x4(
                 const int m_row = m0 + m_sub * 16 + row_lane;
                 if(m_row < M) {
                     #pragma unroll
-                    for(int c = 0; c < 16; ++c) {
-                        A_frags[m_sub][c] = (__fp16)(float)A[m_row * K + j * K1 + jj_lo + c];
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e) {
+                        A_frags[m_sub][e] = (__fp16)(float)A[m_row * K + j * K1 + jj_lo + k_base + e];
                     }
                 } else {
                     #pragma unroll
-                    for(int c = 0; c < 16; ++c) A_frags[m_sub][c] = (__fp16)0;
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e) A_frags[m_sub][e] = (__fp16)0;
                 }
             }
 
@@ -489,26 +471,25 @@ void standalone_ternary_gemm_wmma_2x4(
                 if(n_col < N) {
                     const int b_base = j * N * K1_BYTES + n_col * K1_BYTES;
                     #pragma unroll
-                    for(int r = 0; r < 16; ++r) {
-                        const int jj_orig   = jj_lo + r;
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e) {
+                        const int jj_orig   = jj_lo + k_base + e;
                         const int grp_base  = (jj_orig / 8) * 8;
-                        const int slot_out  = jj_orig & 7;
-                        const int perm_slot = inv_perm[slot_out];
+                        const int perm_slot = inv_perm[jj_orig & 7];
                         const int perm_jj   = grp_base + perm_slot;
                         const uint8_t byte  = B[b_base + (perm_jj >> 1)];
                         const uint8_t nib   = ((perm_jj & 1) == 0)
                             ? ((byte >> 4) & 0xF)
                             : (byte & 0xF);
-                        B_frag[r] = (__fp16)((float)((int)nib - 8));
+                        B_frag[e] = (__fp16)((float)((int)nib - 8));
                     }
                 } else {
                     #pragma unroll
-                    for(int r = 0; r < 16; ++r) B_frag[r] = (__fp16)0;
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e) B_frag[e] = (__fp16)0;
                 }
                 // Cross product: this B fragment feeds both M sub-tiles.
                 #pragma unroll
                 for(int m_sub = 0; m_sub < 2; ++m_sub) {
-                    acc[m_sub][n_sub] = __builtin_amdgcn_wmma_f32_16x16x16_f16_w32(
+                    acc[m_sub][n_sub] = wmma_f32_f16(
                         A_frags[m_sub], B_frag, acc[m_sub][n_sub]);
                 }
             }
@@ -524,7 +505,7 @@ void standalone_ternary_gemm_wmma_2x4(
             const int no = n0 + n_sub * 16;
             #pragma unroll
             for(int r = 0; r < 8; ++r) {
-                const int m_out = mo + 2 * r + half;
+                const int m_out = mo + wmma_c_row_for_slot(lane, r);
                 const int n_out = no + row_lane;
                 if(m_out < M && n_out < N) {
                     C[m_out * N + n_out] = __float2half(acc[m_sub][n_sub][r]);
@@ -550,12 +531,12 @@ void standalone_ternary_gemm_wmma_2x4_ldsB(
     constexpr int TILE_N  = 64;
     constexpr int WMMA_K  = 16;
 
-    // B tile: [K1, TILE_N] FP16, K-contiguous per column
+    // B tile: [K1, TILE_N] FP16, K-contiguous per column (original-K order)
     __shared__ __half B_lds[K1 * TILE_N];
 
     const int lane     = threadIdx.x;
     const int row_lane = lane & 15;
-    const int half     = lane >> 4;
+    const int k_base   = wmma_k_lane_base(lane);
 
     const int m0 = blockIdx.y * TILE_M;
     const int n0 = blockIdx.x * TILE_N;
@@ -568,6 +549,8 @@ void standalone_ternary_gemm_wmma_2x4_ldsB(
         // ---- Cooperatively decode+load B tile into LDS ----
         // 64 cols x 16 bytes/col = 1024 bytes. 32 lanes -> 32 bytes/lane
         // = 64 nibbles/lane -> 64 half writes/lane to B_lds.
+        // NOTE: the LDS layout here is arch-independent — it always stores the
+        // full K1=32 elements per column in original-K order.
         #pragma unroll
         for(int bb = 0; bb < 32; ++bb) {
             const int byte_off  = lane * 32 + bb;            // 0..1023
@@ -613,12 +596,12 @@ void standalone_ternary_gemm_wmma_2x4_ldsB(
                 const int m_row = m0 + m_sub * 16 + row_lane;
                 if(m_row < M) {
                     #pragma unroll
-                    for(int c = 0; c < 16; ++c) {
-                        A_frags[m_sub][c] = (__fp16)(float)A[m_row * K + j * K1 + kk_base + c];
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e) {
+                        A_frags[m_sub][e] = (__fp16)(float)A[m_row * K + j * K1 + kk_base + k_base + e];
                     }
                 } else {
                     #pragma unroll
-                    for(int c = 0; c < 16; ++c) A_frags[m_sub][c] = (__fp16)0;
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e) A_frags[m_sub][e] = (__fp16)0;
                 }
             }
 
@@ -628,13 +611,13 @@ void standalone_ternary_gemm_wmma_2x4_ldsB(
                 half16_t B_frag;
                 const int n_col_in_tile = n_sub * 16 + row_lane;  // 0..63
                 #pragma unroll
-                for(int r = 0; r < 16; ++r) {
-                    const int kk = kk_base + r;
-                    B_frag[r] = (__fp16)(float)B_lds[kk * TILE_N + n_col_in_tile];
+                for(int e = 0; e < WMMA_K_ELEMS; ++e) {
+                    const int kk = kk_base + k_base + e;
+                    B_frag[e] = (__fp16)(float)B_lds[kk * TILE_N + n_col_in_tile];
                 }
                 #pragma unroll
                 for(int m_sub = 0; m_sub < 2; ++m_sub) {
-                    acc[m_sub][n_sub] = __builtin_amdgcn_wmma_f32_16x16x16_f16_w32(
+                    acc[m_sub][n_sub] = wmma_f32_f16(
                         A_frags[m_sub], B_frag, acc[m_sub][n_sub]);
                 }
             }
@@ -651,7 +634,7 @@ void standalone_ternary_gemm_wmma_2x4_ldsB(
             const int no = n0 + n_sub * 16;
             #pragma unroll
             for(int r = 0; r < 8; ++r) {
-                const int m_out = mo + 2 * r + half;
+                const int m_out = mo + wmma_c_row_for_slot(lane, r);
                 const int n_out = no + row_lane;
                 if(m_out < M && n_out < N) {
                     C[m_out * N + n_out] = __float2half(acc[m_sub][n_sub][r]);
@@ -683,7 +666,7 @@ void standalone_ternary_gemm_wmma_4x4(
 
     const int lane     = threadIdx.x;
     const int row_lane = lane & 15;
-    const int half     = lane >> 4;
+    const int k_base   = wmma_k_lane_base(lane);
 
     const int m0 = blockIdx.y * TILE_M;
     const int n0 = blockIdx.x * TILE_N;
@@ -705,12 +688,12 @@ void standalone_ternary_gemm_wmma_4x4(
                 const int m_row = m0 + m_sub * 16 + row_lane;
                 if(m_row < M) {
                     #pragma unroll
-                    for(int c = 0; c < 16; ++c) {
-                        A_frags[m_sub][c] = (__fp16)(float)A[m_row * K + j * K1 + jj_lo + c];
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e) {
+                        A_frags[m_sub][e] = (__fp16)(float)A[m_row * K + j * K1 + jj_lo + k_base + e];
                     }
                 } else {
                     #pragma unroll
-                    for(int c = 0; c < 16; ++c) A_frags[m_sub][c] = (__fp16)0;
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e) A_frags[m_sub][e] = (__fp16)0;
                 }
             }
 
@@ -722,25 +705,24 @@ void standalone_ternary_gemm_wmma_4x4(
                 if(n_col < N) {
                     const int b_base = j * N * K1_BYTES + n_col * K1_BYTES;
                     #pragma unroll
-                    for(int r = 0; r < 16; ++r) {
-                        const int jj_orig   = jj_lo + r;
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e) {
+                        const int jj_orig   = jj_lo + k_base + e;
                         const int grp_base  = (jj_orig / 8) * 8;
-                        const int slot_out  = jj_orig & 7;
-                        const int perm_slot = inv_perm[slot_out];
+                        const int perm_slot = inv_perm[jj_orig & 7];
                         const int perm_jj   = grp_base + perm_slot;
                         const uint8_t byte  = B[b_base + (perm_jj >> 1)];
                         const uint8_t nib   = ((perm_jj & 1) == 0)
                             ? ((byte >> 4) & 0xF)
                             : (byte & 0xF);
-                        B_frag[r] = (__fp16)((float)((int)nib - 8));
+                        B_frag[e] = (__fp16)((float)((int)nib - 8));
                     }
                 } else {
                     #pragma unroll
-                    for(int r = 0; r < 16; ++r) B_frag[r] = (__fp16)0;
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e) B_frag[e] = (__fp16)0;
                 }
                 #pragma unroll
                 for(int m_sub = 0; m_sub < 4; ++m_sub) {
-                    acc[m_sub][n_sub] = __builtin_amdgcn_wmma_f32_16x16x16_f16_w32(
+                    acc[m_sub][n_sub] = wmma_f32_f16(
                         A_frags[m_sub], B_frag, acc[m_sub][n_sub]);
                 }
             }
@@ -756,7 +738,7 @@ void standalone_ternary_gemm_wmma_4x4(
             const int no = n0 + n_sub * 16;
             #pragma unroll
             for(int r = 0; r < 8; ++r) {
-                const int m_out = mo + 2 * r + half;
+                const int m_out = mo + wmma_c_row_for_slot(lane, r);
                 const int n_out = no + row_lane;
                 if(m_out < M && n_out < N) {
                     C[m_out * N + n_out] = __float2half(acc[m_sub][n_sub][r]);
@@ -787,7 +769,7 @@ void standalone_ternary_gemm_wmma_4x4_cached(
 
     const int lane     = threadIdx.x;
     const int row_lane = lane & 15;
-    const int half     = lane >> 4;
+    const int k_base   = wmma_k_lane_base(lane);
 
     const int m0 = blockIdx.y * TILE_M;
     const int n0 = blockIdx.x * TILE_N;
@@ -797,21 +779,27 @@ void standalone_ternary_gemm_wmma_4x4_cached(
     const int K0 = K / K1;
 
     for(int j = 0; j < K0; ++j) {
-        // ------- Load 4 A fragments, each holding BOTH K steps (32 halves) -------
-        // A_cache[m_sub][step] holds 16 halves along K. Loaded once per j.
+        // ------- Load 4 A fragments, each holding BOTH K steps -------
+        // Per-step fragment width is WMMA_K_ELEMS (16 on gfx11, 8 on gfx12).
         half16_t A_cache[4][2];
         #pragma unroll
         for(int m_sub = 0; m_sub < 4; ++m_sub) {
             const int m_row = m0 + m_sub * 16 + row_lane;
             if(m_row < M) {
                 #pragma unroll
-                for(int c = 0; c < K1; ++c) {
-                    const float v = (float)A[m_row * K + j * K1 + c];
-                    A_cache[m_sub][c / 16][c & 15] = (__fp16)v;
+                for(int step = 0; step < 2; ++step) {
+                    #pragma unroll
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e) {
+                        const int c = step * 16 + k_base + e;
+                        A_cache[m_sub][step][e] = (__fp16)(float)A[m_row * K + j * K1 + c];
+                    }
                 }
             } else {
                 #pragma unroll
-                for(int c = 0; c < K1; ++c) A_cache[m_sub][c / 16][c & 15] = (__fp16)0;
+                for(int step = 0; step < 2; ++step)
+                    #pragma unroll
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e)
+                        A_cache[m_sub][step][e] = (__fp16)0;
             }
         }
 
@@ -824,21 +812,26 @@ void standalone_ternary_gemm_wmma_4x4_cached(
             if(n_col < N) {
                 const int b_base = j * N * K1_BYTES + n_col * K1_BYTES;
                 #pragma unroll
-                for(int c = 0; c < K1; ++c) {
-                    const int jj_orig   = c;
-                    const int grp_base  = (jj_orig / 8) * 8;
-                    const int slot_out  = jj_orig & 7;
-                    const int perm_slot = inv_perm[slot_out];
-                    const int perm_jj   = grp_base + perm_slot;
-                    const uint8_t byte  = B[b_base + (perm_jj >> 1)];
-                    const uint8_t nib   = ((perm_jj & 1) == 0)
-                        ? ((byte >> 4) & 0xF)
-                        : (byte & 0xF);
-                    B_cache[c / 16][c & 15] = (__fp16)((float)((int)nib - 8));
+                for(int step = 0; step < 2; ++step) {
+                    #pragma unroll
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e) {
+                        const int jj_orig   = step * 16 + k_base + e;
+                        const int grp_base  = (jj_orig / 8) * 8;
+                        const int perm_slot = inv_perm[jj_orig & 7];
+                        const int perm_jj   = grp_base + perm_slot;
+                        const uint8_t byte  = B[b_base + (perm_jj >> 1)];
+                        const uint8_t nib   = ((perm_jj & 1) == 0)
+                            ? ((byte >> 4) & 0xF)
+                            : (byte & 0xF);
+                        B_cache[step][e] = (__fp16)((float)((int)nib - 8));
+                    }
                 }
             } else {
                 #pragma unroll
-                for(int c = 0; c < K1; ++c) B_cache[c / 16][c & 15] = (__fp16)0;
+                for(int step = 0; step < 2; ++step)
+                    #pragma unroll
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e)
+                        B_cache[step][e] = (__fp16)0;
             }
 
             // 2 K steps, 4 WMMAs each, all from registers
@@ -846,7 +839,7 @@ void standalone_ternary_gemm_wmma_4x4_cached(
             for(int step = 0; step < 2; ++step) {
                 #pragma unroll
                 for(int m_sub = 0; m_sub < 4; ++m_sub) {
-                    acc[m_sub][n_sub] = __builtin_amdgcn_wmma_f32_16x16x16_f16_w32(
+                    acc[m_sub][n_sub] = wmma_f32_f16(
                         A_cache[m_sub][step], B_cache[step], acc[m_sub][n_sub]);
                 }
             }
@@ -862,7 +855,7 @@ void standalone_ternary_gemm_wmma_4x4_cached(
             const int no = n0 + n_sub * 16;
             #pragma unroll
             for(int r = 0; r < 8; ++r) {
-                const int m_out = mo + 2 * r + half;
+                const int m_out = mo + wmma_c_row_for_slot(lane, r);
                 const int n_out = no + row_lane;
                 if(m_out < M && n_out < N) {
                     C[m_out * N + n_out] = __float2half(acc[m_sub][n_sub][r]);
@@ -873,9 +866,13 @@ void standalone_ternary_gemm_wmma_4x4_cached(
 }
 
 // Phase 4i: Phase 4h + vectorized A loads.
-// Phase 4h did 16 scalar FP16 loads per A fragment half. 4i replaces those
-// with 4 int2 (64-bit = 4 FP16) loads, cutting A-load instructions 4x.
+// Phase 4h did scalar FP16 loads per A fragment. 4i replaces those with
+// half4 (64-bit) loads, cutting A-load instructions 4x.
+// Per-lane fragment K width = WMMA_K_ELEMS, so each lane needs
+// WMMA_K_ELEMS/4 half4 loads per step. Base offset into arow4 per step
+// is step*4 + k_base/4 (k_base ∈ {0} on gfx11, {0, 8} on gfx12).
 using half4_t = __attribute__((ext_vector_type(4))) __fp16;
+static constexpr int WMMA_K_HALF4 = WMMA_K_ELEMS / 4;  // 4 on gfx11, 2 on gfx12
 
 __global__ __launch_bounds__(32)
 void standalone_ternary_gemm_wmma_4x4_vec(
@@ -889,7 +886,8 @@ void standalone_ternary_gemm_wmma_4x4_vec(
 
     const int lane     = threadIdx.x;
     const int row_lane = lane & 15;
-    const int half     = lane >> 4;
+    const int k_base   = wmma_k_lane_base(lane);
+    const int k_half4  = k_base >> 2;   // 0 on gfx11; {0,2} on gfx12
 
     const int m0 = blockIdx.y * TILE_M;
     const int n0 = blockIdx.x * TILE_N;
@@ -899,7 +897,7 @@ void standalone_ternary_gemm_wmma_4x4_vec(
     const int K0 = K / K1;
 
     for(int j = 0; j < K0; ++j) {
-        // ------- Vectorized A load: 8x half4 per m_sub (covers 32 K, both steps) -------
+        // ------- Vectorized A load: WMMA_K_HALF4 half4 loads per step per m_sub -------
         half16_t A_cache[4][2];
         #pragma unroll
         for(int m_sub = 0; m_sub < 4; ++m_sub) {
@@ -907,26 +905,23 @@ void standalone_ternary_gemm_wmma_4x4_vec(
             if(m_row < M) {
                 const __half* arow = A + m_row * K + j * K1;  // 32 halves
                 const half4_t* arow4 = reinterpret_cast<const half4_t*>(arow);
-                // 32 halves = 8 half4 = 2 half16 (one per WMMA step)
                 #pragma unroll
-                for(int v = 0; v < 4; ++v) {
-                    half4_t q = arow4[v];              // step 0, positions v*4..v*4+3
-                    A_cache[m_sub][0][v * 4 + 0] = q[0];
-                    A_cache[m_sub][0][v * 4 + 1] = q[1];
-                    A_cache[m_sub][0][v * 4 + 2] = q[2];
-                    A_cache[m_sub][0][v * 4 + 3] = q[3];
-                }
-                #pragma unroll
-                for(int v = 0; v < 4; ++v) {
-                    half4_t q = arow4[4 + v];          // step 1, positions 16..31
-                    A_cache[m_sub][1][v * 4 + 0] = q[0];
-                    A_cache[m_sub][1][v * 4 + 1] = q[1];
-                    A_cache[m_sub][1][v * 4 + 2] = q[2];
-                    A_cache[m_sub][1][v * 4 + 3] = q[3];
+                for(int step = 0; step < 2; ++step) {
+                    #pragma unroll
+                    for(int v = 0; v < WMMA_K_HALF4; ++v) {
+                        half4_t q = arow4[step * 4 + k_half4 + v];
+                        A_cache[m_sub][step][v * 4 + 0] = q[0];
+                        A_cache[m_sub][step][v * 4 + 1] = q[1];
+                        A_cache[m_sub][step][v * 4 + 2] = q[2];
+                        A_cache[m_sub][step][v * 4 + 3] = q[3];
+                    }
                 }
             } else {
                 #pragma unroll
-                for(int c = 0; c < K1; ++c) A_cache[m_sub][c / 16][c & 15] = (__fp16)0;
+                for(int step = 0; step < 2; ++step)
+                    #pragma unroll
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e)
+                        A_cache[m_sub][step][e] = (__fp16)0;
             }
         }
 
@@ -938,26 +933,33 @@ void standalone_ternary_gemm_wmma_4x4_vec(
             if(n_col < N) {
                 const int b_base = j * N * K1_BYTES + n_col * K1_BYTES;
                 #pragma unroll
-                for(int c = 0; c < K1; ++c) {
-                    const int grp_base  = (c / 8) * 8;
-                    const int perm_slot = inv_perm[c & 7];
-                    const int perm_jj   = grp_base + perm_slot;
-                    const uint8_t byte  = B[b_base + (perm_jj >> 1)];
-                    const uint8_t nib   = ((perm_jj & 1) == 0)
-                        ? ((byte >> 4) & 0xF)
-                        : (byte & 0xF);
-                    B_cache[c / 16][c & 15] = (__fp16)((float)((int)nib - 8));
+                for(int step = 0; step < 2; ++step) {
+                    #pragma unroll
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e) {
+                        const int c = step * 16 + k_base + e;
+                        const int grp_base  = (c / 8) * 8;
+                        const int perm_slot = inv_perm[c & 7];
+                        const int perm_jj   = grp_base + perm_slot;
+                        const uint8_t byte  = B[b_base + (perm_jj >> 1)];
+                        const uint8_t nib   = ((perm_jj & 1) == 0)
+                            ? ((byte >> 4) & 0xF)
+                            : (byte & 0xF);
+                        B_cache[step][e] = (__fp16)((float)((int)nib - 8));
+                    }
                 }
             } else {
                 #pragma unroll
-                for(int c = 0; c < K1; ++c) B_cache[c / 16][c & 15] = (__fp16)0;
+                for(int step = 0; step < 2; ++step)
+                    #pragma unroll
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e)
+                        B_cache[step][e] = (__fp16)0;
             }
 
             #pragma unroll
             for(int step = 0; step < 2; ++step) {
                 #pragma unroll
                 for(int m_sub = 0; m_sub < 4; ++m_sub) {
-                    acc[m_sub][n_sub] = __builtin_amdgcn_wmma_f32_16x16x16_f16_w32(
+                    acc[m_sub][n_sub] = wmma_f32_f16(
                         A_cache[m_sub][step], B_cache[step], acc[m_sub][n_sub]);
                 }
             }
@@ -972,7 +974,7 @@ void standalone_ternary_gemm_wmma_4x4_vec(
             const int no = n0 + n_sub * 16;
             #pragma unroll
             for(int r = 0; r < 8; ++r) {
-                const int m_out = mo + 2 * r + half;
+                const int m_out = mo + wmma_c_row_for_slot(lane, r);
                 const int n_out = no + row_lane;
                 if(m_out < M && n_out < N) {
                     C[m_out * N + n_out] = __float2half(acc[m_sub][n_sub][r]);
@@ -999,7 +1001,8 @@ void standalone_gemm_fp16b(
 
     const int lane     = threadIdx.x;
     const int row_lane = lane & 15;
-    const int half     = lane >> 4;
+    const int k_base   = wmma_k_lane_base(lane);
+    const int k_half4  = k_base >> 2;
 
     const int m0 = blockIdx.y * TILE_M;
     const int n0 = blockIdx.x * TILE_N;
@@ -1008,7 +1011,7 @@ void standalone_gemm_fp16b(
     const int K0 = K / K1;
 
     for(int j = 0; j < K0; ++j) {
-        // ------- Vectorized A load: 4 half4_t per m_sub, covers both K steps -------
+        // ------- Vectorized A load: WMMA_K_HALF4 half4 per m_sub per step -------
         half16_t A_cache[4][2];
         #pragma unroll
         for(int m_sub = 0; m_sub < 4; ++m_sub) {
@@ -1017,62 +1020,57 @@ void standalone_gemm_fp16b(
                 const __half* arow = A + m_row * K + j * K1;
                 const half4_t* arow4 = reinterpret_cast<const half4_t*>(arow);
                 #pragma unroll
-                for(int v = 0; v < 4; ++v) {
-                    half4_t q = arow4[v];
-                    A_cache[m_sub][0][v*4+0] = q[0];
-                    A_cache[m_sub][0][v*4+1] = q[1];
-                    A_cache[m_sub][0][v*4+2] = q[2];
-                    A_cache[m_sub][0][v*4+3] = q[3];
-                }
-                #pragma unroll
-                for(int v = 0; v < 4; ++v) {
-                    half4_t q = arow4[4+v];
-                    A_cache[m_sub][1][v*4+0] = q[0];
-                    A_cache[m_sub][1][v*4+1] = q[1];
-                    A_cache[m_sub][1][v*4+2] = q[2];
-                    A_cache[m_sub][1][v*4+3] = q[3];
+                for(int step = 0; step < 2; ++step) {
+                    #pragma unroll
+                    for(int v = 0; v < WMMA_K_HALF4; ++v) {
+                        half4_t q = arow4[step * 4 + k_half4 + v];
+                        A_cache[m_sub][step][v*4+0] = q[0];
+                        A_cache[m_sub][step][v*4+1] = q[1];
+                        A_cache[m_sub][step][v*4+2] = q[2];
+                        A_cache[m_sub][step][v*4+3] = q[3];
+                    }
                 }
             } else {
                 #pragma unroll
-                for(int c = 0; c < K1; ++c) A_cache[m_sub][c/16][c&15] = (__fp16)0;
+                for(int step = 0; step < 2; ++step)
+                    #pragma unroll
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e)
+                        A_cache[m_sub][step][e] = (__fp16)0;
             }
         }
 
-        // ------- Per N sub-tile: B fragments loaded directly from FP16 buffer -------
+        // ------- Per N sub-tile: B fragments loaded directly from FP16 col-major buffer -------
         #pragma unroll
         for(int n_sub = 0; n_sub < 4; ++n_sub) {
             const int n_col = n0 + n_sub * 16 + row_lane;
             half16_t B_cache[2];
             if(n_col < N) {
-                // B col-major: col n_col starts at B + n_col*K, j-block offset = j*K1
                 const __half* bcol = B + (size_t)n_col * K + j * K1;
                 const half4_t* bcol4 = reinterpret_cast<const half4_t*>(bcol);
                 #pragma unroll
-                for(int v = 0; v < 4; ++v) {
-                    half4_t q = bcol4[v];
-                    B_cache[0][v*4+0] = q[0];
-                    B_cache[0][v*4+1] = q[1];
-                    B_cache[0][v*4+2] = q[2];
-                    B_cache[0][v*4+3] = q[3];
-                }
-                #pragma unroll
-                for(int v = 0; v < 4; ++v) {
-                    half4_t q = bcol4[4+v];
-                    B_cache[1][v*4+0] = q[0];
-                    B_cache[1][v*4+1] = q[1];
-                    B_cache[1][v*4+2] = q[2];
-                    B_cache[1][v*4+3] = q[3];
+                for(int step = 0; step < 2; ++step) {
+                    #pragma unroll
+                    for(int v = 0; v < WMMA_K_HALF4; ++v) {
+                        half4_t q = bcol4[step * 4 + k_half4 + v];
+                        B_cache[step][v*4+0] = q[0];
+                        B_cache[step][v*4+1] = q[1];
+                        B_cache[step][v*4+2] = q[2];
+                        B_cache[step][v*4+3] = q[3];
+                    }
                 }
             } else {
                 #pragma unroll
-                for(int c = 0; c < K1; ++c) B_cache[c/16][c&15] = (__fp16)0;
+                for(int step = 0; step < 2; ++step)
+                    #pragma unroll
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e)
+                        B_cache[step][e] = (__fp16)0;
             }
 
             #pragma unroll
             for(int step = 0; step < 2; ++step) {
                 #pragma unroll
                 for(int m_sub = 0; m_sub < 4; ++m_sub) {
-                    acc[m_sub][n_sub] = __builtin_amdgcn_wmma_f32_16x16x16_f16_w32(
+                    acc[m_sub][n_sub] = wmma_f32_f16(
                         A_cache[m_sub][step], B_cache[step], acc[m_sub][n_sub]);
                 }
             }
@@ -1087,7 +1085,7 @@ void standalone_gemm_fp16b(
             const int no = n0 + n_sub * 16;
             #pragma unroll
             for(int r = 0; r < 8; ++r) {
-                const int m_out = mo + 2 * r + half;
+                const int m_out = mo + wmma_c_row_for_slot(lane, r);
                 const int n_out = no + row_lane;
                 if(m_out < M && n_out < N) {
                     C[m_out * N + n_out] = __float2half(acc[m_sub][n_sub][r]);
@@ -1160,7 +1158,8 @@ void standalone_gemm_4c_pipelined(
 
     const int lane     = threadIdx.x;
     const int row_lane = lane & 15;
-    const int half     = lane >> 4;
+    const int k_base   = wmma_k_lane_base(lane);
+    const int k_half4  = k_base >> 2;
 
     const int m0 = blockIdx.y * TILE_M;
     const int n0 = blockIdx.x * TILE_N;
@@ -1169,7 +1168,7 @@ void standalone_gemm_4c_pipelined(
     const int inv_perm[8] = {1, 5, 0, 4, 3, 7, 2, 6};
     const int K0 = K / K1;
 
-    // Loader helper: fills A_cache[buf] (2 m_sub x 2 step x half16_t) for given j
+    // Loader helper: fills A_cache[buf] (2 m_sub x 2 step x half-frag) for given j
     half16_t A_cache[2][2][2];  // [buf][m_sub][step]
     auto loadA = [&](int buf, int j) {
         #pragma unroll
@@ -1179,24 +1178,22 @@ void standalone_gemm_4c_pipelined(
                 const __half* arow = A + m_row * K + j * K1;
                 const half4_t* arow4 = reinterpret_cast<const half4_t*>(arow);
                 #pragma unroll
-                for(int v = 0; v < 4; ++v) {
-                    half4_t q = arow4[v];
-                    A_cache[buf][m_sub][0][v*4+0] = q[0];
-                    A_cache[buf][m_sub][0][v*4+1] = q[1];
-                    A_cache[buf][m_sub][0][v*4+2] = q[2];
-                    A_cache[buf][m_sub][0][v*4+3] = q[3];
-                }
-                #pragma unroll
-                for(int v = 0; v < 4; ++v) {
-                    half4_t q = arow4[4+v];
-                    A_cache[buf][m_sub][1][v*4+0] = q[0];
-                    A_cache[buf][m_sub][1][v*4+1] = q[1];
-                    A_cache[buf][m_sub][1][v*4+2] = q[2];
-                    A_cache[buf][m_sub][1][v*4+3] = q[3];
+                for(int step = 0; step < 2; ++step) {
+                    #pragma unroll
+                    for(int v = 0; v < WMMA_K_HALF4; ++v) {
+                        half4_t q = arow4[step * 4 + k_half4 + v];
+                        A_cache[buf][m_sub][step][v*4+0] = q[0];
+                        A_cache[buf][m_sub][step][v*4+1] = q[1];
+                        A_cache[buf][m_sub][step][v*4+2] = q[2];
+                        A_cache[buf][m_sub][step][v*4+3] = q[3];
+                    }
                 }
             } else {
                 #pragma unroll
-                for(int c = 0; c < K1; ++c) A_cache[buf][m_sub][c/16][c&15] = (__fp16)0;
+                for(int step = 0; step < 2; ++step)
+                    #pragma unroll
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e)
+                        A_cache[buf][m_sub][step][e] = (__fp16)0;
             }
         }
     };
@@ -1220,25 +1217,32 @@ void standalone_gemm_4c_pipelined(
             if(n_col < N) {
                 const int b_base = j * N * K1_BYTES + n_col * K1_BYTES;
                 #pragma unroll
-                for(int c = 0; c < K1; ++c) {
-                    const int grp_base  = (c / 8) * 8;
-                    const int perm_slot = inv_perm[c & 7];
-                    const int perm_jj   = grp_base + perm_slot;
-                    const uint8_t byte  = B[b_base + (perm_jj >> 1)];
-                    const uint8_t nib   = ((perm_jj & 1) == 0)
-                        ? ((byte >> 4) & 0xF)
-                        : (byte & 0xF);
-                    B_frags[c / 16][c & 15] = (__fp16)((float)((int)nib - 8));
+                for(int step = 0; step < 2; ++step) {
+                    #pragma unroll
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e) {
+                        const int c = step * 16 + k_base + e;
+                        const int grp_base  = (c / 8) * 8;
+                        const int perm_slot = inv_perm[c & 7];
+                        const int perm_jj   = grp_base + perm_slot;
+                        const uint8_t byte  = B[b_base + (perm_jj >> 1)];
+                        const uint8_t nib   = ((perm_jj & 1) == 0)
+                            ? ((byte >> 4) & 0xF)
+                            : (byte & 0xF);
+                        B_frags[step][e] = (__fp16)((float)((int)nib - 8));
+                    }
                 }
             } else {
                 #pragma unroll
-                for(int c = 0; c < K1; ++c) B_frags[c/16][c&15] = (__fp16)0;
+                for(int step = 0; step < 2; ++step)
+                    #pragma unroll
+                    for(int e = 0; e < WMMA_K_ELEMS; ++e)
+                        B_frags[step][e] = (__fp16)0;
             }
             #pragma unroll
             for(int step = 0; step < 2; ++step) {
                 #pragma unroll
                 for(int m_sub = 0; m_sub < 2; ++m_sub) {
-                    acc[m_sub][n_sub] = __builtin_amdgcn_wmma_f32_16x16x16_f16_w32(
+                    acc[m_sub][n_sub] = wmma_f32_f16(
                         A_cache[cur][m_sub][step], B_frags[step], acc[m_sub][n_sub]);
                 }
             }
@@ -1253,7 +1257,7 @@ void standalone_gemm_4c_pipelined(
             const int no = n0 + n_sub * 16;
             #pragma unroll
             for(int r = 0; r < 8; ++r) {
-                const int m_out = mo + 2 * r + half;
+                const int m_out = mo + wmma_c_row_for_slot(lane, r);
                 const int n_out = no + row_lane;
                 if(m_out < M && n_out < N) {
                     C[m_out * N + n_out] = __float2half(acc[m_sub][n_sub][r]);
@@ -1295,7 +1299,7 @@ void standalone_gemm_lds_pingpong(
     const int wave = tid >> 5;             // 0 (upper) or 1 (lower 32 rows)
     const int lane = tid & 31;
     const int row_lane = lane & 15;
-    const int half     = lane >> 4;
+    const int k_base   = wmma_k_lane_base(lane);
 
     const int m0 = blockIdx.y * TILE_M;
     const int n0 = blockIdx.x * TILE_N;
@@ -1372,26 +1376,23 @@ void standalone_gemm_lds_pingpong(
             for(int m_sub = 0; m_sub < 2; ++m_sub) {
                 const int row_in_lds = wave * 32 + m_sub * 16 + row_lane;
                 #pragma unroll
-                for(int c = 0; c < 16; ++c) {
-                    A_frags[m_sub][c] = (__fp16)(float)A_lds[cur][row_in_lds * K1 + kk_base + c];
+                for(int e = 0; e < WMMA_K_ELEMS; ++e) {
+                    A_frags[m_sub][e] = (__fp16)(float)A_lds[cur][row_in_lds * K1 + kk_base + k_base + e];
                 }
             }
 
             // 2 B fragments covering TILE_N = 32 cols (16 per n_sub).
             #pragma unroll
             for(int n_sub = 0; n_sub < 2; ++n_sub) {
-                const int col_in_lds = n_sub * 16 + row_lane;    // wave-independent N sweep
-                // Each wave still wants to produce a 32x32 output, so both waves
-                // compute n_sub=0..1 → cols 0..31 and 32..63. Each wave's accumulators
-                // track both n_sub halves.
+                const int col_in_lds = n_sub * 16 + row_lane;
                 half16_t B_frag;
                 #pragma unroll
-                for(int r = 0; r < 16; ++r) {
-                    B_frag[r] = (__fp16)(float)B_lds[cur][(kk_base + r) * TILE_N + col_in_lds];
+                for(int e = 0; e < WMMA_K_ELEMS; ++e) {
+                    B_frag[e] = (__fp16)(float)B_lds[cur][(kk_base + k_base + e) * TILE_N + col_in_lds];
                 }
                 #pragma unroll
                 for(int m_sub = 0; m_sub < 2; ++m_sub) {
-                    acc[m_sub][n_sub] = __builtin_amdgcn_wmma_f32_16x16x16_f16_w32(
+                    acc[m_sub][n_sub] = wmma_f32_f16(
                         A_frags[m_sub], B_frag, acc[m_sub][n_sub]);
                 }
             }
@@ -1410,7 +1411,7 @@ void standalone_gemm_lds_pingpong(
             const int no = n0 + n_sub * 16;
             #pragma unroll
             for(int r = 0; r < 8; ++r) {
-                const int m_out = mo + 2 * r + half;
+                const int m_out = mo + wmma_c_row_for_slot(lane, r);
                 const int n_out = no + row_lane;
                 if(m_out < M && n_out < N) {
                     C[m_out * N + n_out] = __float2half(acc[m_sub][n_sub][r]);
@@ -1448,7 +1449,7 @@ void standalone_ternary_gemm_wmma_2x2wave(
     const int wn   = wave & 1;            // 0 or 1 (N index)
     const int lane = tid & 31;
     const int row_lane = lane & 15;
-    const int half     = lane >> 4;
+    const int k_base   = wmma_k_lane_base(lane);
 
     const int m0 = blockIdx.y * TILE_M;
     const int n0 = blockIdx.x * TILE_N;
@@ -1509,8 +1510,8 @@ void standalone_ternary_gemm_wmma_2x2wave(
             for(int m_sub = 0; m_sub < 2; ++m_sub) {
                 const int row_in_lds = wm * 32 + m_sub * 16 + row_lane;
                 #pragma unroll
-                for(int c = 0; c < 16; ++c) {
-                    A_frags[m_sub][c] = (__fp16)(float)A_lds[row_in_lds * K1 + kk_base + c];
+                for(int e = 0; e < WMMA_K_ELEMS; ++e) {
+                    A_frags[m_sub][e] = (__fp16)(float)A_lds[row_in_lds * K1 + kk_base + k_base + e];
                 }
             }
 
@@ -1520,12 +1521,12 @@ void standalone_ternary_gemm_wmma_2x2wave(
                 const int col_in_lds = wn * 32 + n_sub * 16 + row_lane;
                 half16_t B_frag;
                 #pragma unroll
-                for(int r = 0; r < 16; ++r) {
-                    B_frag[r] = (__fp16)(float)B_lds[(kk_base + r) * TILE_N + col_in_lds];
+                for(int e = 0; e < WMMA_K_ELEMS; ++e) {
+                    B_frag[e] = (__fp16)(float)B_lds[(kk_base + k_base + e) * TILE_N + col_in_lds];
                 }
                 #pragma unroll
                 for(int m_sub = 0; m_sub < 2; ++m_sub) {
-                    acc[m_sub][n_sub] = __builtin_amdgcn_wmma_f32_16x16x16_f16_w32(
+                    acc[m_sub][n_sub] = wmma_f32_f16(
                         A_frags[m_sub], B_frag, acc[m_sub][n_sub]);
                 }
             }
@@ -1543,7 +1544,7 @@ void standalone_ternary_gemm_wmma_2x2wave(
             const int no = n0 + wn * 32 + n_sub * 16;
             #pragma unroll
             for(int r = 0; r < 8; ++r) {
-                const int m_out = mo + 2 * r + half;
+                const int m_out = mo + wmma_c_row_for_slot(lane, r);
                 const int n_out = no + row_lane;
                 if(m_out < M && n_out < N) {
                     C[m_out * N + n_out] = __float2half(acc[m_sub][n_sub][r]);
@@ -1576,7 +1577,7 @@ void standalone_ternary_gemm_wmma_2wave(
     const int wave = tid >> 5;          // 0 or 1
     const int lane = tid & 31;          // 0..31
     const int row_lane = lane & 15;
-    const int half     = lane >> 4;
+    const int k_base   = wmma_k_lane_base(lane);
 
     const int m0 = blockIdx.y * TILE_M;
     const int n0 = blockIdx.x * TILE_N;
@@ -1653,32 +1654,30 @@ void standalone_ternary_gemm_wmma_2wave(
             half16_t A_frag;
             half16_t B_frag;
 
-            // A: this wave's 16 rows [wave*16 .. wave*16+15] of A_lds,
-            //    16 K cols [kk0 .. kk0+15].
+            // A: this wave's 16 rows [wave*16 .. wave*16+15] of A_lds, K cols per-arch.
             const int my_a_row = wave * 16 + row_lane;  // 0..31 in A_lds
             #pragma unroll
-            for(int c = 0; c < 16; ++c) {
-                A_frag[c] = (__fp16)(float)A_lds[my_a_row * K1 + kk0 + c];
+            for(int e = 0; e < WMMA_K_ELEMS; ++e) {
+                A_frag[e] = (__fp16)(float)A_lds[my_a_row * K1 + kk0 + k_base + e];
             }
 
-            // B: 16 K rows [kk0 .. kk0+15], col row_lane.
+            // B: K rows [kk0 + k_base .. kk0 + k_base + WMMA_K_ELEMS), col row_lane.
             #pragma unroll
-            for(int r = 0; r < 16; ++r) {
-                B_frag[r] = (__fp16)(float)B_lds[(kk0 + r) * TILE_N + row_lane];
+            for(int e = 0; e < WMMA_K_ELEMS; ++e) {
+                B_frag[e] = (__fp16)(float)B_lds[(kk0 + k_base + e) * TILE_N + row_lane];
             }
 
-            acc = __builtin_amdgcn_wmma_f32_16x16x16_f16_w32(A_frag, B_frag, acc);
+            acc = wmma_f32_f16(A_frag, B_frag, acc);
         }
 
         __syncthreads();
     }
 
-    // Store: each wave owns rows [wave*16 .. wave*16+15], interleaved within
-    //        the 16x16 subtile.
+    // Store: each wave owns rows [wave*16 .. wave*16+15].
     const int wave_m0 = m0 + wave * 16;
     #pragma unroll
     for(int r = 0; r < 8; ++r) {
-        const int m_out = wave_m0 + 2 * r + half;
+        const int m_out = wave_m0 + wmma_c_row_for_slot(lane, r);
         const int n_out = n0 + row_lane;
         if(m_out < M && n_out < N) {
             C[m_out * N + n_out] = __float2half(acc[r]);
@@ -1918,5 +1917,3 @@ void rcpp_standalone_launch_wmma_2x4_ldsB(
 }
 
 }  // extern "C"
-
-#endif  // ROCM_CPP_PREFILL_GFX11

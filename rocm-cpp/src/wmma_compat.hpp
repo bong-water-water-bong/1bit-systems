@@ -29,12 +29,12 @@
 // as long as load loops iterate `WMMA_K_ELEMS` instead of a hardcoded 16.
 //
 // Correctness note: the lane-duplication rule changed between RDNA3 and RDNA4.
-// The RDNA3 prefill kernels in `prefill_standalone.hip` assume the duplication;
-// they will need structural rework for RDNA4 (not just an intrinsic swap). Until
-// that lands, only `wmma_peak_probe.hip` (which is structure-agnostic — both
-// lane halves cooperate on the same M×N tile) compiles on gfx1201. Other files
-// stay gfx1151-only and are skipped from the gfx1201 slice via the CMake
-// `HIP_SOURCE_PROPERTY_HIP_ARCHITECTURES` filter.
+// Kernels using WMMA must use `wmma_k_lane_base()` and `wmma_c_row_for_slot()`
+// (defined below) to abstract the load-and-store differences. After that,
+// `WMMA_K_ELEMS` and the dispatched `wmma_f32_f16` / `wmma_i32_iu8` builtins
+// make one kernel source compile correctly on both arches. `prefill_standalone.hip`
+// does this (2026-04-22 port); `wmma_peak_probe.hip` is structure-agnostic and
+// was already dual-arch.
 
 #pragma once
 
@@ -84,5 +84,47 @@ wmma_i32_acc_t wmma_i32_iu8(wmma_i8_frag_t a, wmma_i8_frag_t b, wmma_i32_acc_t c
     return __builtin_amdgcn_wmma_i32_16x16x16_iu8_w32_gfx12(NegA, a, NegB, b, c, Clamp);
 #else
     return __builtin_amdgcn_wmma_i32_16x16x16_iu8_w32(NegA, a, NegB, b, c, Clamp);
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// Per-arch A/B load + C store helpers.
+//
+// The A/B load layout differs between arches:
+//   gfx11: every lane loads all 16 K elements for its row (lane&15) or col.
+//          Lanes 16-31 duplicate lanes 0-15.
+//   gfx12: lane group (lane>>4) picks the K half. Lanes 0-15 load K[0..7],
+//          lanes 16-31 load K[8..15], for the same row/col.
+//
+// `wmma_k_lane_base(lane)` returns the first K element this lane owns:
+//   gfx11: 0 (always — every lane walks K[0..15])
+//   gfx12: (lane>>4) * 8   (0 for lanes 0-15, 8 for lanes 16-31)
+//
+// Combined with `WMMA_K_ELEMS` (16 on gfx11, 8 on gfx12) a load loop becomes:
+//   for(int e = 0; e < WMMA_K_ELEMS; ++e) {
+//       int k = k_tile_base + wmma_k_lane_base(lane) + e;
+//       frag[e] = ...;
+//   }
+// and is uniform-looking to both arches.
+__device__ __forceinline__
+int wmma_k_lane_base(int lane) {
+#if ROCM_CPP_WMMA_GFX12
+    return (lane >> 4) * 8;
+#else
+    (void)lane;
+    return 0;
+#endif
+}
+
+// C accumulator row mapping for a given lane + output slot r ∈ [0, 8).
+// Column is always `lane & 15` on both arches.
+//   gfx11 (interleaved): lane i, slot r -> C[2*r + (i>>4), i&15]
+//   gfx12 (blocked):     lane i, slot r -> C[(i>>4)*8 + r, i&15]
+__device__ __forceinline__
+int wmma_c_row_for_slot(int lane, int r) {
+#if ROCM_CPP_WMMA_GFX12
+    return (lane >> 4) * 8 + r;
+#else
+    return 2 * r + (lane >> 4);
 #endif
 }
