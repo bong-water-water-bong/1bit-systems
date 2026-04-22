@@ -4,9 +4,9 @@ Private monorepo for the gen-2 Rust 1bit systems stack. Public clients and downs
 
 ## How to help
 
-- **File an issue** in this repo with reproducible steps and `halo doctor` output.
+- **File an issue** in this repo with reproducible steps and `1bit doctor` output.
 - **Send a patch** via pull request against the `bong-water-water-bong/1bit-systems` mirror, or via a git bundle if you don't have collaborator access. The team-lead reviews and lands.
-- **Run the benchmark** on your Strix Halo box — `halo bench` output against a clean install is gold for our perf table.
+- **Run the benchmark** on your Strix Halo box — `1bit bench` output against a clean install is gold for our perf table.
 - **Test client compatibility** — if you wire Open WebUI, DSPy, LibreChat, Sorana, Aicono, TabNeuron, or anything else against 1bit-server and hit a snag, document the config delta in an issue.
 - **Translate** the README — our current translations are machine-generated. Native speakers welcome.
 
@@ -54,7 +54,7 @@ Huge gratitude to **[Light Heart Labs](https://lightheartlabs.io/)** — their o
 
 - **AMD Lemonade** — their official local-LLM server; we ship a Lemonade-SDK-compatible shim so their clients run against 1bit-server with zero config change.
 - **Chi Hoang (Tetramatrix)** — 168-repo AMD-Lemonade ecosystem. His clients (Sorana, Aicono, TabNeuron, diffron, lemonade-python-sdk) are first-class citizens of 1bit systems via the `/api/v1/health` + `/api/v0/models` compat paths in `1bit-lemonade`.
-- **FlyGoat (RyzenAdj)** — the Linux Ryzen power-tuning CLI that will back our future `halo power` subcommand.
+- **FlyGoat (RyzenAdj)** — the Linux Ryzen power-tuning CLI that will back our future `1bit power` subcommand.
 
 ## How to apply this file
 

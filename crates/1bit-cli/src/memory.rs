@@ -1,4 +1,4 @@
-//! `halo memory {list,show,add,replace,remove}` — operator UX for
+//! `1bit memory {list,show,add,replace,remove}` — operator UX for
 //! MEMORY.md / USER.md at `~/.halo/memories/`. Thin shell over
 //! [`onebit_agents::MemoryStore`].
 

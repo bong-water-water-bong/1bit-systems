@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # strix-ai-rs / 1bit systems bootstrap. Clones + builds the gen-2 Rust stack and
 # its native-HIP kernel dependency (rocm-cpp), then hands off to the
-# in-tree `halo install` package manager for per-component wiring.
+# in-tree `1bit install` package manager for per-component wiring.
 #
 # Idempotent: re-runs only fetch-and-rebuild what changed.
 #
@@ -196,25 +196,25 @@ else
 fi
 
 # ── step 5: 1bit-cli install ─────────────────────────────────
-step "installing 1bit-cli → \$HOME/.cargo/bin/halo"
+step "installing 1bit-cli → \$HOME/.cargo/bin/1bit"
 ( cd "$WORKSPACE_DIR" && cargo install --path crates/1bit-cli --force --quiet 2>&1 | progress_pipe "install" )
-if [[ -x "$HOME/.cargo/bin/halo" ]]; then
-    ok "$($HOME/.cargo/bin/halo --version 2>&1 | head -1)"
+if [[ -x "$HOME/.cargo/bin/1bit" ]]; then
+    ok "$($HOME/.cargo/bin/1bit --version 2>&1 | head -1)"
 else
-    warn "halo binary not at ~/.cargo/bin — is \$PATH set?"
+    warn "1bit binary not at ~/.cargo/bin — is \$PATH set?"
 fi
 
 # ── step 6: packages.toml handoff ────────────────────────────
-step "running halo install core (gen-2 Rust server + HIP backend)"
+step "running 1bit install core (gen-2 Rust server + HIP backend)"
 if [[ "$CI_MODE" != "0" ]]; then
     info "CI mode — skipping"
     ok "skipped"
 else
     export ROCM_CPP_LIB_DIR="$ROCM_CPP_DIR/build"
-    if "$HOME/.cargo/bin/halo" install core 2>&1 | progress_pipe "halo install"; then
+    if "$HOME/.cargo/bin/1bit" install core 2>&1 | progress_pipe "1bit install"; then
         ok "core component up"
     else
-        warn "halo install core failed; inspect with 'halo doctor'"
+        warn "1bit install core failed; inspect with '1bit doctor'"
     fi
 fi
 
@@ -225,13 +225,13 @@ printf     '%b╚═════════════════════
 
 cat <<EOF
 Next steps:
-  halo status             # 7-service snapshot
-  halo doctor             # full health check (GPU, kernel, ports, endpoints)
-  halo install --list     # optional components (agents, voice, sd, gaia)
-  halo chat               # interactive REPL against :8180
-  halo say "hello"        # TTS via halo-kokoro :8083
-  halo bench              # shadow-burnin parity summary
-  halo ppl                # perplexity vs gen-1 baseline 9.1607
+  1bit status             # 7-service snapshot
+  1bit doctor             # full health check (GPU, kernel, ports, endpoints)
+  1bit install --list     # optional components (agents, voice, sd, gaia)
+  1bit chat               # interactive REPL against :8180
+  1bit say "hello"        # TTS via halo-kokoro :8083
+  1bit bench              # shadow-burnin parity summary
+  1bit ppl                # perplexity vs gen-1 baseline 9.1607
 
 Landing page:  https://strixhalo.local/
 Docs:          README.md, ARCHITECTURE.md, DEMO.md

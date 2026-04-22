@@ -1,4 +1,4 @@
-// `halo say <text>` — speak text through halo-kokoro :8083, play via
+// `1bit say <text>` — speak text through halo-kokoro :8083, play via
 // the first available ALSA/PulseAudio CLI player. Voice-loop mic-check
 // path for recording sessions.
 
@@ -12,7 +12,7 @@ const DEFAULT_VOICE: &str = "af_sky";
 
 pub async fn run(text: &str, voice: &str, speed: f32) -> Result<()> {
     if text.trim().is_empty() {
-        bail!("halo say: empty text");
+        bail!("1bit say: empty text");
     }
     let url = std::env::var("HALO_KOKORO_URL").unwrap_or_else(|_| DEFAULT_URL.into());
 

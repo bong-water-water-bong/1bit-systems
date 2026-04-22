@@ -69,8 +69,8 @@ Measured on the Strix Halo reference box (Radeon 8060S / gfx1151, 128 GB LPDDR5)
 cargo build --release --workspace
 
 # install + supervise the services (reads packages.toml, drives systemd)
-halo install core
-halo status
+1bit install core
+1bit status
 
 # talk to the model over OpenAI-compat HTTP
 curl -s http://127.0.0.1:8180/v1/chat/completions \
@@ -81,7 +81,7 @@ curl -s http://127.0.0.1:8180/v1/chat/completions \
   }'
 ```
 
-To exercise the real HIP path explicitly (skipping `halo install`):
+To exercise the real HIP path explicitly (skipping `1bit install`):
 
 ```sh
 cargo run --release -p 1bit-server --features real-backend
@@ -175,9 +175,9 @@ Full RAG, multi-conversation, document chat, and MCP tools — Linux/macOS/Windo
 
 Contributions welcome from anyone running a Strix Halo box (or any AMD APU).
 
-- **File an issue** with a reproducible case and `halo doctor` output.
+- **File an issue** with a reproducible case and `1bit doctor` output.
 - **Send a patch** — one logical change per commit, Conventional Commits.
-- **Run the benchmark** on your hardware. `halo bench` output against a clean install is gold for the perf table.
+- **Run the benchmark** on your hardware. `1bit bench` output against a clean install is gold for the perf table.
 - **Test client compatibility** — if you wire Sorana, Aicono, TabNeuron, Hermes Agent, or anything else against `1bit-server`, document the config delta in an issue.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) and [CLAUDE.md](./CLAUDE.md) before sending code.

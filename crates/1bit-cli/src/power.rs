@@ -1,4 +1,4 @@
-// `halo power [profile]` — Ryzen APU power-profile CLI.
+// `1bit power [profile]` — Ryzen APU power-profile CLI.
 //
 // Tier (b) shell-out to FlyGoat/ryzenadj (see docs/halo-power-design.md).
 // We intentionally do NOT link a Rust ryzenadj crate; we just resolve the
@@ -106,7 +106,7 @@ impl FromStr for Profile {
             "inference" | "decode" | "perf" | "performance" => Ok(Profile::Inference),
             "chat" | "balanced" | "default" => Ok(Profile::Chat),
             "idle" | "silent" | "save" => Ok(Profile::Idle),
-            other => bail!("unknown power profile '{other}' (try `halo power --list`)"),
+            other => bail!("unknown power profile '{other}' (try `1bit power --list`)"),
         }
     }
 }
@@ -139,7 +139,7 @@ pub fn apply(profile: Profile, dry_run: bool) -> Result<()> {
     let args = profile.ryzenadj_argv();
 
     if dry_run {
-        println!("halo power {profile} --dry-run");
+        println!("1bit power {profile} --dry-run");
         println!("    would exec: sudo ryzenadj {}", args.join(" "));
         return Ok(());
     }
@@ -148,7 +148,7 @@ pub fn apply(profile: Profile, dry_run: bool) -> Result<()> {
         bail!("{INSTALL_HINT}");
     }
 
-    println!("halo power {profile}");
+    println!("1bit power {profile}");
     println!("    $ sudo ryzenadj {}", args.join(" "));
 
     // Pass args to `sudo ryzenadj` directly — sudo owns the TTY for the
@@ -167,7 +167,7 @@ pub fn apply(profile: Profile, dry_run: bool) -> Result<()> {
 }
 
 /// Read current state via `ryzenadj --info`. Returns a one-line summary
-/// (stapm / fast / slow / tctl) suitable for `halo power` with no args.
+/// (stapm / fast / slow / tctl) suitable for `1bit power` with no args.
 pub fn current() -> Result<String> {
     if !which_ryzenadj() {
         return Err(anyhow!("{INSTALL_HINT}"));
@@ -232,9 +232,9 @@ fn pick_value(line: &str) -> String {
     line.split_whitespace().last().unwrap_or("?").to_string()
 }
 
-/// Pretty-print the static profile table for `halo power --list`.
+/// Pretty-print the static profile table for `1bit power --list`.
 pub fn print_list() {
-    println!("halo power — available profiles:\n");
+    println!("1bit power — available profiles:\n");
     for p in list_profiles() {
         let e = p.envelope();
         println!("  {:<10} {}", p.name(), p.description());
@@ -247,14 +247,14 @@ pub fn print_list() {
             e.tctl_c
         );
     }
-    println!("\nApply with: halo power <profile>   (add --dry-run to preview)");
+    println!("\nApply with: 1bit power <profile>   (add --dry-run to preview)");
 }
 
 /// Entry point wired from `main.rs`. Handles the three call-shapes
 /// documented in the design doc:
-///   halo power                 -> print current state (or warn if missing)
-///   halo power --list          -> print_list()
-///   halo power <profile>       -> apply()
+///   1bit power                 -> print current state (or warn if missing)
+///   1bit power --list          -> print_list()
+///   1bit power <profile>       -> apply()
 pub fn run(profile: Option<String>, dry_run: bool, list: bool) -> Result<()> {
     if list {
         print_list();

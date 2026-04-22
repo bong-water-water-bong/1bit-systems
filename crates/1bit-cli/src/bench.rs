@@ -1,4 +1,4 @@
-// `halo bench` — summary view for the shadow-burnin harness.
+// `1bit bench` — summary view for the shadow-burnin harness.
 
 use anyhow::{Result, bail};
 use std::path::PathBuf;

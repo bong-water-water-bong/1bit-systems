@@ -1,4 +1,4 @@
-//! `halo npu` — XDNA 2 NPU diagnostics on strixhalo. Wraps `xrt-smi` and
+//! `1bit npu` — XDNA 2 NPU diagnostics on strixhalo. Wraps `xrt-smi` and
 //! a few sysfs probes so the operator can see hardware status without
 //! remembering the XRT CLI incantations.
 
@@ -217,7 +217,7 @@ fn snapshot() -> Result<()> {
             println!("  {:6} {}", size, name.to_string_lossy());
         }
     } else {
-        println!("  (empty — run `halo npu examine > {snapshot_dir}/examine.txt` to populate)");
+        println!("  (empty — run `1bit npu examine > {snapshot_dir}/examine.txt` to populate)");
     }
     Ok(())
 }

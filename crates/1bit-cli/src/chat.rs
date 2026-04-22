@@ -1,4 +1,4 @@
-// `halo chat` — one-shot REPL against 1bit-server :8180. No session history,
+// `1bit chat` — one-shot REPL against 1bit-server :8180. No session history,
 // no KV persistence — the server resets KV per-request (see 1bit-router
 // commit de53544). Good enough for demos + smoke tests.
 
@@ -19,7 +19,7 @@ pub async fn run(url: Option<String>, model: Option<String>, max_tokens: u32) ->
         .timeout(Duration::from_secs(120))
         .build()?;
 
-    println!("halo chat · {url} · model={model} · Ctrl-D to exit");
+    println!("1bit chat · {url} · model={model} · Ctrl-D to exit");
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
 

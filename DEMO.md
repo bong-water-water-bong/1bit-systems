@@ -7,7 +7,7 @@ Recording script for a screencast / walkthrough. Times are target, not hard.
 Hero shot on the terminal. Type, don't paste:
 
 ```bash
-halo status
+1bit status
 ```
 
 Expected: 7 green dots (bitnet · strix · sd · whisper · kokoro · lemonade · agent).
@@ -62,15 +62,15 @@ cd 1bit-systems
 ```
 
 Let it talk through the steps (cloning rocm-cpp, building kernels, cargo
-install, `halo install core`). Cut to after `✓ update complete` if it takes
+install, `1bit install core`). Cut to after `✓ update complete` if it takes
 longer than 45s in real time.
 
 ## 02:20 — CLI tour (30s)
 
 ```bash
-halo doctor          # 0 warn, 0 fail
-halo install --list  # 8 components
-halo logs strix -n 5 # SSE streaming recent events
+1bit doctor          # 0 warn, 0 fail
+1bit install --list  # 8 components
+1bit logs strix -n 5 # SSE streaming recent events
 ```
 
 Voice-over: "The halo CLI is one Rust binary. Status, logs, doctor, update,
@@ -87,7 +87,7 @@ End card: 1bit systems wordmark + "strix-ai-rs — built on Strix Halo".
 ## Pre-roll checklist
 
 - [ ] Shadow burn-in must have ≥1000 rounds + ≥95% byte-exact match rate.
-- [ ] `halo doctor` green (0 warn, 0 fail).
+- [ ] `1bit doctor` green (0 warn, 0 fail).
 - [ ] Landing page loads without cert warnings (accept halo CA once in the
   browser profile you record with).
 - [ ] No `~/.cache/`, `target/`, or build noise visible — pinned tmux pane

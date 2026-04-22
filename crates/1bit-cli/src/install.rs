@@ -1,4 +1,4 @@
-// `halo install <component>` — read packages.toml, resolve deps, build, start.
+// `1bit install <component>` — read packages.toml, resolve deps, build, start.
 // Lean: single file, manifest embedded at compile time.
 
 use anyhow::{Context, Result, bail};
@@ -25,10 +25,10 @@ struct Component {
     #[serde(default)]
     units: Vec<String>,
     /// Distro packages required for the component to function. Advisory
-    /// only — halo install does NOT run `pacman -S` on the operator's
+    /// only — 1bit install does NOT run `pacman -S` on the operator's
     /// box; install.sh is the one place that actually installs system
-    /// packages. The field is surfaced in `halo install --list` and in
-    /// `halo install <component>` logs so a missing `xrt` etc. is
+    /// packages. The field is surfaced in `1bit install --list` and in
+    /// `1bit install <component>` logs so a missing `xrt` etc. is
     /// visible rather than silently failing at runtime.
     #[serde(default)]
     packages: Vec<String>,
@@ -151,7 +151,7 @@ fn resolve<'a>(
         return Ok(());
     }
     let c = m.component.get(target).ok_or_else(|| {
-        anyhow::anyhow!("unknown component '{target}' (try `halo install --list`)")
+        anyhow::anyhow!("unknown component '{target}' (try `1bit install --list`)")
     })?;
     for d in &c.deps {
         resolve(m, d, order, seen)?;
@@ -242,7 +242,7 @@ fn copy_tracked_file(
 
     // Absolute destinations go to the real filesystem via sudo tee. This
     // lets `npu` drop `/etc/security/limits.d/99-npu-memlock.conf` as
-    // part of `halo install core` without a separate shell step.
+    // part of `1bit install core` without a separate shell step.
     let dest_is_absolute = Path::new(dest_rel).is_absolute();
     let dest = if dest_is_absolute {
         PathBuf::from(dest_rel)
@@ -458,9 +458,9 @@ mod tests {
         );
     }
 
-    /// `halo install core` is the fresh-box entry point; it must pull in
+    /// `1bit install core` is the fresh-box entry point; it must pull in
     /// voice + echo + mcp alongside the existing landing/gaia/lemonade
-    /// wiring, otherwise `halo install core` on a blank machine won't
+    /// wiring, otherwise `1bit install core` on a blank machine won't
     /// bring up the voice+agent stack.
     #[test]
     fn core_chains_voice_echo_mcp() {
@@ -489,7 +489,7 @@ mod tests {
     /// Every component that declares a `cargo install --path crates/<x>`
     /// build step must declare a crate directory that actually exists in
     /// the workspace. Catches typos like `crates/halo-vocie` at test time
-    /// instead of on a fresh box during `halo install`.
+    /// instead of on a fresh box during `1bit install`.
     #[test]
     fn declared_crate_paths_exist_on_disk() {
         let m = parse().unwrap();
@@ -561,7 +561,7 @@ mod tests {
     }
 
     /// Regression test: a prior manifest shape put voice and echo under
-    /// different parent keys. Make sure `halo install --list` (the `list`
+    /// different parent keys. Make sure `1bit install --list` (the `list`
     /// fn's underlying data) still emits all the components the prompt
     /// promised, in one pass, from a freshly-parsed manifest.
     #[test]
@@ -573,7 +573,7 @@ mod tests {
         ] {
             assert!(
                 names.contains(&required),
-                "halo install --list must include '{required}', got {names:?}"
+                "1bit install --list must include '{required}', got {names:?}"
             );
         }
     }
@@ -674,22 +674,22 @@ files = [
     /// both XRT packages (as a documentation-of-intent note; install.sh
     /// actually runs pacman), and drop the memlock config template via
     /// the new table-form `files` entry with `substitute = { USER = "$USER" }`.
-    /// Also verifies that `halo install --list` (the `list` fn's data) will
-    /// include "npu" and that `halo install core` transitively installs it.
+    /// Also verifies that `1bit install --list` (the `list` fn's data) will
+    /// include "npu" and that `1bit install core` transitively installs it.
     #[test]
     fn npu_component_declared_with_substitute() {
         let m = parse().expect("packages.toml must parse");
 
-        // `halo install --list` coverage — the `list` fn iterates
+        // `1bit install --list` coverage — the `list` fn iterates
         // `m.component` and the keys must include "npu".
         let names: Vec<&str> = m.component.keys().map(String::as_str).collect();
         assert!(
             names.contains(&"npu"),
-            "halo install --list must include 'npu', got {names:?}"
+            "1bit install --list must include 'npu', got {names:?}"
         );
 
         let npu = m.component.get("npu").expect("component.npu must exist");
-        // core must pull in npu so fresh-box `halo install core` wires
+        // core must pull in npu so fresh-box `1bit install core` wires
         // the NPU userspace automatically.
         let core = &m.component["core"];
         assert!(
@@ -699,7 +699,7 @@ files = [
         );
 
         // The two XRT packages from CachyOS extra must be declared so
-        // `halo install --list` surfaces them.
+        // `1bit install --list` surfaces them.
         for pkg in ["xrt", "xrt-plugin-amdxdna"] {
             assert!(
                 npu.packages.iter().any(|p| p == pkg),

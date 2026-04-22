@@ -1,7 +1,7 @@
-# strix-ai-rs package manifest. Consumed by `halo install <component>`.
+# strix-ai-rs package manifest. Consumed by `1bit install <component>`.
 #
 # Each [component.X] declares:
-#   description — one line shown in `halo install --list`
+#   description — one line shown in `1bit install --list`
 #   deps        — other components required first (resolved recursively)
 #   build       — argv array; executed in workspace root; fail-fast
 #   units       — systemd --user units enabled + started after build
@@ -34,7 +34,7 @@ check       = ""
 
 # 1bit-voice — sentence-boundary TTS streaming CLI. Installs the binary to
 # ~/.cargo/bin (via `cargo install`). No systemd unit; the binary is invoked
-# on demand by `halo say`, `1bit-echo`, and ad-hoc shell pipelines.
+# on demand by `1bit say`, `1bit-echo`, and ad-hoc shell pipelines.
 [component.voice]
 description = "1bit-voice CLI — LLM SSE → TTS streaming pipeline (binary only, no unit)"
 deps        = []
@@ -69,7 +69,7 @@ check = ""
 # npu — XDNA 2 NPU userspace. Declares package intent (xrt +
 # xrt-plugin-amdxdna from CachyOS `extra`) and drops the memlock
 # limits.d file via the new substitute-aware files[] entry. The
-# actual pacman call lives in install.sh; halo install itself only
+# actual pacman call lives in install.sh; 1bit install itself only
 # deploys the config file (absolute-path writes go through sudo tee).
 # Operator must re-login for memlock=unlimited to take effect.
 [component.npu]
@@ -148,7 +148,7 @@ build       = []
 units       = []
 check       = ""
 
-# Alias: `halo install gaia` still works, points at the renamed helm component.
+# Alias: `1bit install gaia` still works, points at the renamed helm component.
 # The crate rename (halo-gaia → 1bit-helm, 2026-04-20) was a rebrand only;
 # the component name survives as an alias for anyone with old shell history.
 [component.gaia]

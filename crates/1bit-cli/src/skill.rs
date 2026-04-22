@@ -1,4 +1,4 @@
-// `halo skill ...` — operator-facing CRUD for the SKILL.md surface.
+// `1bit skill ...` — operator-facing CRUD for the SKILL.md surface.
 //
 // This is the human front door to the same on-disk layout that the LLM
 // hits through `SkillAction` / `apply` in 1bit-agents. Operators need to
@@ -19,7 +19,7 @@ use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::process::Command;
 
-/// Subcommand group wired under `halo skill ...` in `main.rs`.
+/// Subcommand group wired under `1bit skill ...` in `main.rs`.
 #[derive(Subcommand, Debug)]
 pub enum SkillCmd {
     /// List all skills, one line each: `category/name — description`.
@@ -56,7 +56,7 @@ pub enum SkillCmd {
 // ---------------------------------------------------------------------------
 // Actions
 
-/// `halo skill list` — one line per skill, sorted `category/name`.
+/// `1bit skill list` — one line per skill, sorted `category/name`.
 pub fn list(store: &SkillStore, json: bool) -> Result<()> {
     let mut skills = store.list()?;
     // Stable, human-friendly order: category first, then name.
@@ -88,7 +88,7 @@ pub fn list(store: &SkillStore, json: bool) -> Result<()> {
     Ok(())
 }
 
-/// `halo skill show <name>` — dump SKILL.md verbatim.
+/// `1bit skill show <name>` — dump SKILL.md verbatim.
 pub fn show(store: &SkillStore, name: &str) -> Result<()> {
     let path = skill_md_path(store, name)?.ok_or_else(|| anyhow!("no skill named '{name}'"))?;
     let src = std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
@@ -97,7 +97,7 @@ pub fn show(store: &SkillStore, name: &str) -> Result<()> {
     Ok(())
 }
 
-/// `halo skill new <name>` — seed SKILL.md and hand to $EDITOR.
+/// `1bit skill new <name>` — seed SKILL.md and hand to $EDITOR.
 ///
 /// We create the file through `SkillStore::create` so the on-disk layout
 /// is identical to what the LLM path produces, then launch the editor on
@@ -129,13 +129,13 @@ pub fn new_skill(
     Ok(())
 }
 
-/// `halo skill edit <name>` — open SKILL.md in $EDITOR (fallback `vi`).
+/// `1bit skill edit <name>` — open SKILL.md in $EDITOR (fallback `vi`).
 pub fn edit(store: &SkillStore, name: &str) -> Result<()> {
     let path = skill_md_path(store, name)?.ok_or_else(|| anyhow!("no skill named '{name}'"))?;
     open_editor(&path)
 }
 
-/// `halo skill delete <name> [--yes]` — default-deny removal.
+/// `1bit skill delete <name> [--yes]` — default-deny removal.
 pub fn delete(store: &mut SkillStore, name: &str, assume_yes: bool) -> Result<()> {
     // Validate existence up front so an aborted prompt doesn't leave the
     // user wondering whether the name was even right.
@@ -151,10 +151,10 @@ pub fn delete(store: &mut SkillStore, name: &str, assume_yes: bool) -> Result<()
     Ok(())
 }
 
-/// `halo skill path [<name>]` — stdout the resolved filesystem path.
+/// `1bit skill path [<name>]` — stdout the resolved filesystem path.
 ///
 /// With no name: the store root. With a name: the SKILL.md file path.
-/// Useful for shell scripts: `cat "$(halo skill path foo)"`.
+/// Useful for shell scripts: `cat "$(1bit skill path foo)"`.
 pub fn path(store: &SkillStore, name: Option<&str>) -> Result<()> {
     match name {
         None => {
@@ -238,7 +238,7 @@ fn confirm(prompt: &str) -> Result<bool> {
     Ok(matches!(buf.trim(), "y" | "Y" | "yes" | "YES" | "Yes"))
 }
 
-/// Default markdown body seeded by `halo skill new`. Kept minimal — the
+/// Default markdown body seeded by `1bit skill new`. Kept minimal — the
 /// author replaces it; we just want headings that prompt them.
 fn starter_body(name: &str) -> String {
     format!(

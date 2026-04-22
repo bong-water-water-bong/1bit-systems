@@ -1,17 +1,17 @@
-// `halo burnin` — parity analyzer for the shadow-burnin JSONL log.
+// `1bit burnin` — parity analyzer for the shadow-burnin JSONL log.
 //
 // Strictly read-only: no side effects, no network, no file writes. Points at
 // `~/claude output/shadow-burnin.jsonl` by default (quote the space — the
 // folder name is literal) and answers four questions:
 //
-//   halo burnin stats         overall byte-exact pct + counts
-//   halo burnin drift         top-N divergence patterns (prompt → v1/v2 delta)
-//   halo burnin recent -n N   last N entries with pass/fail glyph
-//   halo burnin since <ts>    slice by timestamp (ISO-8601 lexicographic)
+//   1bit burnin stats         overall byte-exact pct + counts
+//   1bit burnin drift         top-N divergence patterns (prompt → v1/v2 delta)
+//   1bit burnin recent -n N   last N entries with pass/fail glyph
+//   1bit burnin since <ts>    slice by timestamp (ISO-8601 lexicographic)
 //
-// With no subcommand `halo burnin` prints a one-line summary and exits 0
+// With no subcommand `1bit burnin` prints a one-line summary and exits 0
 // if the byte-exact rate is ≥ 95%, 1 otherwise. That exit code is what the
-// launch-readiness script and `halo doctor` consume.
+// launch-readiness script and `1bit doctor` consume.
 //
 // The on-disk schema (one JSON per line; fields observed in strix-burnin
 // service output as of 2026-04-20) is:

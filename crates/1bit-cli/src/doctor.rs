@@ -1,4 +1,4 @@
-// `halo doctor` — health check across the stack. Exit 0 green, 1 warn, 2 fail.
+// `1bit doctor` — health check across the stack. Exit 0 green, 1 warn, 2 fail.
 
 use anyhow::Result;
 use std::process::Command;

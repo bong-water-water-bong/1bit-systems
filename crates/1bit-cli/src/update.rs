@@ -1,4 +1,4 @@
-// `halo update` — pull + rebuild + restart. Lean: three phases, fail-fast.
+// `1bit update` — pull + rebuild + restart. Lean: three phases, fail-fast.
 
 use anyhow::{Context, Result, bail};
 use std::path::Path;

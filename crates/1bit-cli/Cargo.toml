@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace      = true
 repository.workspace   = true
 authors.workspace      = true
-description = "halo — unified CLI for the Strix Halo AI stack (Rust rewrite of bin/halo)"
+description = "1bit — unified CLI for the 1bit-systems Strix Halo stack"
 
 [[bin]]
 name = "1bit"

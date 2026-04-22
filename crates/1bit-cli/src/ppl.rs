@@ -1,4 +1,4 @@
-// `halo ppl` — run wikitext PPL against 1bit-server :8180 /ppl endpoint.
+// `1bit ppl` — run wikitext PPL against 1bit-server :8180 /ppl endpoint.
 
 use anyhow::{Context, Result, bail};
 use serde_json::json;

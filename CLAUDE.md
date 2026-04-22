@@ -42,7 +42,7 @@ Keep terse; when in doubt, follow `ARCHITECTURE.md`.
 
 ```
 crates/
-  1bit-cli           unified operator CLI (halo status/logs/doctor/...)
+  1bit-cli           unified operator CLI (1bit status/logs/doctor/...)
   1bit-core          model + tokenizer parsers (pure, no I/O beyond mmap)
   1bit-router        backend dispatcher + forward pass driver
   1bit-server        axum HTTP, OpenAI-compat, /ppl, /metrics
@@ -54,7 +54,7 @@ crates/
   1bit-hip    FFI into rocm-cpp
   1bit-mlx    Apple Silicon backend (feature-gated)
 strixhalo/           dotfiles (systemd, caddy, bin, fish) — see strixhalo/README.md
-packages.toml        pkg manifest consumed by `halo install`
+packages.toml        pkg manifest consumed by `1bit install`
 install.sh           fresh-box bootstrap
 ```
 
@@ -111,7 +111,7 @@ systemctl --user start strix-server
 # other binaries install via cargo install --path crates/<name>
 ```
 
-Use `halo install <component>` from `packages.toml` when in doubt — it
+Use `1bit install <component>` from `packages.toml` when in doubt — it
 does the stop/copy/start cycle correctly.
 
 ## Agent / subagent ground rules

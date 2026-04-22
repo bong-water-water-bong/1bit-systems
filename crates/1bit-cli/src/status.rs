@@ -1,4 +1,4 @@
-// `halo status` — one-line-per-service state + port listener check.
+// `1bit status` — one-line-per-service state + port listener check.
 
 use anyhow::Result;
 use std::process::Command;

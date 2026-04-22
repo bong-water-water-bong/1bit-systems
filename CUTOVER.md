@@ -22,10 +22,10 @@ escape hatch.
 Re-run check:
 
 ```bash
-halo ppl
-halo bench
-halo doctor
-halo status
+1bit ppl
+1bit bench
+1bit doctor
+1bit status
 ```
 
 ## Rollback safety
@@ -43,7 +43,7 @@ Takes under 10 seconds.
 
 ## Procedure
 
-1. Verify gates via `halo doctor && halo ppl && halo bench | head -15`.
+1. Verify gates via `1bit doctor && 1bit ppl && 1bit bench | head -15`.
    Abort if any fail.
 2. Snapshot the current Caddyfile:
    `sudo cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.pre-cutover-$(date +%Y%m%d)`
@@ -80,7 +80,7 @@ Takes under 10 seconds.
 
 ## Post-cutover (within 7 days)
 
-- Remove `halo-bitnet.service` from `halo install --list` default set
+- Remove `halo-bitnet.service` from `1bit install --list` default set
   (keep component in `packages.toml`, drop from `core` deps).
 - Drop gen-1 from shadow-burnin (no longer useful as baseline; replace
   with 1bit-router itself on a second GPU once we have one).

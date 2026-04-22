@@ -81,7 +81,7 @@ The router picks the backend at build time, not runtime, so a given `1bit-server
 
 ## Systemd layout
 
-All units live in `/etc/systemd/system/` and are installed by `halo install <component>`.
+All units live in `/etc/systemd/system/` and are installed by `1bit install <component>`.
 
 | unit | binary | port | notes |
 |---|---|---|---|
@@ -91,7 +91,7 @@ All units live in `/etc/systemd/system/` and are installed by `halo install <com
 | `1bit-mcp.service` | `1bit-mcp` | stdio | socket-activated |
 | `caddy.service` | Caddy | 443 | TLS front door, splits `/v1/*` and `/v2/*` |
 
-`halo status` polls all of these and reports a single rollup. `halo logs <unit>` wraps `journalctl -u`.
+`1bit status` polls all of these and reports a single rollup. `1bit logs <unit>` wraps `journalctl -u`.
 
 ## Caddy `/v1/*` vs `/v2/*` burn-in plan
 

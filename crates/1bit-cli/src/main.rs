@@ -1,6 +1,6 @@
 // halo — strix-ai-rs unified CLI.
 //
-// Rust port of bin/halo (bash). First crate in the halo-workspace to prove
+// Rust port of bin/1bit (bash). First crate in the 1bit-systems to prove
 // the cargo workspace + tokio + clap + reqwest stack before we touch kernels
 // or agents.
 
@@ -36,7 +36,7 @@ struct Cli {
 enum Cmd {
     /// One-line-per-service state snapshot
     Status,
-    /// Tail systemd journal for a halo service
+    /// Tail systemd journal for a 1bit service
     Logs {
         /// Service short name (bitnet, sd, whisper, kokoro, lemonade, agent, ...)
         service: String,
@@ -47,7 +47,7 @@ enum Cmd {
         #[arg(short = 'n', long, default_value_t = 50)]
         lines: u32,
     },
-    /// Restart a halo service
+    /// Restart a 1bit service
     Restart { service: String },
     /// Comprehensive health check across the stack
     Doctor,
@@ -58,7 +58,7 @@ enum Cmd {
         #[arg(long)]
         no_restart: bool,
     },
-    /// halo stack version + component SHAs
+    /// 1bit stack version + component SHAs
     Version,
     /// Install a component from packages.toml (core, agents, voice, sd, ...)
     Install {
