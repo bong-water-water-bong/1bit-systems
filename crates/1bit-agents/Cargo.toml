@@ -29,6 +29,16 @@ path = "bin/1bit-watch-discord.rs"
 name = "1bit-watch-github"
 path = "bin/1bit-watch-github.rs"
 
+# 1bit-watch-patreon — one-shot Patreon member poller. Diffs campaign
+# members against ~/.local/state/1bit-halo/patreon-members.json and for
+# each newly-active patron dispatches a payload to Quartermaster via
+# Registry and posts the reply to Discord #announcements via echo's
+# bot token. Read-only against the Patreon API. Runs as a systemd
+# oneshot via strixhalo/systemd/1bit-halo-patreon.timer.
+[[bin]]
+name = "1bit-watch-patreon"
+path = "bin/1bit-watch-patreon.rs"
+
 [dependencies]
 anyhow      = { workspace = true }
 tokio       = { workspace = true }
