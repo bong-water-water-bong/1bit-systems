@@ -56,6 +56,12 @@ pub mod watch;
 pub mod specialists;
 pub use specialists::{LlmSpecialist, default_base_url, default_model_id};
 
+/// Outbound MCP clients for specialists that need to call external
+/// services (GitHub, Semgrep). Behind `mcp-out` to keep the core
+/// registry build small.
+#[cfg(feature = "mcp-out")]
+pub mod mcp;
+
 /// The 17 specialists. Ordering matches agent-cpp/specialists/ for easy diff.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Name {

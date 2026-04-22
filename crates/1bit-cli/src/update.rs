@@ -13,7 +13,7 @@ fn home() -> std::path::PathBuf {
 fn workspace_dir() -> std::path::PathBuf {
     std::env::var_os("HALO_WORKSPACE")
         .map(Into::into)
-        .unwrap_or_else(|| home().join("repos/halo-workspace"))
+        .unwrap_or_else(|| home().join("repos/1bit-halo-workspace"))
 }
 fn rocm_cpp_dir() -> std::path::PathBuf {
     std::env::var_os("HALO_ROCM_CPP")

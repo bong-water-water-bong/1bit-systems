@@ -9,7 +9,7 @@ authors.workspace      = true
 description  = "1bit-power — Linux power/thermal control for AMD Strix Halo (Ryzen AI Max+ 395 / Radeon 8060S / 128 GB LPDDR5X). Wraps RyzenAdj via shellout or libryzenadj. Replaces the closed-source Windows tray RyzenZPilot."
 
 [[bin]]
-name = "halo-power"
+name = "1bit-halo-power"
 path = "src/main.rs"
 
 [features]

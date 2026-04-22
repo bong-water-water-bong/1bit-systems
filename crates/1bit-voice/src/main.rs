@@ -32,7 +32,7 @@ struct Cli {
     /// Model id
     #[arg(long, default_value = "1bit-monster-2b")]
     model: String,
-    /// halo-kokoro /tts URL
+    /// 1bit-halo-kokoro /tts URL
     #[arg(long, default_value = "http://127.0.0.1:8083/tts")]
     tts_url: String,
     /// Voice id

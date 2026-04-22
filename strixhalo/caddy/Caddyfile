@@ -111,7 +111,7 @@ strixhalo.local, 10.0.0.10 {
         }
     }
 
-    # /kokoro/* → halo-kokoro TTS (127.0.0.1:8083). Bearer-gated.
+    # /kokoro/* → 1bit-halo-kokoro TTS (127.0.0.1:8083). Bearer-gated.
     # One sentence per POST; /voice/ splits SSE on sentence boundary.
     handle_path /kokoro/* {
         handle @authorized {
@@ -145,7 +145,7 @@ strixhalo.local, 10.0.0.10 {
     }
 
     log {
-        output file /var/log/caddy/halo-access.log {
+        output file /var/log/caddy/1bit-halo-access.log {
             roll_size 10MiB
             roll_keep 5
         }
@@ -160,6 +160,6 @@ headscale.strixhalo.local, 10.0.0.10:8443 {
 
 # LAN-only bootstrap server — unauthenticated, serves helper scripts + CA.
 http://10.0.0.10:8099 {
-    root * /var/www/halo-bootstrap
+    root * /var/www/1bit-halo-bootstrap
     file_server browse
 }

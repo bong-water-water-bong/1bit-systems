@@ -1,7 +1,7 @@
 [Unit]
 Description=1bit systems agent runtime
-After=halo-bitnet.service
-Wants=halo-bitnet.service
+After=1bit-halo-bitnet.service
+Wants=1bit-halo-bitnet.service
 
 [Service]
 Type=simple

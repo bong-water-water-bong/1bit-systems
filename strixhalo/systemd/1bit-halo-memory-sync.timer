@@ -1,6 +1,6 @@
 [Unit]
-Description=Run halo-memory-sync every 15 minutes
-Requires=halo-memory-sync.service
+Description=Run 1bit-halo-memory-sync every 15 minutes
+Requires=1bit-halo-memory-sync.service
 
 [Timer]
 OnBootSec=2min

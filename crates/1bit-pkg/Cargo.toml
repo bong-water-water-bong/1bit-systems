@@ -6,10 +6,10 @@ rust-version.workspace = true
 license.workspace      = true
 repository.workspace   = true
 authors.workspace      = true
-description  = "halo-pkg — plugin package manager for Helm. Installs/lists/removes MCP-server / skill / weights plugins under ~/.local/share/halo-pkg/. See docs/wiki/Helm-Plugin-API.md (spec v0.1)."
+description  = "1bit-halo-pkg — plugin package manager for Helm. Installs/lists/removes MCP-server / skill / weights plugins under ~/.local/share/1bit-halo-pkg/. See docs/wiki/Helm-Plugin-API.md (spec v0.1)."
 
 [[bin]]
-name = "halo-pkg"
+name = "1bit-halo-pkg"
 path = "src/main.rs"
 
 [lib]

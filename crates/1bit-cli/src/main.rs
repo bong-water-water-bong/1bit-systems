@@ -8,6 +8,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 mod bench;
+mod budget;
 mod burnin;
 mod chat;
 mod doctor;
@@ -68,7 +69,7 @@ enum Cmd {
         #[arg(long)]
         list: bool,
     },
-    /// Speak text through halo-kokoro :8083 + the host's audio player
+    /// Speak text through 1bit-halo-kokoro :8083 + the host's audio player
     Say {
         /// The text to synthesize. Quote it for multi-word input.
         text: Vec<String>,
@@ -143,6 +144,8 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<burnin::BurninCmd>,
     },
+    /// GTT + RAM budget audit for concurrent-model scaling
+    Budget,
 }
 
 #[tokio::main]
@@ -200,5 +203,6 @@ async fn main() -> Result<()> {
         Cmd::Memory { cmd } => memory::run(cmd),
         Cmd::Npu { cmd } => npu::run(cmd),
         Cmd::Burnin { cmd } => burnin::run(cmd).await,
+        Cmd::Budget => budget::run().await,
     }
 }

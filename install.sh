@@ -183,8 +183,8 @@ else
     ok "NPU userspace staged"
 fi
 
-# ── step 4: halo-workspace build ─────────────────────────────
-step "building halo-workspace (Rust, release)"
+# ── step 4: 1bit-halo-workspace build ───────────────────────
+step "building 1bit-halo-workspace (Rust, release)"
 if [[ "$CI_MODE" != "0" ]]; then
     info "cargo check (CI mode — no link)"
     ( cd "$WORKSPACE_DIR" && cargo check --workspace --release 2>&1 | progress_pipe "cargo" )
@@ -229,7 +229,7 @@ Next steps:
   1bit doctor             # full health check (GPU, kernel, ports, endpoints)
   1bit install --list     # optional components (agents, voice, sd, gaia)
   1bit chat               # interactive REPL against :8180
-  1bit say "hello"        # TTS via halo-kokoro :8083
+  1bit say "hello"        # TTS via 1bit-halo-kokoro :8083
   1bit bench              # shadow-burnin parity summary
   1bit ppl                # perplexity vs gen-1 baseline 9.1607
 

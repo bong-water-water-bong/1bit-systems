@@ -1,8 +1,8 @@
 //! `plugin.toml` schema.
 //!
 //! Matches the manifest format documented in
-//! `halo-ai-core/docs/wiki/Helm-Plugin-API.md` § 2. Kept deliberately
-//! permissive — unknown fields are accepted and ignored so older halo-pkg
+//! `1bit-halo-core/docs/wiki/Helm-Plugin-API.md` § 2. Kept deliberately
+//! permissive — unknown fields are accepted and ignored so older 1bit-halo-pkg
 //! binaries don't choke on newer manifests.
 //!
 //! Validation beyond the structural level (regex on `name` / `mount`,
@@ -109,7 +109,7 @@ pub struct WeightsDecl {
     pub format: String,
     /// Path relative to the plugin root.
     pub path: String,
-    /// 64 hex chars. Used by halo-pkg to verify the download.
+    /// 64 hex chars. Used by 1bit-halo-pkg to verify the download.
     pub sha256: String,
 }
 

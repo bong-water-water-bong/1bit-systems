@@ -59,6 +59,11 @@ octocrab    = "0.39"
 # on its public API, so we take a direct dep rather than relying on the
 # transitive version (the type is load-bearing in bin/1bit-watch-github.rs).
 chrono      = { version = "0.4", default-features = false, features = ["clock"] }
+# Outbound MCP client library. Optional — pulled in when the `mcp-out`
+# feature is enabled so the core agents crate stays small for consumers
+# that only want the registry. Librarian / Magistrate / Quartermaster
+# use this to call external MCP servers (GitHub, Semgrep, …).
+onebit-mcp-clients = { path = "../1bit-mcp-clients", optional = true }
 
 [features]
 # Default off: the dialectic module's observe() path stays Rule A-safe
@@ -67,6 +72,10 @@ chrono      = { version = "0.4", default-features = false, features = ["clock"] 
 # distillation. See crates/1bit-agents/src/dialectic/derive.rs.
 default = []
 llm-derive = []
+# Pull in 1bit-mcp-clients so specialists can reach external MCP servers.
+# Off by default: 1bit-watch-discord / 1bit-watch-github binaries don't
+# need it, and we want to keep their build footprint minimal.
+mcp-out = ["dep:onebit-mcp-clients"]
 
 [dev-dependencies]
 tempfile = "3"

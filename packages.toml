@@ -103,21 +103,21 @@ check       = ""
 description = "Whisper STT + Kokoro TTS (external repos, systemd only)"
 deps        = []
 build       = []
-units       = ["halo-whisper.service", "halo-kokoro.service"]
+units       = ["1bit-halo-whisper.service", "1bit-halo-kokoro.service"]
 check       = "http://127.0.0.1:8083/health"
 
 [component.sd]
 description = "Stable Diffusion image gen (native HIP, stable-diffusion.cpp)"
 deps        = []
 build       = []
-units       = ["halo-sd.service"]
+units       = ["1bit-halo-sd.service"]
 check       = "http://127.0.0.1:8081/health"
 
 [component.lemonade]
 description = "lemonade-server — Python reference, OpenAI-compat frontend (legacy)"
 deps        = []
 build       = []
-units       = ["halo-lemonade.service"]
+units       = ["1bit-halo-lemonade.service"]
 check       = "http://127.0.0.1:8000/api/v0/models"
 
 [component.lemonade-rs]
@@ -131,7 +131,7 @@ check       = "http://127.0.0.1:8200/_health"
 description = "Gen-1 C++ bitnet_decode server (legacy /v1/*)"
 deps        = []
 build       = []
-units       = ["halo-bitnet.service"]
+units       = ["1bit-halo-bitnet.service"]
 check       = "http://127.0.0.1:8080/v1/models"
 
 [component.landing]

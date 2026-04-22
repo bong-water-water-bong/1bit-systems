@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# halo-anvil — clone/pull → build → bench → post to Discord as 🔨 anvil.
+# 1bit-halo-anvil — clone/pull → build → bench → post to Discord as 🔨 anvil.
 # Polls rocm-cpp for new commits. When HEAD advances, rebuild bitnet_decode
 # and re-run the live tok/s sweep. Posts a compact summary via discord-mcp
 # (webhook relay) to #changelog as specialist "anvil".

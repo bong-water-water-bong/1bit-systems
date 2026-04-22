@@ -20,7 +20,7 @@ use onebit_router::medusa::loader::{
 use std::path::Path;
 
 const REAL_MEDUSA_PATH: &str =
-    "/home/bcloud/halo-ai/models/medusa/halo-medusa-heads.h1b-medusa";
+    "/home/bcloud/1bit-halo-models/models/medusa/halo-medusa-heads.h1b-medusa";
 
 #[test]
 #[ignore = "requires converted .h1b-medusa file on dev box; run with --ignored"]

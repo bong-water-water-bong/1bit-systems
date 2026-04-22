@@ -5,7 +5,7 @@ Description=1bit systems GitHub automation — quartermaster, magistrate, librar
 OnBootSec=3min
 OnUnitActiveSec=30min
 Persistent=true
-Unit=halo-gh-trio.service
+Unit=1bit-halo-gh-trio.service
 
 [Install]
 WantedBy=timers.target

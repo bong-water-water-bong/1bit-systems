@@ -27,9 +27,9 @@ use std::time::Instant;
 use onebit_core::sampler::SamplerConfig;
 use onebit_router::{Router, RouterRequest};
 
-const DEFAULT_MODEL: &str = "/home/bcloud/halo-ai/models/halo-1bit-2b.h1b";
+const DEFAULT_MODEL: &str = "/home/bcloud/1bit-halo-models/models/halo-1bit-2b.h1b";
 const DEFAULT_MEDUSA_HEADS: &str =
-    "/home/bcloud/halo-ai/models/medusa/halo-medusa-heads.h1b-medusa";
+    "/home/bcloud/1bit-halo-models/models/medusa/halo-medusa-heads.h1b-medusa";
 const BENCH_OUTPUT: &str = "/home/bcloud/claude output/medusa-bench-2026-04-21.json";
 
 const BENCH_PROMPT: &str = "The capital of France is";

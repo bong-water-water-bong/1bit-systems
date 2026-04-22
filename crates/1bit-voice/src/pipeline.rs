@@ -33,7 +33,7 @@ pub struct VoiceConfig {
     pub max_tokens: u32,
     /// Sampling temperature. 0 = greedy.
     pub temperature: f32,
-    /// halo-kokoro `/tts` endpoint.
+    /// 1bit-halo-kokoro `/tts` endpoint.
     pub tts_url: String,
     /// Voice id passed to kokoro.
     pub voice: String,
@@ -163,7 +163,7 @@ fn parse_sse_delta(event: &str) -> Option<String> {
     delta.get("content")?.as_str().map(str::to_string)
 }
 
-/// POST a single sentence to halo-kokoro `/tts`, return the raw WAV bytes.
+/// POST a single sentence to 1bit-halo-kokoro `/tts`, return the raw WAV bytes.
 ///
 /// Omits the `speed` field by default (kokoro_tts throws on the default
 /// `1.0` via cxxopts; a known upstream bug documented in

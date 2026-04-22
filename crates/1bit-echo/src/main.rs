@@ -27,7 +27,7 @@ struct Cli {
     /// 1bit-server OpenAI-compat chat completions endpoint.
     #[arg(long, default_value = "http://127.0.0.1:8180/v1/chat/completions")]
     llm_url: String,
-    /// halo-kokoro `/tts` endpoint.
+    /// 1bit-halo-kokoro `/tts` endpoint.
     #[arg(long, default_value = "http://127.0.0.1:8083/tts")]
     tts_url: String,
     /// Voice id forwarded to kokoro.

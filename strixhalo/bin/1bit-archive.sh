@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# halo-archive — one-way additive sync strixhalo → pi ZFSPool archive.
+# 1bit-halo-archive — one-way additive sync strixhalo → pi ZFSPool archive.
 #
 # Rule: NEVER `--delete`. Files that disappear from strixhalo stay on the Pi
 # forever. This is a safety archive, not a mirror.
@@ -54,20 +54,20 @@ for entry in "${SETS[@]}"; do
     read -r src subdir <<<"$entry"
     dst="$PEER:$DEST_BASE/$subdir/"
     if [[ ! -e "$src" ]]; then
-        echo "[halo-archive] SKIP: $src missing"
+        echo "[1bit-halo-archive] SKIP: $src missing"
         continue
     fi
     echo ""
-    echo "[halo-archive] === $src → $dst ==="
+    echo "[1bit-halo-archive] === $src → $dst ==="
     # ensure remote dir exists
     ssh "$PEER" "mkdir -p '$DEST_BASE/$subdir'" || {
-        echo "[halo-archive] FAIL: remote mkdir"; exit 1;
+        echo "[1bit-halo-archive] FAIL: remote mkdir"; exit 1;
     }
     # note trailing slash on source — copies contents, not wrapping dir
     rsync "${RSYNC_OPTS[@]}" "${src}/" "$dst" || {
-        echo "[halo-archive] FAIL on $src (rsync exit $?)"; exit 1;
+        echo "[1bit-halo-archive] FAIL on $src (rsync exit $?)"; exit 1;
     }
 done
 
 echo ""
-echo "[halo-archive] done in $((SECONDS - total_start))s $([[ $DRY_RUN -eq 1 ]] && echo '(dry-run)' || echo '(committed)')"
+echo "[1bit-halo-archive] done in $((SECONDS - total_start))s $([[ $DRY_RUN -eq 1 ]] && echo '(dry-run)' || echo '(committed)')"

@@ -26,6 +26,23 @@ The stack targets Strix Halo specifically. Other gfx1100-family hardware *may* w
 
 **CachyOS** with Btrfs + snapper + limine is the reference setup. Rollback-via-snapper has saved the project more than once. Fish shell is assumed in examples but not required.
 
+### Distro policy
+
+**Supported:** Arch Linux (and Arch-family: CachyOS, Manjaro, EndeavourOS). Every binary, systemd unit, and install script is tested here. The reference production box is CachyOS.
+
+**Best-effort:** Ubuntu 24.04+, Fedora 40+, Debian 12+. The code compiles; regression tests do not run on these distros. ROCm install diverges from the Arch path — you are building from source.
+
+**Unsupported:** Windows (no HIP runtime story for this stack), macOS (ARM Apple Silicon is a separate backend via the `mlx` feature-gate, not covered here).
+
+If you are on Ubuntu, expect the following extra steps:
+
+1. Install ROCm 7.x per AMD's official Ubuntu instructions (not the stock Ubuntu repo — that ROCm is too old). See [rocm.docs.amd.com](https://rocm.docs.amd.com/en/latest/deploy/linux/installer/install.html).
+2. gfx1151 is not on ROCm's Tier-1 list. Expect to build from source. The `llamacpp-rocm` fork's install script is the paved road.
+3. systemd user units in this repo assume paths like `~/.cargo/bin/`. These are distro-agnostic; copy the unit files to `~/.config/systemd/user/` unchanged.
+4. Caddy's Arch package ships with permissions that let it bind to `:80` and `:443` out of the box. On Ubuntu, verify the package manager sets the `cap_net_bind_service` capability on the Caddy binary — or run it under a reverse-proxy that already has the right caps.
+
+When asking for help on non-Arch, lead the question with distro + kernel version + ROCm version. Short example: "Ubuntu 24.04, 6.11, ROCm 7.0 from AMD repo — `1bit-halo-server` fails to link." That beats "it's broken" every time.
+
 ## Build ROCm against gfx1151
 
 System-package ROCm drops gfx1151 from Tier-1 in most distros. Build from source, or use the `llamacpp-rocm` fork's install script as a bootstrap.

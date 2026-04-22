@@ -265,7 +265,7 @@ pub struct HipBackend {
     /// Plumbed through `new()` once so the hot path is a single
     /// branch-prediction-friendly field load rather than re-reading the
     /// cfg every layer. See
-    /// `/home/bcloud/repos/halo-workspace/docs/wiki/BitNet-v2-Hadamard-Plan.md`
+    /// `/home/bcloud/repos/1bit-halo-workspace/docs/wiki/BitNet-v2-Hadamard-Plan.md`
     /// for the feature-gate matrix.
     hadamard_active: bool,
     /// Debug counter: how many Hadamard rotations the forward pass has

@@ -11,7 +11,7 @@
 //!
 //! Preconditions (asserted only implicitly via HTTP errors):
 //!   * 1bit-server  listening on 127.0.0.1:8180 with /v1/chat/completions
-//!   * halo-kokoro  listening on 127.0.0.1:8083 with /tts
+//!   * 1bit-halo-kokoro  listening on 127.0.0.1:8083 with /tts
 //!
 //! The whole future is wrapped in a 60 s `tokio::time::timeout` so a hung
 //! backend can't wedge CI if someone accidentally flips the feature on.
@@ -24,7 +24,7 @@ use futures::StreamExt;
 use onebit_voice::{VoiceChunk, VoiceConfig, VoicePipeline};
 
 #[tokio::test]
-#[ignore = "needs live 1bit-server + halo-kokoro; run with --features real-backend --ignored"]
+#[ignore = "needs live 1bit-server + 1bit-halo-kokoro; run with --features real-backend --ignored"]
 async fn speaks_two_sentences_against_live_stack() {
     let fut = async {
         let pipeline = VoicePipeline::new(VoiceConfig::default()).expect("build VoicePipeline");

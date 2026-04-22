@@ -295,7 +295,7 @@ mod tests {
     /// an ephemeral port, connect with tokio-tungstenite, send a prompt,
     /// and assert the first inbound frame is the text-JSON preamble. The
     /// voice pipeline is pointed at a dead loopback URL so we don't need
-    /// 1bit-server / halo-kokoro — the preamble is sent BEFORE the
+    /// 1bit-server / 1bit-halo-kokoro — the preamble is sent BEFORE the
     /// pipeline runs, so it still arrives.
     #[tokio::test]
     async fn opus_mode_sends_text_preamble_first() {

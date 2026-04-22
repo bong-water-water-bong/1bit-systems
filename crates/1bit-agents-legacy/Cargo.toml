@@ -1,12 +1,12 @@
 [package]
-name         = "halo-agents"
+name         = "1bit-halo-agents"
 version      = "0.1.0"
 edition      = "2024"
 rust-version = "1.86"
 license      = "MIT"
 repository   = "https://github.com/bong-water-water-bong/halo-agents"
 authors      = ["strix-ai-rs contributors"]
-description  = "halo-agents — 17 specialist routers (Rust port of agent-cpp). Async registry + TypedSpecialist + JsonSchema. Drop-in for halo-mcp + MCP clients."
+description  = "1bit-halo-agents — 17 specialist routers (Rust port of agent-cpp). Async registry + TypedSpecialist + JsonSchema. Drop-in for 1bit-halo-mcp + MCP clients."
 
 [lib]
 path = "src/lib.rs"

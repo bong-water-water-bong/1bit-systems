@@ -30,7 +30,7 @@
 #   - docs/wiki/VPN-Only-API.md     (why the mesh + bearer fences exist)
 #   - strixhalo/bin/1bit-mesh-revoke.sh (reused as-is)
 #   - strixhalo/bin/1bit-mesh-invite.sh (issues the `expires` field)
-#   - strixhalo/systemd/halo-beta-expire.{service,timer}
+#   - strixhalo/systemd/1bit-halo-beta-expire.{service,timer}
 
 set -uo pipefail
 
@@ -133,9 +133,9 @@ in_allowlist() {
     return 1
 }
 
-log() { printf '[halo-beta-expire] %s\n' "$*"; }
-vlog() { (( VERBOSE )) && printf '[halo-beta-expire] %s\n' "$*" || true; }
-err() { printf '[halo-beta-expire] ERROR: %s\n' "$*" >&2; }
+log() { printf '[1bit-halo-beta-expire] %s\n' "$*"; }
+vlog() { (( VERBOSE )) && printf '[1bit-halo-beta-expire] %s\n' "$*" || true; }
+err() { printf '[1bit-halo-beta-expire] ERROR: %s\n' "$*" >&2; }
 
 # -------- bearer sweep ---------------------------------------------------
 
@@ -207,7 +207,7 @@ sweep_bearers() {
     fi
 
     {
-        printf '# halo-beta-expire audit — %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf '# 1bit-halo-beta-expire audit — %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         for line in "${expired_lines[@]}"; do
             printf '%s\n' "$line"
         done

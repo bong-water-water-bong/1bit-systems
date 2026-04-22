@@ -1,4 +1,4 @@
-// `1bit say <text>` — speak text through halo-kokoro :8083, play via
+// `1bit say <text>` — speak text through 1bit-halo-kokoro :8083, play via
 // the first available ALSA/PulseAudio CLI player. Voice-loop mic-check
 // path for recording sessions.
 
@@ -36,7 +36,7 @@ pub async fn run(text: &str, voice: &str, speed: f32) -> Result<()> {
     let status = res.status();
     if !status.is_success() {
         let msg = res.text().await.unwrap_or_default();
-        bail!("halo-kokoro returned {status}: {msg}");
+        bail!("1bit-halo-kokoro returned {status}: {msg}");
     }
     let wav = res.bytes().await?;
     play_wav(&wav)?;

@@ -1,5 +1,5 @@
 [Unit]
-Description=Nightly halo-archive run (strixhalo → Pi additive sync)
+Description=Nightly 1bit-halo-archive run (strixhalo → Pi additive sync)
 
 [Timer]
 OnCalendar=*-*-* 03:00:00
@@ -7,7 +7,7 @@ OnCalendar=*-*-* 03:00:00
 Persistent=true
 # Randomize by up to 20 min to avoid racing other cron-shaped work.
 RandomizedDelaySec=20min
-Unit=halo-archive.service
+Unit=1bit-halo-archive.service
 
 [Install]
 WantedBy=timers.target

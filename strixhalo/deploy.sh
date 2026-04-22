@@ -59,7 +59,7 @@ ${GREEN}deploy complete.${NC}
 
 Enable + start relevant units:
   systemctl --user enable --now strix-server.service strix-landing.service strix-lemonade.service
-  systemctl --user enable --now halo-anvil.timer halo-memory-sync.timer
+  systemctl --user enable --now 1bit-halo-anvil.timer 1bit-halo-memory-sync.timer
 
 Caddy config is optional — edit /etc/caddy/Caddyfile to install if wanted.
 EOF

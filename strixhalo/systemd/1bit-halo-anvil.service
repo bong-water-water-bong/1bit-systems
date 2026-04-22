@@ -1,5 +1,5 @@
 [Unit]
-Description=halo-anvil — rebuild rocm-cpp on new commit, bench, post to Discord
+Description=1bit-halo-anvil — rebuild rocm-cpp on new commit, bench, post to Discord
 After=network-online.target
 Wants=network-online.target
 

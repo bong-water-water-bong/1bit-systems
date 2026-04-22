@@ -1,5 +1,5 @@
 [Unit]
-Description=halo-archive — additive rsync of 1bit systems + repos from strixhalo to Pi ZFSPool
+Description=1bit-halo-archive — additive rsync of 1bit systems + repos from strixhalo to Pi ZFSPool
 # Mesh must be up; if the Pi is offline, the unit fails gracefully and the
 # timer retries at the next schedule (not a reboot event).
 After=network-online.target tailscaled.service

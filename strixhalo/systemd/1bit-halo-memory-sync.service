@@ -5,5 +5,5 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=%h/.local/bin/halo-memory-sync.sh
+ExecStart=%h/.local/bin/1bit-halo-memory-sync.sh
 Nice=10
