@@ -125,13 +125,30 @@
     color: var(--magenta);
     text-shadow: 0 0 10px var(--magenta-glow);
   }
-  .crumb {
+  .back-to-docs {
     margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
     font-family: 'JetBrains Mono', monospace;
     font-size: 11px;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: var(--text-subtle);
+    color: var(--text-muted);
+    text-decoration: none;
+    transition: border-color 0.15s, color 0.15s, text-shadow 0.15s, background 0.15s;
+  }
+  .back-to-docs:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--bg-code);
+    text-shadow: 0 0 10px var(--accent-glow);
+  }
+  .back-to-docs .arrow {
+    opacity: 0.8;
   }
 
   main {
@@ -293,7 +310,7 @@
     <span class="logo-mark"></span>
     <span class="logo-text">1bit<em>.systems</em></span>
   </a>
-  <div class="crumb">announcement</div>
+  <a href="/" class="back-to-docs"><span class="arrow">←</span><span>Back to docs</span></a>
 </header>
 
 <main>
@@ -304,7 +321,7 @@
   </p>
 
   <div class="link-row">
-    <a href="https://1bit.systems"><span>Website</span><span class="arrow">→</span></a>
+    <a href="/"><span>Website</span><span class="arrow">→</span></a>
     <a href="https://github.com/bong-water-water-bong/1bit-systems"><span>GitHub</span><span class="arrow">→</span></a>
   </div>
 
@@ -369,13 +386,13 @@
   </div>
 
   <div class="link-row">
-    <a href="https://1bit.systems"><span>Full docs</span><span class="arrow">→</span></a>
+    <a href="/"><span>Full docs</span><span class="arrow">→</span></a>
     <a href="https://github.com/bong-water-water-bong/1bit-systems"><span>Source</span><span class="arrow">→</span></a>
   </div>
 </main>
 
 <footer>
-  1bit.systems · announcement · <a href="https://1bit.systems">full docs →</a>
+  1bit.systems · announcement · <a href="/">full docs →</a>
 </footer>
 
 </body>
