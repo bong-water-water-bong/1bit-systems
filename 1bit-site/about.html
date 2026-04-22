@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>About · 1bit.systems</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e10;
+    --bg-code: #111619;
+    --text: #e6edef;
+    --text-muted: #8a9397;
+    --text-subtle: #565d61;
+    --accent: #00e5d1;
+    --accent-soft: #00e5d166;
+    --accent-glow: #00e5d140;
+    --magenta: #ff3d9a;
+    --magenta-soft: #ff3d9a66;
+    --magenta-glow: #ff3d9a33;
+    --border: #1a2125;
+    --border-strong: #26323a;
+    --header-height: 60px;
+    --content-max: 760px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f5f8f9;
+      --bg-code: #e4ebee;
+      --text: #0a1518;
+      --text-muted: #4a5459;
+      --text-subtle: #859095;
+      --accent: #008577;
+      --accent-soft: #00857766;
+      --accent-glow: #00857720;
+      --magenta: #c91d6f;
+      --magenta-soft: #c91d6f66;
+      --magenta-glow: #c91d6f20;
+      --border: #d4dde1;
+      --border-strong: #b8c3c8;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(ellipse 800px 600px at 15% 20%, var(--accent-glow), transparent 60%),
+      radial-gradient(ellipse 700px 500px at 85% 80%, var(--magenta-glow), transparent 60%);
+    opacity: 0.6;
+  }
+  @media (prefers-color-scheme: light) { body::before { opacity: 0.4; } }
+  header.topbar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: var(--header-height);
+    background: rgba(10, 14, 16, 0.75);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--border);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    padding: 0 32px;
+  }
+  @media (prefers-color-scheme: light) {
+    header.topbar { background: rgba(245, 248, 249, 0.75); }
+  }
+  .logo {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: 18px;
+    letter-spacing: -0.02em;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--text);
+    text-decoration: none;
+  }
+  .logo-mark {
+    width: 24px; height: 24px;
+    border: 2px solid var(--accent);
+    border-radius: 50%;
+    position: relative;
+    box-shadow: 0 0 12px var(--accent-soft), inset 0 0 8px var(--accent-glow);
+    animation: halo-pulse 4s ease-in-out infinite;
+  }
+  .logo-mark::after {
+    content: '';
+    position: absolute;
+    inset: 4px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, var(--accent), transparent 65%);
+    opacity: 0.7;
+  }
+  @keyframes halo-pulse {
+    0%, 100% { box-shadow: 0 0 12px var(--accent-soft), inset 0 0 8px var(--accent-glow); }
+    50% { box-shadow: 0 0 18px var(--accent), inset 0 0 12px var(--accent-soft); }
+  }
+  .logo-text em {
+    font-style: italic;
+    font-weight: 400;
+    color: var(--magenta);
+    text-shadow: 0 0 10px var(--magenta-glow);
+  }
+  .topbar-meta {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+  .site-nav {
+    display: flex;
+    gap: 18px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    align-items: center;
+  }
+  .site-nav a {
+    color: var(--text-muted);
+    text-decoration: none;
+    padding: 2px 0;
+    border-bottom: 1px solid transparent;
+    transition: color 0.15s, text-shadow 0.15s, border-color 0.15s;
+  }
+  .site-nav a:hover {
+    color: var(--accent);
+    text-shadow: 0 0 10px var(--accent-glow);
+    border-bottom-color: var(--accent-soft);
+  }
+  .site-nav a.current {
+    color: var(--accent);
+    text-shadow: 0 0 10px var(--accent-soft);
+    border-bottom-color: var(--accent);
+  }
+  @media (max-width: 900px) {
+    .site-nav { display: none; }
+    header.topbar { padding: 0 20px; }
+  }
+  main {
+    padding: calc(var(--header-height) + 48px) 40px 120px;
+    max-width: calc(var(--content-max) + 80px);
+    margin: 0 auto;
+    position: relative;
+    z-index: 2;
+  }
+  .eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--magenta);
+    margin-bottom: 16px;
+    text-shadow: 0 0 12px var(--magenta-glow);
+  }
+  h1 {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: 52px;
+    line-height: 1.1;
+    letter-spacing: -0.03em;
+    margin-bottom: 20px;
+    color: var(--text);
+  }
+  .lede {
+    font-family: 'Fraunces', serif;
+    font-weight: 400;
+    font-size: 22px;
+    line-height: 1.5;
+    color: var(--text-muted);
+    margin-bottom: 48px;
+    max-width: 640px;
+  }
+  h2 {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: 32px;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    margin-top: 64px;
+    margin-bottom: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    color: var(--text);
+  }
+  h3 {
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 20px;
+    margin-top: 32px;
+    margin-bottom: 12px;
+    color: var(--text);
+  }
+  p {
+    margin-bottom: 18px;
+    color: var(--text);
+    max-width: 700px;
+  }
+  ul, ol { margin-bottom: 20px; padding-left: 24px; max-width: 700px; }
+  li { margin-bottom: 8px; color: var(--text); }
+  a { color: var(--accent); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
+  a:hover { text-decoration-color: currentColor; text-shadow: 0 0 10px var(--accent-glow); }
+  strong { font-weight: 600; color: var(--text); }
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.88em;
+    background: var(--bg-code);
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    color: var(--accent);
+  }
+  .callout {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 6px;
+    padding: 16px 20px;
+    margin: 24px 0;
+    max-width: 700px;
+    font-size: 15px;
+    box-shadow: -6px 0 16px -8px var(--accent-soft);
+  }
+  .todo-slot {
+    border: 1px dashed var(--border-strong);
+    border-radius: 6px;
+    padding: 18px 22px;
+    margin: 24px 0;
+    max-width: 700px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-subtle);
+    letter-spacing: 0.04em;
+    line-height: 1.7;
+  }
+  .todo-slot::before {
+    content: '// TODO ';
+    color: var(--magenta);
+    font-weight: 500;
+  }
+  footer {
+    max-width: calc(var(--content-max) + 80px);
+    margin: 80px auto 0;
+    padding: 32px 40px 48px;
+    border-top: 1px solid var(--border);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--text-subtle);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: relative;
+    z-index: 2;
+  }
+  footer .nav-links { display: flex; gap: 16px; }
+  footer a { color: var(--text-subtle); text-decoration: none; }
+  footer a:hover { color: var(--accent); text-shadow: 0 0 8px var(--accent-glow); }
+  @media (max-width: 900px) {
+    h1 { font-size: 36px; }
+    h2 { font-size: 26px; }
+    .lede { font-size: 18px; }
+    main { padding: calc(var(--header-height) + 24px) 20px 80px; }
+    footer { flex-direction: column; gap: 12px; align-items: flex-start; padding: 24px 20px 32px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <a href="docs.html" class="logo">
+    <span class="logo-mark"></span>
+    <span class="logo-text">1bit<em>.systems</em></span>
+  </a>
+  <div class="topbar-meta">
+    <nav class="site-nav">
+      <a href="about.html" class="current">About</a>
+      <a href="blog.html">Blog</a>
+      <a href="news.html">News</a>
+      <a href="contact.html">Contact</a>
+      <a href="docs.html">Docs</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="eyebrow">1bit.systems · about</div>
+  <h1>Run modern AI on the machine under your desk.</h1>
+  <p class="lede">
+    1bit-halo is a native C++ and Rust stack for sub-2-bit language, speech, and image models on AMD Strix Halo. No Python at runtime. No discrete GPU. No cloud dependency.
+  </p>
+
+  <h2>The thesis</h2>
+  <p>
+    A motivated person should be able to run modern AI on hardware that fits on a desk, costs less than a mid-range discrete GPU, and draws less power than a kettle.
+  </p>
+  <p>
+    Strix Halo is the first consumer AMD platform where that's credible. 40 RDNA 3.5 compute units. 128 GB unified LPDDR5X at roughly 270 GB/s. Mini-PC form factor. Under 120 W continuous. It doesn't beat a datacenter GPU. It isn't meant to. It's meant to run real models at conversational latency from a silent room.
+  </p>
+  <p>
+    The trade-off is quantization. A 70B-parameter model doesn't fit in 128 GB at FP16 — it does at 1.58 bits per parameter. Current ternary-quantized models land within a few percent of full precision on hard evals. The stack is built around ternary and sub-2-bit weights from the ground up, not retrofitted around an existing FP16 path.
+  </p>
+
+  <h2>What it is</h2>
+  <ul>
+    <li><strong>A serving stack</strong> — kernels, HTTP surface, MCP server, speech and image components.</li>
+    <li><strong>A research line</strong> — ternary GEMV, split-KV attention, Sparse-BitNet 3:4, BitNet v2, Medusa speculative decoding.</li>
+    <li><strong>A hardware bet</strong> — gfx1151 primary, gfx1201 secondary (RX 9070 XT). Unified memory beats PCIe copies for sub-2-bit.</li>
+    <li><strong>A set of constraints</strong> — no Python in the serving path, no runtime hipBLAS, no cloud dependency, no telemetry.</li>
+  </ul>
+
+  <h2>The rules</h2>
+  <h3>Rule A — no Python at runtime</h3>
+  <p>
+    Hard rule. No Python interpreter in any serving binary. GIL, packaging churn, interpreter startup, supply-chain risk, and license tangles disqualify it from the hot path. Caller-side tooling is any language you want.
+  </p>
+  <h3>Rule B — C++20 for kernels, Rust for orchestration</h3>
+  <p>
+    Default language for a new component is C++20 if it talks to HIP directly, Rust otherwise. Rust gets safety and ownership where correctness matters most; C++ gets HIP intrinsics, wave32 WMMA, and register-level control that the ternary GEMV depends on.
+  </p>
+  <h3>No runtime hipBLAS</h3>
+  <p>
+    Ever. Native Tensile-generated kernels are allowed; runtime hipBLAS calls are banned because its selection heuristic collapses on our skinny ternary GEMV shape.
+  </p>
+
+  <h2>Origin</h2>
+  <p>
+    The project started as an efficiency exercise. The question was whether a CAD $3,000 Strix Halo mini-PC could serve as a private, always-on AI workstation from a silent closet — no fans screaming, no power bill spike, no cloud. First experiments used MLX via its ROCm backend; that path died almost immediately because MLX ROCm has no ternary mode and BitNet warmup crashed on every run. The pivot to native HIP followed.
+  </p>
+  <p>
+    The codebase name was <code>halo-ai</code>, inherited from the original project name. The public brand is <strong>1bit.systems</strong>, with components named <code>1bit-halo-*</code>. They refer to the same thing.
+  </p>
+
+  <h2>The team</h2>
+  <div class="todo-slot">
+    team page reserved · one maintainer today, described as The Architect. Names and roles land when the project formalizes.
+  </div>
+
+  <h2>Why you're here</h2>
+  <ul>
+    <li><a href="docs.html">Read the technical docs</a> — full architecture, kernels, models, roadmap.</li>
+    <li><a href="contact.html">Reach out</a> — questions, corrections, research pointers.</li>
+  </ul>
+</main>
+
+<footer>
+  <div>1bit.systems · v0.1</div>
+  <div class="nav-links">
+    <a href="about.html">About</a>
+    <a href="blog.html">Blog</a>
+    <a href="news.html">News</a>
+    <a href="contact.html">Contact</a>
+    <a href="docs.html">Docs</a>
+  </div>
+</footer>
+
+</body>
+</html>

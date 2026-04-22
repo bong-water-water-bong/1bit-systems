@@ -1,0 +1,2184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>1bit.systems — Documentation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    /* Dark-first theme with glowing turquoise + magenta */
+    --bg: #0a0e10;
+    --bg-sidebar: #0d1215;
+    --bg-code: #111619;
+    --text: #e6edef;
+    --text-muted: #8a9397;
+    --text-subtle: #565d61;
+
+    /* PRIMARY: glowing turquoise */
+    --accent: #00e5d1;
+    --accent-soft: #00e5d166;
+    --accent-glow: #00e5d140;
+
+    /* SECONDARY: deep magenta */
+    --magenta: #ff3d9a;
+    --magenta-soft: #ff3d9a66;
+    --magenta-glow: #ff3d9a33;
+
+    /* TERTIARY: gate red */
+    --red: #ff4c4c;
+    --red-soft: #ff4c4c66;
+    --red-glow: #ff4c4c33;
+
+    --border: #1a2125;
+    --border-strong: #26323a;
+
+    --sidebar-width: 290px;
+    --content-max: 760px;
+    --header-height: 60px;
+  }
+
+  /* Optional light mode */
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f5f8f9;
+      --bg-sidebar: #eef3f5;
+      --bg-code: #e4ebee;
+      --text: #0a1518;
+      --text-muted: #4a5459;
+      --text-subtle: #859095;
+      --accent: #008577;
+      --accent-soft: #00857766;
+      --accent-glow: #00857720;
+      --magenta: #c91d6f;
+      --magenta-soft: #c91d6f66;
+      --magenta-glow: #c91d6f20;
+      --red: #c82020;
+      --red-soft: #c8202066;
+      --red-glow: #c8202020;
+      --border: #d4dde1;
+      --border-strong: #b8c3c8;
+    }
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; scroll-padding-top: 80px; }
+
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Ambient background glow — subtle cyan/magenta wash on dark */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(ellipse 800px 600px at 15% 20%, var(--accent-glow), transparent 60%),
+      radial-gradient(ellipse 700px 500px at 85% 80%, var(--magenta-glow), transparent 60%);
+    opacity: 0.6;
+  }
+  @media (prefers-color-scheme: light) {
+    body::before { opacity: 0.4; }
+  }
+
+  header.topbar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: var(--header-height);
+    background: rgba(10, 14, 16, 0.75);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--border);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    padding: 0 32px;
+  }
+
+  @media (prefers-color-scheme: light) {
+    header.topbar { background: rgba(245, 248, 249, 0.75); }
+  }
+
+  .logo {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: 18px;
+    letter-spacing: -0.02em;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--text);
+  }
+
+  /* Logo mark: glowing turquoise halo */
+  .logo-mark {
+    width: 24px; height: 24px;
+    border: 2px solid var(--accent);
+    border-radius: 50%;
+    position: relative;
+    box-shadow:
+      0 0 12px var(--accent-soft),
+      inset 0 0 8px var(--accent-glow);
+    animation: halo-pulse 4s ease-in-out infinite;
+  }
+  .logo-mark::after {
+    content: '';
+    position: absolute;
+    inset: 4px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, var(--accent), transparent 65%);
+    opacity: 0.7;
+  }
+
+  @keyframes halo-pulse {
+    0%, 100% {
+      box-shadow: 0 0 12px var(--accent-soft), inset 0 0 8px var(--accent-glow);
+    }
+    50% {
+      box-shadow: 0 0 18px var(--accent), inset 0 0 12px var(--accent-soft);
+    }
+  }
+
+  .logo-text em {
+    font-style: italic;
+    font-weight: 400;
+    color: var(--magenta);
+    text-shadow: 0 0 10px var(--magenta-glow);
+  }
+
+  .topbar-meta {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .site-nav {
+    display: flex;
+    gap: 18px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    align-items: center;
+  }
+  .site-nav a {
+    color: var(--text-muted);
+    text-decoration: none;
+    transition: color 0.15s, text-shadow 0.15s;
+    padding: 2px 0;
+    border-bottom: 1px solid transparent;
+  }
+  .site-nav a:hover {
+    color: var(--accent);
+    text-shadow: 0 0 10px var(--accent-glow);
+    border-bottom-color: var(--accent-soft);
+  }
+  .site-nav a.current {
+    color: var(--accent);
+    text-shadow: 0 0 10px var(--accent-soft);
+    border-bottom-color: var(--accent);
+  }
+  @media (max-width: 900px) {
+    .site-nav { display: none; }
+  }
+
+  .sidebar-controls {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-subtle);
+    display: flex;
+    gap: 12px;
+  }
+
+  .sidebar-controls button {
+    background: none;
+    border: none;
+    color: var(--text-subtle);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: inherit;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: color 0.15s, background 0.15s, text-shadow 0.15s;
+  }
+  .sidebar-controls button:hover {
+    color: var(--accent);
+    background: var(--bg-code);
+    text-shadow: 0 0 8px var(--accent-glow);
+  }
+
+  .version-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-subtle);
+    letter-spacing: 0.02em;
+  }
+
+  .version-tag .dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    background: var(--accent);
+    border-radius: 50%;
+    margin-right: 8px;
+    vertical-align: middle;
+    box-shadow: 0 0 10px var(--accent), 0 0 18px var(--accent-soft);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 10px var(--accent), 0 0 18px var(--accent-soft); }
+    50% { opacity: 0.6; box-shadow: 0 0 6px var(--accent); }
+  }
+
+  .layout {
+    display: flex;
+    padding-top: var(--header-height);
+    min-height: 100vh;
+    position: relative;
+    z-index: 1;
+  }
+
+  aside.sidebar {
+    width: var(--sidebar-width);
+    flex-shrink: 0;
+    position: fixed;
+    top: var(--header-height);
+    bottom: 0;
+    left: 0;
+    overflow-y: auto;
+    background: rgba(13, 18, 21, 0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-right: 1px solid var(--border);
+    padding: 20px 0 32px;
+    z-index: 10;
+  }
+  @media (prefers-color-scheme: light) {
+    aside.sidebar { background: rgba(238, 243, 245, 0.8); }
+  }
+
+  .sidebar::-webkit-scrollbar { width: 4px; }
+  .sidebar::-webkit-scrollbar-track { background: transparent; }
+  .sidebar::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 2px; }
+  .sidebar::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+  .nav-group {
+    border-bottom: 1px solid var(--border);
+  }
+  .nav-group:last-child { border-bottom: none; }
+
+  .nav-group-header {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 24px 14px 28px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-muted);
+    text-align: left;
+    transition: color 0.15s, background 0.15s;
+  }
+  .nav-group-header:hover {
+    color: var(--accent);
+    background: rgba(0, 229, 209, 0.04);
+  }
+
+  .nav-group-header .chevron {
+    width: 9px; height: 9px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(45deg);
+    transition: transform 0.2s ease;
+    margin-left: 8px;
+    margin-top: -3px;
+    opacity: 0.6;
+  }
+  .nav-group.collapsed .nav-group-header .chevron {
+    transform: rotate(-45deg);
+    margin-top: 0;
+  }
+
+  .nav-group-body {
+    max-height: 2000px;
+    overflow: hidden;
+    transition: max-height 0.3s ease, padding 0.3s ease;
+    padding: 0 0 12px;
+  }
+  .nav-group.collapsed .nav-group-body {
+    max-height: 0;
+    padding: 0;
+  }
+
+  .nav-list { list-style: none; }
+
+  .nav-list a,
+  .nav-list button.nav-subgroup-header {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 6px 24px 6px 28px;
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 14px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 400;
+    border-left: 2px solid transparent;
+    background: none;
+    border-top: none;
+    border-right: none;
+    border-bottom: none;
+    text-align: left;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s, text-shadow 0.15s;
+    line-height: 1.5;
+  }
+
+  .nav-list a:hover,
+  .nav-list button.nav-subgroup-header:hover {
+    color: var(--text);
+  }
+
+  .nav-list a.active {
+    color: var(--accent);
+    border-left-color: var(--accent);
+    font-weight: 500;
+    background: linear-gradient(90deg, var(--accent-glow), transparent 70%);
+    text-shadow: 0 0 12px var(--accent-soft);
+    box-shadow: inset 2px 0 12px -4px var(--accent-soft);
+  }
+
+  .nav-subgroup {
+    margin: 2px 0;
+  }
+
+  .nav-subgroup-header {
+    justify-content: space-between;
+  }
+
+  .nav-subgroup-header .chevron {
+    width: 7px; height: 7px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(45deg);
+    transition: transform 0.2s ease;
+    margin-top: -2px;
+    opacity: 0.5;
+  }
+  .nav-subgroup.collapsed .nav-subgroup-header .chevron {
+    transform: rotate(-45deg);
+    margin-top: 0;
+  }
+
+  .nav-subgroup-body {
+    max-height: 800px;
+    overflow: hidden;
+    transition: max-height 0.25s ease;
+  }
+  .nav-subgroup.collapsed .nav-subgroup-body {
+    max-height: 0;
+  }
+
+  .nav-subgroup-body a {
+    padding-left: 48px;
+    font-size: 13px;
+    color: var(--text-subtle);
+  }
+
+  main {
+    flex: 1;
+    margin-left: var(--sidebar-width);
+    padding: 48px 64px 120px;
+    max-width: calc(var(--content-max) + 128px);
+    position: relative;
+    z-index: 2;
+  }
+
+  .eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--magenta);
+    margin-bottom: 16px;
+    text-shadow: 0 0 12px var(--magenta-glow);
+  }
+
+  h1 {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: 52px;
+    line-height: 1.1;
+    letter-spacing: -0.03em;
+    margin-bottom: 20px;
+    color: var(--text);
+  }
+
+  .lede {
+    font-family: 'Fraunces', serif;
+    font-weight: 400;
+    font-size: 22px;
+    line-height: 1.5;
+    color: var(--text-muted);
+    margin-bottom: 48px;
+    max-width: 640px;
+  }
+
+  h2 {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: 32px;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    margin-top: 72px;
+    margin-bottom: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    color: var(--text);
+    scroll-margin-top: 80px;
+  }
+
+  h3 {
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 20px;
+    margin-top: 40px;
+    margin-bottom: 14px;
+    color: var(--text);
+    scroll-margin-top: 80px;
+  }
+
+  p {
+    margin-bottom: 18px;
+    color: var(--text);
+    max-width: 700px;
+  }
+
+  p + p { margin-top: -4px; }
+
+  ul, ol {
+    margin-bottom: 20px;
+    padding-left: 24px;
+    max-width: 700px;
+  }
+
+  li {
+    margin-bottom: 8px;
+    color: var(--text);
+  }
+
+  a {
+    color: var(--accent);
+    text-decoration: underline;
+    text-decoration-color: var(--border-strong);
+    text-underline-offset: 3px;
+    transition: text-decoration-color 0.15s, text-shadow 0.15s;
+  }
+  a:hover {
+    text-decoration-color: currentColor;
+    text-shadow: 0 0 10px var(--accent-glow);
+  }
+
+  strong { font-weight: 600; color: var(--text); }
+
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.88em;
+    background: var(--bg-code);
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    color: var(--accent);
+  }
+
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px 20px;
+    overflow-x: auto;
+    margin: 20px 0 28px;
+    max-width: 700px;
+    position: relative;
+  }
+  pre::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 3px; height: 100%;
+    background: linear-gradient(180deg, var(--accent), var(--magenta));
+    border-radius: 2px 0 0 2px;
+    box-shadow: 0 0 8px var(--accent-soft);
+  }
+
+  pre code {
+    background: transparent;
+    border: none;
+    padding: 0;
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--text);
+  }
+
+  blockquote {
+    border-left: 3px solid var(--magenta);
+    padding: 4px 0 4px 20px;
+    margin: 24px 0;
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 18px;
+    color: var(--text-muted);
+    max-width: 640px;
+    box-shadow: -6px 0 16px -8px var(--magenta-soft);
+  }
+
+  .callout {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 6px;
+    padding: 16px 20px;
+    margin: 24px 0;
+    max-width: 700px;
+    font-size: 15px;
+    box-shadow: -6px 0 16px -8px var(--accent-soft);
+  }
+  .callout strong {
+    color: var(--accent);
+    text-shadow: 0 0 10px var(--accent-glow);
+  }
+
+  .callout.warn {
+    border-left-color: var(--red);
+    box-shadow: -6px 0 16px -8px var(--red-soft);
+  }
+  .callout.warn strong {
+    color: var(--red);
+    text-shadow: 0 0 10px var(--red-glow);
+  }
+
+  .gate-mark {
+    text-align: center;
+    font-family: 'Fraunces', serif;
+    font-weight: 700;
+    font-size: 128px;
+    line-height: 1;
+    color: var(--red);
+    margin: 40px 0 32px;
+    text-shadow:
+      0 0 24px var(--red-soft),
+      0 0 48px var(--red-glow);
+    user-select: none;
+    letter-spacing: -0.08em;
+  }
+
+  .todo-slot {
+    border: 1px dashed var(--border-strong);
+    border-radius: 6px;
+    padding: 18px 22px;
+    margin: 24px 0;
+    max-width: 700px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-subtle);
+    letter-spacing: 0.04em;
+    line-height: 1.7;
+  }
+  .todo-slot::before {
+    content: '// TODO ';
+    color: var(--magenta);
+    font-weight: 500;
+  }
+
+  /* asciinema cast placeholder — CRT scanline aesthetic */
+  .asciinema-slot {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 8px;
+    margin: 20px 0 28px;
+    max-width: 700px;
+    aspect-ratio: 16 / 9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--accent);
+    text-shadow: 0 0 10px var(--accent-glow);
+    letter-spacing: 0.08em;
+    position: relative;
+    overflow: hidden;
+    cursor: not-allowed;
+  }
+  .asciinema-slot::before {
+    content: '▶ asciinema · ' attr(data-cast);
+    z-index: 2;
+  }
+  .asciinema-slot::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      repeating-linear-gradient(0deg, transparent 0, transparent 3px, rgba(0, 229, 209, 0.04) 3px, rgba(0, 229, 209, 0.04) 4px);
+    pointer-events: none;
+    z-index: 1;
+  }
+  .asciinema-slot .meta {
+    position: absolute;
+    bottom: 10px;
+    right: 14px;
+    font-size: 10px;
+    color: var(--text-subtle);
+    text-shadow: none;
+    letter-spacing: 0.1em;
+    z-index: 2;
+  }
+
+  table {
+    width: 100%;
+    max-width: 700px;
+    border-collapse: collapse;
+    margin: 20px 0 28px;
+    font-size: 14px;
+  }
+
+  th, td {
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--magenta);
+    border-bottom: 1px solid var(--border-strong);
+  }
+
+  .divider-ornament {
+    text-align: center;
+    margin: 64px 0;
+    color: var(--accent);
+    font-family: 'Fraunces', serif;
+    font-size: 20px;
+    letter-spacing: 1em;
+    opacity: 0.4;
+    text-shadow: 0 0 12px var(--accent-glow);
+  }
+
+  @media (max-width: 900px) {
+    header.topbar { padding: 0 20px; }
+    aside.sidebar {
+      transform: translateX(-100%);
+      transition: transform 0.2s;
+      width: 280px;
+      z-index: 99;
+    }
+    aside.sidebar.open { transform: translateX(0); }
+    main { margin-left: 0; padding: 32px 20px 80px; }
+    h1 { font-size: 36px; }
+    h2 { font-size: 26px; }
+    .lede { font-size: 18px; }
+    .gate-mark { font-size: 80px; }
+    .menu-toggle { display: block; }
+    .sidebar-controls { display: none; }
+  }
+
+  .menu-toggle {
+    display: none;
+    background: none;
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    padding: 6px 10px;
+    margin-right: 12px;
+    color: var(--text);
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+  }
+  .menu-toggle:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: 0 0 12px var(--accent-glow);
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <button class="menu-toggle" id="menuToggle" aria-label="Toggle menu">≡</button>
+  <div class="logo">
+    <span class="logo-mark"></span>
+    <span class="logo-text">1bit<em>.systems</em></span>
+  </div>
+  <div class="topbar-meta">
+    <nav class="site-nav">
+      <a href="about.html">About</a>
+      <a href="blog.html">Blog</a>
+      <a href="news.html">News</a>
+      <a href="contact.html">Contact</a>
+      <a href="docs.html" class="current">Docs</a>
+    </nav>
+    <div class="sidebar-controls">
+      <button id="expandAll" title="Expand all sections">+ expand all</button>
+      <button id="collapseAll" title="Collapse all sections">− collapse all</button>
+    </div>
+    <div class="version-tag"><span class="dot"></span>v0.1 · docs</div>
+  </div>
+</header>
+
+<div class="layout">
+
+  <aside class="sidebar" id="sidebar">
+    <nav>
+
+      <div class="nav-group">
+        <button class="nav-group-header" aria-expanded="true">
+          <span>Start here</span>
+          <span class="chevron"></span>
+        </button>
+        <div class="nav-group-body">
+          <ul class="nav-list">
+            <li><a href="#introduction">Introduction</a></li>
+            <li><a href="#thesis">The thesis</a></li>
+            <li><a href="#who-its-for">Who it's for</a></li>
+            <li><a href="#the-machine">The machine</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="nav-group">
+        <button class="nav-group-header" aria-expanded="true">
+          <span>How it works</span>
+          <span class="chevron"></span>
+        </button>
+        <div class="nav-group-body">
+          <ul class="nav-list">
+            <li><a href="#architecture">Architecture</a></li>
+            <li><a href="#constraints">Constraints</a></li>
+            <li><a href="#components">Components</a></li>
+
+            <li class="nav-subgroup">
+              <button class="nav-subgroup-header">
+                <span>Kernels</span>
+                <span class="chevron"></span>
+              </button>
+              <div class="nav-subgroup-body">
+                <ul class="nav-list">
+                  <li><a href="#ternary-gemv">Ternary GEMV</a></li>
+                  <li><a href="#attention">Attention</a></li>
+                  <li><a href="#rope">RoPE</a></li>
+                  <li><a href="#quant-formats">Quant formats</a></li>
+                </ul>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="nav-group">
+        <button class="nav-group-header" aria-expanded="true">
+          <span>Models</span>
+          <span class="chevron"></span>
+        </button>
+        <div class="nav-group-body">
+          <ul class="nav-list">
+            <li><a href="#1bit-halo-v2">1bit-halo v2 (BitNet 1.58)</a></li>
+            <li><a href="#trilm">TriLM</a></li>
+            <li><a href="#sparse-bitnet">Sparse-BitNet</a></li>
+            <li><a href="#speech">Speech</a></li>
+            <li><a href="#image">Image</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="nav-group">
+        <button class="nav-group-header" aria-expanded="true">
+          <span>Manual</span>
+          <span class="chevron"></span>
+        </button>
+        <div class="nav-group-body">
+          <ul class="nav-list">
+            <li><a href="#requirements">Requirements</a></li>
+            <li><a href="#install">Install</a></li>
+            <li><a href="#oobe">OOBE commitments</a></li>
+            <li><a href="#first-run">First run</a></li>
+            <li><a href="#services">Services &amp; systemd</a></li>
+
+            <li class="nav-subgroup">
+              <button class="nav-subgroup-header">
+                <span>Connect clients</span>
+                <span class="chevron"></span>
+              </button>
+              <div class="nav-subgroup-body">
+                <ul class="nav-list">
+                  <li><a href="#connect-openwebui">Open WebUI</a></li>
+                  <li><a href="#connect-curl">Raw HTTP</a></li>
+                  <li><a href="#connect-mcp">MCP clients</a></li>
+                  <li><a href="#connect-custom">Custom / SDK</a></li>
+                </ul>
+              </div>
+            </li>
+
+            <li><a href="#add-your-app">Add your own app</a></li>
+            <li><a href="#troubleshooting">Troubleshooting</a></li>
+            <li><a href="#observability">Observability</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="nav-group">
+        <button class="nav-group-header" aria-expanded="true">
+          <span>NPU status</span>
+          <span class="chevron"></span>
+        </button>
+        <div class="nav-group-body">
+          <ul class="nav-list">
+            <li><a href="#npu-xdna2">XDNA2 on Strix Halo</a></li>
+            <li><a href="#amd-gate">The AMD gate</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="nav-group">
+        <button class="nav-group-header" aria-expanded="true">
+          <span>History</span>
+          <span class="chevron"></span>
+        </button>
+        <div class="nav-group-body">
+          <ul class="nav-list">
+            <li><a href="#origin">Origin</a></li>
+            <li><a href="#timeline">Timeline</a></li>
+            <li><a href="#rollbacks">Crashes &amp; rollbacks</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="nav-group">
+        <button class="nav-group-header" aria-expanded="true">
+          <span>Project</span>
+          <span class="chevron"></span>
+        </button>
+        <div class="nav-group-body">
+          <ul class="nav-list">
+            <li><a href="#roadmap">Roadmap</a></li>
+            <li><a href="#network">Network</a></li>
+            <li><a href="#repos">Repos</a></li>
+            <li><a href="#changelog">Changelog</a></li>
+            <li><a href="#contact">Contact &amp; support</a></li>
+          </ul>
+        </div>
+      </div>
+
+    </nav>
+  </aside>
+
+  <main>
+
+    <section id="introduction">
+      <div class="eyebrow">1bit.systems · v0.1</div>
+      <h1>One-bit inference on the machine under your desk.</h1>
+      <p class="lede">
+        A set of native C++ and Rust components that runs sub-2-bit language, speech, and image models on AMD Strix Halo — without Python at runtime, without a discrete GPU, and without the cloud.
+      </p>
+
+      <p>
+        This is the full documentation, the full history, and the full roadmap in one page. No separate blog, no separate benchmark report, no separate roadmap doc. If a thing exists about this project, it should be here. If it's not here, it's on its way.
+      </p>
+
+      <p>
+        The identity is unified as <strong>1bit</strong> — one name for the brand, the codebase, the install path, and the binaries. Earlier mentions of <code>halo-ai</code> across memory or git history refer to the same project under its prior name.
+      </p>
+
+      <div class="callout warn">
+        <strong>NPU status</strong> — Strix Halo ships with an XDNA2 NPU advertised at 50 TOPS. It is currently inaccessible to this project. AMD's Linux execution provider does not support Strix Halo. Everything documented here runs on the iGPU. See <a href="#amd-gate">the AMD gate</a>.
+      </div>
+    </section>
+
+    <section id="thesis">
+      <h2>The thesis</h2>
+      <p>
+        A motivated person should be able to run modern AI on hardware that fits on a desk, costs less than a mid-range discrete GPU, and draws less power than a kettle. That is the bet.
+      </p>
+      <p>
+        Strix Halo is the first consumer AMD platform where that's credible. 40 RDNA 3.5 compute units. 128 GB unified LPDDR5X at roughly 270 GB/s. Mini-PC form factor. Under 120 W continuous. It doesn't beat a datacenter GPU. It isn't meant to. It needs to run real models at conversational latency from a silent room, and it does.
+      </p>
+      <p>
+        The trade-off is quantization. A 70B-parameter model doesn't fit in 128 GB at FP16 — it does at 1.58 bits per parameter. Current ternary-quantized models land within a few percent of full precision on hard evals. The stack is therefore built around ternary and sub-2-bit weights from the ground up, not retrofitted around an existing FP16 path.
+      </p>
+      <p>
+        The unit of competition is tokens-per-second per dollar per watt, measured against models that are actually useful. On that axis, Strix Halo is competitive because unified memory at consumer price fits sub-2-bit weights with headroom, and LPDDR5X bandwidth is high enough that ternary GEMV saturates the memory bus.
+      </p>
+    </section>
+
+    <section id="who-its-for">
+      <h2>Who it's for</h2>
+      <ul>
+        <li>People who want to run AI locally on hardware they own, with no cloud dependency.</li>
+        <li>Researchers interested in sub-2-bit inference on consumer silicon.</li>
+        <li>Developers building tools that need a local LLM backend and don't want to ship a Python runtime.</li>
+        <li>Writers, artists, and tinkerers who need privacy by topology — weights and prompts never leave the room.</li>
+      </ul>
+      <p>
+        Not for: people who need the largest frontier model, the fastest single answer, or a polished one-click UI today. Other projects do those better. This one optimizes for <em>local + efficient + open</em>.
+      </p>
+    </section>
+
+    <section id="the-machine">
+      <h2>The machine</h2>
+
+      <h3>Hardware</h3>
+      <ul>
+        <li><strong>CPU:</strong> Ryzen AI Max+ 395 · Zen 5 · 16 cores / 32 threads</li>
+        <li><strong>GPU:</strong> Radeon 8060S · 40 CU RDNA 3.5 · gfx1151 · wave32 WMMA</li>
+        <li><strong>NPU:</strong> XDNA2 · 50 TOPS claimed · inaccessible (see <a href="#amd-gate">AMD gate</a>)</li>
+        <li><strong>Memory:</strong> 128 GB LPDDR5X-8000 · unified · ~270 GB/s peak</li>
+        <li><strong>Power:</strong> 45 – 120 W configurable TDP envelope</li>
+      </ul>
+
+      <h3>Host</h3>
+      <ul>
+        <li><strong>OS:</strong> CachyOS (Arch-family, rolling) on Btrfs + snapper + limine</li>
+        <li><strong>Kernel:</strong> 6.18.22-lts (rolled back from 7.0 after the amdgpu OPTC hang — see <a href="#rollbacks">crashes &amp; rollbacks</a>)</li>
+        <li><strong>ROCm:</strong> 7.x · built from source against gfx1151 · not on ROCm's Tier-1 list, so the project handles that directly</li>
+      </ul>
+
+      <p>
+        Why Strix Halo and not a discrete GPU: unified memory. No PCIe copy between CPU, GPU, and NPU. The model, KV cache, and activations all live in one address space. On 128 GB that is enough for a 70B ternary model plus several concurrent sessions.
+      </p>
+    </section>
+
+    <div class="divider-ornament">· · ·</div>
+
+    <section id="architecture">
+      <h2>Architecture</h2>
+      <p>
+        Hybrid C++ / Rust stack, layered from kernel to HTTP surface. Clients speak OpenAI-compatible HTTP and don't need to know what's underneath.
+      </p>
+
+      <pre><code>┌──────────────────────────────────────────────────────────┐
+│  Clients · Open WebUI · MCP · CLI · Helm (planned)       │
+└─────────────────────────┬────────────────────────────────┘
+                          │  OpenAI-compatible HTTP
+┌─────────────────────────▼────────────────────────────────┐
+│  1bit-halo-server  (Rust, axum)                       :8180   │
+│    Router · Sessions · Sampler · Token streamer          │
+└─────────────────────────┬────────────────────────────────┘
+                          │  FFI
+┌─────────────────────────▼────────────────────────────────┐
+│  bitnet_decode  (C++20, HIP)                     :8080   │
+│    Ternary GEMV · Split-KV FD attention · RoPE           │
+│    RMSNorm · SiLU · KV cache · Tokenizer · Sampler       │
+└─────────────────────────┬────────────────────────────────┘
+                          │  HIP
+┌─────────────────────────▼────────────────────────────────┐
+│  Radeon 8060S  ·  gfx1151  ·  40 CU  ·  wave32 WMMA      │
+└──────────────────────────────────────────────────────────┘</code></pre>
+
+      <p>
+        Every layer is native. Rust handles orchestration (HTTP, sessions, scheduling, streaming). C++20 + HIP handles kernels and model state. No Python in the serving path at any layer.
+      </p>
+    </section>
+
+    <section id="constraints">
+      <h2>Constraints</h2>
+
+      <h3>Rule A — no Python at runtime</h3>
+      <p>
+        Hard rule. No Python interpreter in any serving binary. Reasons: GIL, packaging churn, interpreter startup cost, supply-chain risk, and license tangles at the dependency closure. The ergonomic wins of Python don't survive production latency budgets at this scale.
+      </p>
+      <p>
+        Carve-outs exist for caller-side tooling only. Open WebUI is allowed as a client (sunset when <a href="#roadmap">Helm v0.3</a> reaches parity). The lemonade-server AUR package may be used for non-serving development. Nothing else.
+      </p>
+
+      <h3>Rule B — C++20 for kernels, Rust for orchestration</h3>
+      <p>
+        Default language for a new component is C++20 if it talks to HIP directly, Rust otherwise. Rust gets the safety and ownership guarantees where correctness matters more than inner-loop throughput; C++ gets the HIP intrinsics, wave32 WMMA, and the register-level control that the ternary GEMV depends on.
+      </p>
+      <p>
+        No runtime hipBLAS. Ever. Native Tensile-generated kernels are allowed; runtime hipBLAS calls are banned because its kernel selection collapses on our skinny GEMV shape.
+      </p>
+    </section>
+
+    <section id="components">
+      <h2>Components</h2>
+      <ul>
+        <li><strong>1bit-halo-core</strong> — C++20 + HIP. Kernel library plus the <code>bitnet_decode</code> serving binary. Ternary GEMV, attention, RoPE, RMSNorm, KV cache, sampler, tokenizer.</li>
+        <li><strong>1bit-halo-server</strong> — Rust + axum. OpenAI-compatible HTTP surface on <code>:8180</code>. Router, session state, token streaming.</li>
+        <li><strong>1bit-halo-mcp</strong> — Rust. MCP server exposing introspection and control to agent clients. 22 tests; canonical since 2026-04-19.</li>
+        <li><strong>1bit-halo-whisper</strong> — C++. whisper.cpp with a streaming wrapper. Live STT.</li>
+        <li><strong>1bit-halo-kokoro</strong> — C++. Fork of <code>olokobayusuf/kokoro.cpp</code>. Feeds the <code>echo_mouth</code> voice loop.</li>
+        <li><strong>sd.cpp</strong> — C++ + HIP. Native port of <code>stable-diffusion.cpp</code>. SDXL on gfx1151, zero runtime hipBLAS.</li>
+        <li><strong>1bit-helm</strong> — Rust (planned). Desktop shell: tray icon, service control, voice-first UX, plugin API via MCP, <code>1bit-halo-pkg</code> package manager, OOB CachyOS ISO target.</li>
+        <li><strong>1bit-halo-memory-sync</strong> — Rust + systemd user timer. Persists session memory to GitHub.</li>
+        <li><strong>1bit-halo-workspace</strong> — Rust orchestration workspace (private).</li>
+      </ul>
+    </section>
+
+    <div class="divider-ornament">· · ·</div>
+
+    <section id="ternary-gemv">
+      <h2>Ternary GEMV</h2>
+      <p>
+        The core of the stack. Weights are stored as packed ternary values <code>{−1, 0, +1}</code> with a per-tensor FP16 scale. The kernel reads 2 bits per weight, multiplies by the FP16 activation, accumulates in FP32, and writes back FP16.
+      </p>
+
+      <div class="callout">
+        <strong>Current status</strong> — 92% of LPDDR5 peak bandwidth on gfx1151. The kernel is memory-bandwidth-bound, not compute-bound.
+      </div>
+
+      <p>
+        This one fact drives most research priorities.
+      </p>
+      <ul>
+        <li>Reducing bytes-read per token is the #1 speedup lever. Sub-1-bit formats are where the next gains live.</li>
+        <li>Compute-density tricks (Medusa speculative heads, batched generation) are capped by bandwidth until bytes-per-token drops.</li>
+        <li>T-SAR-style compute optimizations are deferred until the kernel becomes compute-bound.</li>
+      </ul>
+
+      <p>
+        Implementation detail: native HIP C++, wave32 WMMA intrinsics, L1 working-set tuned per batch size, no LDS thrashing, no uncoalesced reads. The K-outer tile lead from Gerganov's L1 tuning note is still being evaluated; rocprof first, retune second.
+      </p>
+    </section>
+
+    <section id="attention">
+      <h2>Attention — split-KV Flash-Decoding</h2>
+      <p>
+        Replaced a single-block-per-head attention kernel on <strong>2026-04-19</strong>. Speedup: <strong>6.78×</strong> at context length 2048. Output is bit-exact against the reference path.
+      </p>
+      <p>
+        Standard Flash-Decoding adapted for gfx1151 wave32. Each attention head splits its KV range across multiple thread-blocks. Softmax statistics are combined with a log-sum-exp merge. Output is written once per head after the combine.
+      </p>
+      <p>
+        The single-block version was the dominant bottleneck at long context. Split-KV is the default in <code>bitnet_decode</code> since the day it landed.
+      </p>
+    </section>
+
+    <section id="rope">
+      <h2>RoPE — convention fix</h2>
+      <p>
+        Rotary Position Embedding carried a convention mismatch until <strong>2026-04-19</strong>. The implementation used interleaved rotation (consecutive pairs); Hugging Face canonical models use split-half rotation (first half vs second half of the embedding).
+      </p>
+      <p>
+        The fix was a six-line diff. The effect was large.
+      </p>
+      <table>
+        <thead>
+          <tr><th>metric</th><th>before</th><th>after</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>PPL · wikitext-103</td><td>524</td><td>~12</td></tr>
+          <tr><td>PPL · repeated text</td><td>4.29</td><td>1.04</td></tr>
+        </tbody>
+      </table>
+      <p>
+        The subtle bug is almost always in the boring code.
+      </p>
+    </section>
+
+    <section id="quant-formats">
+      <h2>Quant formats</h2>
+      <table>
+        <thead>
+          <tr><th>Format</th><th>Effective bits/weight</th><th>Source</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>BitNet 1.58</td><td>1.58</td><td>Microsoft Research</td><td>Shipped (1bit-halo v2)</td></tr>
+          <tr><td>TriLM</td><td>1.58</td><td>SpectraSuite</td><td>Shipped (experimental)</td></tr>
+          <tr><td>Sparse-BitNet · 3:4</td><td>1.25</td><td>arXiv 2603.05168</td><td>Retraining</td></tr>
+          <tr><td>BitNet v2 · W1.58 A4</td><td>1.58 W + 4 A</td><td>arXiv 2504.18415</td><td>Watching</td></tr>
+          <tr><td>LittleBit</td><td>0.1</td><td>Research</td><td>Watching</td></tr>
+          <tr><td>NanoQuant · PTQ</td><td>sub-1</td><td>Research</td><td>Watching</td></tr>
+        </tbody>
+      </table>
+      <p>
+        1bit-halo v2 uses packed ternary at five values per byte (T-MAC-style layout). Sparse-BitNet layers a 3:4 N:M sparsity pattern on top, encoded as 2 bits of <code>zero_pos</code> plus 3 bits of signs per 4-weight group — 1.25 effective bits per weight.
+      </p>
+    </section>
+
+    <div class="divider-ornament">· · ·</div>
+
+    <section id="1bit-halo-v2">
+      <h2>1bit-halo v2 — BitNet 1.58</h2>
+      <ul>
+        <li>2B parameters · Microsoft's public BitNet release</li>
+        <li>1.58-bit weights · FP16 activations</li>
+        <li>Served by <code>bitnet_decode</code> on <code>:8080</code> (dev) and <code>1bit-halo-server</code> on <code>:8180</code> (OpenAI-compatible)</li>
+      </ul>
+      <p>Benchmark numbers, clean burn after the SEGV fix, post-RoPE fix (2026-04-18):</p>
+      <table>
+        <thead>
+          <tr><th>context</th><th>tok/s</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>64 tokens</td><td>66</td></tr>
+          <tr><td>1024 tokens</td><td>33</td></tr>
+        </tbody>
+      </table>
+      <p>
+        Memory-bandwidth-bound across the whole context range. The drop from 66 to 33 tok/s tracks attention quadratic cost, not weight-loading cost.
+      </p>
+    </section>
+
+    <section id="trilm">
+      <h2>TriLM</h2>
+      <p>
+        3.9B parameters, Apache 2.0, from the SpectraSuite (<code>TriLM_3.9B_Unpacked</code>). LLaMA architecture, ternary-trained from scratch.
+      </p>
+      <p>
+        Used today as a smoke-test model and as the NPU export candidate. INT4 ONNX artifact at <code>1bit-halo-core/artifacts/trilm-3.9b-int4-n4/</code> — 2.9 GB, 151 <code>MatMulNBits</code> ops, <code>com.microsoft</code> domain, <code>bits=4</code>, <code>block=32</code>. Export succeeds. NPU placement does not. See <a href="#amd-gate">the AMD gate</a>.
+      </p>
+    </section>
+
+    <section id="sparse-bitnet">
+      <h2>Sparse-BitNet</h2>
+      <p>
+        Retrain in progress on an H200 pod. Target: 1.25 effective bits per weight via 3:4 N:M sparsity on top of 1.58-bit weights.
+      </p>
+      <ul>
+        <li><strong>Run 3</strong> · launched 2026-04-22 · LR 3e-4, warmup 200, 10B tokens, 55 h target</li>
+        <li>Step 50: loss 11.037 · 49.3k tok/s throughput · 77% GPU utilization · 54 h ETA</li>
+        <li>Previous runs failed on requantizer bugs — per-tensor vs per-row scale mismatch. A one-line fix is queued to try first; the deeper bug (no zero-at-non-zero-point codepoint) implies a full-dense retrain at the format level.</li>
+        <li>Knowledge-distillation gain observed on prior runs: 15 – 25%</li>
+      </ul>
+      <p>
+        Gating fact: the kernel works. <code>sherry-ft</code> benches at 92 tok/s @ 64-token context. Broken quality is a format/requantizer issue, not a kernel issue.
+      </p>
+
+      <h3>Run 3 autopsy · Run 4 relaunch</h3>
+      <p>
+        Run 3 launched 2026-04-22T01:40:44Z on the H200 pod. Config: 494M parameters, LR 3e-4, warmup 200, 10B-token budget, 3:4 N:M sparsity layered on BitLinear weights.
+      </p>
+      <p>
+        The run trained cleanly for 500 optimizer steps. The loss curve was textbook: 11.04 at step 50 down to 5.77 at step 500. 524M tokens consumed, roughly 5% of the budget. Throughput held steady at 49.5k tokens/second across the window.
+      </p>
+      <p>
+        At step 500 the run bailed on a mask-integrity check with the message <code>no mask_cache on model</code>.
+      </p>
+      <p>
+        Diagnosis: false positive. The <code>Model</code> class defines <code>self.mask_cache = {}</code> at init, and each BitLinear / SparseLinear layer sets <code>_save_mask_cache = False</code>. The cache is only populated after <code>enable_mask_monitoring()</code> flips <code>_save_mask_cache = True</code> on every layer. Without that call the dict stays empty. The periodic <code>verify_nm_mask()</code> reads the empty dict, Python evaluates <code>bool({}) = False</code>, and the "no mask_cache" branch fires. Training itself was fine.
+      </p>
+      <p>
+        Combined with <code>--save-every 1000</code> as the default, the bail at step 500 meant zero checkpoints were saved. 524M tokens of H200 time lost to a three-line bug.
+      </p>
+      <p>
+        Fix: three changes to the trainer. Call <code>model.enable_mask_monitoring()</code> after model init, guarded by <code>--verify-mask-every &gt; 0</code>. Clear <code>model.mask_cache</code> after every successful verify so the next window reads fresh masks. Drop <code>--save-every</code> default from 1000 to 100 so any future bail still leaves a recent checkpoint on disk.
+      </p>
+      <p>
+        Run 4 launches with those patches in place, plus explicit <code>--bail-on-rising-loss --bail-on-low-tps 30000</code> as belt-and-braces against the next unknown failure.
+      </p>
+    </section>
+
+    <section id="speech">
+      <h2>Speech</h2>
+
+      <h3>1bit-halo-whisper</h3>
+      <p>
+        whisper.cpp with a streaming wrapper (<code>WhisperStream</code> trait). Live STT available on the serving port. True streaming encoder is pending upstream work; current implementation is a sliding-window adapter over <code>whisper_full_with_state</code>.
+      </p>
+
+      <h3>1bit-halo-kokoro</h3>
+      <p>
+        Fork of <code>olokobayusuf/kokoro.cpp</code> — single-header C++, onnxruntime. Drives the <code>echo_mouth</code> voice loop. Build and systemd wiring pending.
+      </p>
+
+      <h3>Latency</h3>
+      <p>
+        Mouth-to-ear end-to-end latency is 1 – 3 seconds today. Biggest planned wins: sentence-boundary TTS streaming (30 – 50% reduction), smaller voice-path LLM, Whisper partial emission.
+      </p>
+    </section>
+
+    <section id="image">
+      <h2>Image</h2>
+      <p>
+        <code>sd.cpp</code> — native-HIP port of <code>stable-diffusion.cpp</code>. SDXL on gfx1151 with zero runtime hipBLAS. Promoted to core on 2026-04-18. Service wiring is pending; the port itself runs.
+      </p>
+      <p>
+        <strong>Next:</strong> Wan 2.2 TI2V-5B video generation. Apache 2.0, 5B-parameter DiT, already present in <code>sd.cpp</code> master, so no new kernel family is needed. 2 – 4 week port estimate. Memory budget: ~55 GB worst-case, well inside the 128 GB envelope.
+      </p>
+    </section>
+
+    <div class="divider-ornament">· · ·</div>
+
+    <section id="requirements">
+      <h2>Requirements</h2>
+      <p>
+        The stack targets Strix Halo specifically. Other gfx1100-family hardware <em>may</em> work with minor tweaks; only Strix Halo is tested.
+      </p>
+
+      <h3>Hardware — minimum</h3>
+      <ul>
+        <li>AMD Ryzen AI Max+ 395 (or equivalent Strix Halo SKU)</li>
+        <li>Radeon 8060S iGPU · gfx1151 · wave32 WMMA</li>
+        <li>64 GB unified LPDDR5X minimum · 128 GB recommended for 13B+ ternary</li>
+        <li>100 GB free disk for models plus build artifacts</li>
+      </ul>
+
+      <h3>Software — minimum</h3>
+      <ul>
+        <li>Linux kernel <strong>6.18.22-lts</strong> (newer kernels carry the amdgpu OPTC hang — see <a href="#rollbacks">crashes &amp; rollbacks</a>)</li>
+        <li>ROCm 7.x — built from source against gfx1151 (not on ROCm's Tier-1 list)</li>
+        <li>LLVM / clang 18+</li>
+        <li>CMake 3.27+</li>
+        <li>Rust 1.82+ (stable channel)</li>
+        <li>Node.js or Bun <em>only</em> for caller-side clients. Nothing on the serving path — Rule A.</li>
+      </ul>
+
+      <h3>Recommended host</h3>
+      <p>
+        <strong>CachyOS</strong> with Btrfs + snapper + limine is the reference setup. Rollback-via-snapper has saved the project more than once. Fish shell is assumed in examples but not required.
+      </p>
+    </section>
+
+    <section id="install">
+      <h2>Install</h2>
+      <p>
+        No binary distribution yet. Build from source. Packaging (AppImage + Flatpak) is on the near-term roadmap; <code>1bit-halo-pkg</code> model package manager is long-term.
+      </p>
+
+      <h3>Build ROCm against gfx1151</h3>
+      <p>
+        System-package ROCm drops gfx1151 from Tier-1 in most distros. Build from source, or use the <code>llamacpp-rocm</code> fork's install script as a bootstrap.
+      </p>
+<pre><code>git clone https://github.com/bong-water-water-bong/llamacpp-rocm ~/repos/llamacpp-rocm
+cd ~/repos/llamacpp-rocm
+./scripts/install-rocm.sh --target gfx1151</code></pre>
+
+      <h3>Build rocm-cpp kernel library</h3>
+<pre><code>git clone https://github.com/bong-water-water-bong/rocm-cpp ~/repos/rocm-cpp
+cd ~/repos/rocm-cpp
+
+cmake -B build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DAMDGPU_TARGETS=gfx1151 \
+  -DCMAKE_HIP_ARCHITECTURES=gfx1151
+
+cmake --build build -j$(nproc)
+sudo cmake --install build --prefix /usr/local</code></pre>
+
+      <h3>Build 1bit-halo-core (bitnet_decode)</h3>
+<pre><code># private repo today; public release gated on NPU ship-gate
+cd ~/1bit-halo-core
+
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
+
+./build/bitnet_decode --help</code></pre>
+
+      <h3>Build 1bit-halo-server and 1bit-halo-mcp</h3>
+<pre><code>cd ~/1bit-halo-workspace
+
+cargo build --release --bin 1bit-halo-server
+cargo build --release --bin 1bit-halo-mcp
+
+ls -la target/release/1bit-halo-server target/release/1bit-halo-mcp</code></pre>
+
+      <h3>Fetch model weights</h3>
+<pre><code># 1bit-halo-pkg is not shipped yet. Manual download for now:
+mkdir -p ~/1bit-halo/models
+cd ~/1bit-halo/models
+
+# 1bit-halo-v2 · BitNet 1.58 · 2B
+curl -LO https://.../1bit-halo-v2.h1b   # actual URL TBD
+
+# TriLM 3.9B Unpacked (experimental)
+curl -LO https://.../trilm-3.9b.h1b</code></pre>
+
+      <div class="callout">
+        <strong>Rule A reminder</strong> — Python may appear in caller-side tooling and dev-time scripts only. <code>bitnet_decode</code>, <code>1bit-halo-server</code>, <code>1bit-halo-mcp</code>, and kernel binaries ship zero Python. Carve-outs (Open WebUI, <code>lemonade-server</code>) are caller-side and sunset on 1bit-helm v0.3 parity.
+      </div>
+
+      <h3>Second target — RX 9070 XT (gfx1201)</h3>
+      <p>
+        Radeon RX 9070 XT (Navi 48, RDNA 4) lives in the <code>ryzen</code> mesh host and is the secondary kernel target. The build system is already multi-arch: HIP bundles per-arch code objects into a fat binary and picks at load time. Default build covers both.
+      </p>
+      <p>
+        The hot intrinsics — <code>__builtin_amdgcn_wmma_*_w32</code>, <code>__builtin_amdgcn_sudot4</code>, <code>__builtin_amdgcn_sdot4</code> — are retained on RDNA 4. Correctness holds out of the gate. Peak throughput is not yet tuned for gfx1201; block sizes and LDS budgets are still sized for gfx1151. A fresh K-outer tile sweep is needed for GDDR6 bandwidth (~640 GB/s on 9070 XT vs ~270 GB/s LPDDR5X on Strix Halo).
+      </p>
+
+      <h3>Build for gfx1201</h3>
+<pre><code># single-arch build, 9070 XT only
+GFX=gfx1201 ./install.sh
+
+# fat-binary build, runs on both strixhalo and ryzen
+GFX="gfx1151;gfx1201" ./install.sh
+
+# auto-detect via rocminfo (use on each host natively)
+GFX=auto ./install.sh</code></pre>
+      <p>
+        Prereq: ROCm must be present on <code>ryzen</code> first. Easiest path is the same TheRock source build used on Strix Halo, re-targeted to Navi 48. System-package ROCm may also work on RDNA 4 in distros that ship it; verify with <code>rocminfo</code>.
+      </p>
+<pre><code>ssh ryzen
+ls /opt/rocm* ~/therock 2&gt;/dev/null     # confirm a ROCm dist exists
+rocminfo | grep -E 'Name:|gfx'            # expect gfx1201</code></pre>
+
+      <div class="asciinema-slot" data-cast="install-full-01">
+        <span class="meta">cast reserved · full source build walkthrough</span>
+      </div>
+    </section>
+
+    <section id="oobe">
+      <h2>OOBE commitments</h2>
+      <p>
+        Out-of-box experience is a hard requirement, not a polish pass. When packaged installers ship (gated on core completion), they clear all ten bars below before cutting a release. OOBE regressions block a release.
+      </p>
+
+      <h3>The ten anchors</h3>
+      <ol>
+        <li><strong>Pre-flight gates.</strong> Installer verifies GPU arch, ROCm availability, disk, RAM, kernel version, and systemd before downloading a single byte.</li>
+        <li><strong>Progress always visible.</strong> Every long step has a bar or spinner naming the current action — not <em>working…</em>. Download shows bytes + ETA; build shows target; service start shows unit + status.</li>
+        <li><strong>First token under five minutes from click.</strong> Install → enable → prompt → reply. A smaller pre-staged model responds while the 1bit-halo-v2 weights finish downloading.</li>
+        <li><strong>Diagnostic actionable errors.</strong> Three lines each: what broke, likely cause, exact command or doc anchor to fix. No stack traces in the user face.</li>
+        <li><strong>Sensible defaults, zero config.</strong> Ports auto-chosen if free. Services auto-enable. Model auto-selected. No config file editing before first use.</li>
+        <li><strong>One-command rollback.</strong> <code>1bit uninstall</code> removes binaries, services, user — leaves weights and logs unless <code>--purge</code>. Snapper snapshot taken before install.</li>
+        <li><strong><code>1bit doctor</code> health check.</strong> Single command, green/red across: GPU, ROCm, services, ports, model, disk, memory, recent errors. Output is copy-pastable.</li>
+        <li><strong>Discoverability baseline.</strong> Desktop entry + icon. <code>1bit --help</code> lists every subcommand with a one-liner. <code>1bit status</code> for state.</li>
+        <li><strong>Non-interactive by default.</strong> No prompts during install. Every question has a sensible default; <code>--interactive</code> flag opts in to choose.</li>
+        <li><strong>Atomic or reversible.</strong> No half-state. Install either completes fully or backs out completely. Transactional package install where the distro allows.</li>
+      </ol>
+
+      <div class="callout">
+        <strong>Cutting policy</strong> — if scope has to shrink before release, cut features, not OOBE. Better to ship three install paths flawlessly than four half-polished ones.
+      </div>
+
+      <div class="todo-slot">
+        section reserved · will expand with per-anchor acceptance tests as the installer lands
+      </div>
+    </section>
+
+    <section id="first-run">
+      <h2>First run</h2>
+      <p>
+        Start <code>bitnet_decode</code> on the dev port, then <code>1bit-halo-server</code> as the OpenAI-compatible front. Verify with <code>curl</code>.
+      </p>
+
+      <h3>Start the inference core</h3>
+<pre><code>cd ~/1bit-halo-core
+./build/bitnet_decode \
+  --model ~/1bit-halo/models/1bit-halo-v2.h1b \
+  --port 8080 \
+  --context 4096 \
+  --attn split-kv-fd \
+  --rope-mode hf-split-half</code></pre>
+
+      <h3>Start the HTTP surface</h3>
+<pre><code>cd ~/1bit-halo-workspace
+./target/release/1bit-halo-server \
+  --upstream http://127.0.0.1:8080 \
+  --bind 0.0.0.0:8180</code></pre>
+
+      <h3>Verify</h3>
+<pre><code>curl -s http://127.0.0.1:8180/v1/models | jq
+# expect: {"data": [{"id": "1bit-halo-v2", ...}]}
+
+curl -s http://127.0.0.1:8180/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "1bit-halo-v2",
+    "messages": [{"role":"user","content":"say hello"}]
+  }' | jq</code></pre>
+
+      <div class="asciinema-slot" data-cast="first-run-01">
+        <span class="meta">cast reserved · first-run walkthrough · 60s</span>
+      </div>
+    </section>
+
+    <section id="services">
+      <h2>Services &amp; systemd</h2>
+      <p>
+        Production is systemd. One unit per binary. Units live in <code>/etc/systemd/system/</code> (system scope) or <code>~/.config/systemd/user/</code> (user scope). LTS kernel <strong>needs</strong> <code>LimitMEMLOCK=infinity</code> for the inference core or pinning fails.
+      </p>
+
+      <h3>1bit-halo-bitnet.service</h3>
+<pre><code># /etc/systemd/system/1bit-halo-bitnet.service
+[Unit]
+Description=1bit bitnet_decode (HIP inference core)
+After=network.target 1bit-halo-gpu-perf.service
+Requires=1bit-halo-gpu-perf.service
+
+[Service]
+Type=simple
+User=1bit-halo
+Group=1bit-halo
+ExecStart=/usr/local/bin/bitnet_decode \
+  --model /var/lib/1bit-halo/models/1bit-halo-v2.h1b \
+  --port 8080 \
+  --context 4096 \
+  --attn split-kv-fd \
+  --rope-mode hf-split-half
+Restart=on-failure
+RestartSec=5
+LimitMEMLOCK=infinity
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+
+      <h3>1bit-halo-server.service</h3>
+<pre><code># /etc/systemd/system/1bit-halo-server.service
+[Unit]
+Description=1bit OpenAI-compatible HTTP surface
+After=network.target 1bit-halo-bitnet.service
+Requires=1bit-halo-bitnet.service
+
+[Service]
+Type=simple
+User=1bit-halo
+ExecStart=/usr/local/bin/1bit-halo-server \
+  --upstream http://127.0.0.1:8080 \
+  --bind 0.0.0.0:8180
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+
+      <h3>1bit-halo-gpu-perf.service</h3>
+      <p>
+        Pins SCLK high to avoid latency spikes under sustained load. Required on LTS 6.18.22.
+      </p>
+<pre><code># /etc/systemd/system/1bit-halo-gpu-perf.service
+[Unit]
+Description=1bit GPU perf pinning (SCLK high)
+After=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'echo high > /sys/class/drm/card0/device/power_dpm_force_performance_level'
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+
+      <h3>Enable &amp; check</h3>
+<pre><code>sudo systemctl daemon-reload
+sudo systemctl enable --now 1bit-gpu-perf 1bit-bitnet 1bit-halo-server
+
+systemctl status 1bit-bitnet 1bit-halo-server
+journalctl -u 1bit-halo-bitnet -f</code></pre>
+
+      <h3>Default ports</h3>
+      <table>
+        <thead>
+          <tr><th>Port</th><th>Service</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>8080</td><td><code>bitnet_decode</code></td><td>Internal dev · upstream for 1bit-halo-server</td></tr>
+          <tr><td>8180</td><td><code>1bit-halo-server</code></td><td>OpenAI-compatible HTTP · public-facing</td></tr>
+          <tr><td>8181</td><td><code>1bit-halo-mcp</code></td><td>MCP server · tool &amp; introspection surface</td></tr>
+          <tr><td>8190</td><td><code>1bit-halo-whisper</code></td><td>Streaming STT (planned)</td></tr>
+          <tr><td>8191</td><td><code>1bit-halo-kokoro</code></td><td>TTS (planned)</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <div class="divider-ornament">· · ·</div>
+
+    <section id="connect-openwebui">
+      <h2>Connect — Open WebUI</h2>
+      <p>
+        Open WebUI is the blessed third-party client today. Carve-out under Rule A (caller-side only; sunsets on 1bit-helm v0.3 parity).
+      </p>
+
+      <h3>Docker path</h3>
+<pre><code>docker run -d -p 3000:8080 \
+  -e OPENAI_API_BASE_URL=http://host.docker.internal:8180/v1 \
+  -e OPENAI_API_KEY=none \
+  -v openwebui-data:/app/backend/data \
+  --name openwebui \
+  --restart unless-stopped \
+  ghcr.io/open-webui/open-webui:main</code></pre>
+
+      <h3>Native path (pipx)</h3>
+<pre><code>pipx install open-webui
+OPENAI_API_BASE_URL=http://127.0.0.1:8180/v1 \
+OPENAI_API_KEY=none \
+open-webui serve --port 3000</code></pre>
+
+      <p>
+        Visit <code>http://localhost:3000</code>, create the first admin account (stored locally), select <strong>1bit-halo-v2</strong> from the model dropdown. Done.
+      </p>
+
+      <div class="asciinema-slot" data-cast="openwebui-setup-01">
+        <span class="meta">cast reserved · Open WebUI first connection</span>
+      </div>
+    </section>
+
+    <section id="connect-curl">
+      <h2>Connect — Raw HTTP</h2>
+      <p>
+        Everything speaks OpenAI. No special client needed. Handy for smoke tests and shell scripts.
+      </p>
+
+      <h3>List models</h3>
+<pre><code>curl -s http://127.0.0.1:8180/v1/models | jq '.data[].id'</code></pre>
+
+      <h3>One-shot completion</h3>
+<pre><code>curl -s http://127.0.0.1:8180/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "1bit-halo-v2",
+    "messages": [
+      {"role":"system","content":"Be concise."},
+      {"role":"user","content":"Explain ternary weights in one sentence."}
+    ],
+    "temperature": 0.7,
+    "max_tokens": 256
+  }' | jq -r '.choices[0].message.content'</code></pre>
+
+      <h3>Streaming (SSE)</h3>
+<pre><code>curl -N http://127.0.0.1:8180/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "1bit-halo-v2",
+    "messages": [{"role":"user","content":"count to ten"}],
+    "stream": true
+  }'
+# server-sent events: each chunk is `data: {...}\n\n`</code></pre>
+    </section>
+
+    <section id="connect-mcp">
+      <h2>Connect — MCP clients</h2>
+      <p>
+        <code>1bit-halo-mcp</code> exposes introspection and control as a Model Context Protocol server. Any MCP-aware client (Claude Desktop, Claude Code, Continue, Cursor, custom agents) can attach.
+      </p>
+
+      <h3>Claude Desktop</h3>
+<pre><code>// ~/.config/Claude/claude_desktop_config.json
+{
+  "mcpServers": {
+    "1bit": {
+      "command": "/usr/local/bin/1bit-halo-mcp",
+      "args": ["--server", "http://127.0.0.1:8180"]
+    }
+  }
+}</code></pre>
+
+      <h3>Claude Code</h3>
+<pre><code>claude mcp add 1bit /usr/local/bin/1bit-halo-mcp -- \
+  --server http://127.0.0.1:8180</code></pre>
+
+      <p>
+        <code>1bit-halo-mcp</code> exposes tools for: model listing, health probes, KV-cache stats, active session inspection, sampler overrides (temperature, top-p, top-k), and kernel timing. 22 tests cover the surface as of 2026-04-19.
+      </p>
+    </section>
+
+    <section id="connect-custom">
+      <h2>Connect — Custom / SDK</h2>
+      <p>
+        Any OpenAI SDK works. Examples below in Python (caller-side), TypeScript (caller-side), and Rust.
+      </p>
+
+      <h3>Python · openai-python</h3>
+<pre><code>from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://localhost:8180/v1",
+    api_key="none",  # 1bit-halo-server ignores the key by default
+)
+
+stream = client.chat.completions.create(
+    model="1bit-halo-v2",
+    messages=[{"role": "user", "content": "Hello, ternary."}],
+    stream=True,
+)
+
+for chunk in stream:
+    delta = chunk.choices[0].delta.content
+    if delta:
+        print(delta, end="", flush=True)</code></pre>
+
+      <h3>TypeScript · openai (Bun-friendly)</h3>
+<pre><code>import OpenAI from "openai";
+
+const client = new OpenAI({
+  baseURL: "http://localhost:8180/v1",
+  apiKey: "none",
+});
+
+const stream = await client.chat.completions.create({
+  model: "1bit-halo-v2",
+  messages: [{ role: "user", content: "Hello, ternary." }],
+  stream: true,
+});
+
+for await (const chunk of stream) {
+  process.stdout.write(chunk.choices[0]?.delta?.content ?? "");
+}</code></pre>
+
+      <h3>Rust · async-openai</h3>
+<pre><code>use async_openai::{Client, config::OpenAIConfig, types::*};
+use futures::StreamExt;
+
+#[tokio::main]
+async fn main() -> anyhow::Result&lt;()&gt; {
+    let config = OpenAIConfig::new()
+        .with_api_base("http://localhost:8180/v1")
+        .with_api_key("none");
+    let client = Client::with_config(config);
+
+    let req = CreateChatCompletionRequestArgs::default()
+        .model("1bit-halo-v2")
+        .messages([ChatCompletionRequestUserMessageArgs::default()
+            .content("Hello, ternary.")
+            .build()?
+            .into()])
+        .stream(true)
+        .build()?;
+
+    let mut stream = client.chat().create_stream(req).await?;
+    while let Some(result) = stream.next().await {
+        if let Ok(chunk) = result {
+            if let Some(content) = &amp;chunk.choices[0].delta.content {
+                print!("{content}");
+            }
+        }
+    }
+    Ok(())
+}</code></pre>
+    </section>
+
+    <section id="add-your-app">
+      <h2>Add your own app</h2>
+      <p>
+        Third-party apps attach on the client side only. Rule A hard stop: no Python, no Node, no interpreted runtime inside <code>1bit-halo-server</code> or downstream. Anything above it — UIs, agents, game bots, IDE plugins — is fair game in any language.
+      </p>
+
+      <h3>The shape of a caller-side app</h3>
+      <ol>
+        <li>Speak OpenAI-compatible HTTP to <code>:8180</code>. Every SDK works.</li>
+        <li>For richer introspection, connect to <code>1bit-halo-mcp</code> at <code>:8181</code>.</li>
+        <li>Use <code>1bit-halo-server</code>'s session header <code>X-1bit-halo-Session</code> to pin a conversation to a KV-cache slot.</li>
+        <li>Handle <code>429</code> / <code>503</code> with exponential back-off — the server returns <code>Retry-After</code>.</li>
+      </ol>
+
+      <h3>Example — minimal agent harness</h3>
+<pre><code>// minimal-agent.ts · run with `bun run minimal-agent.ts`
+import OpenAI from "openai";
+
+const client = new OpenAI({
+  baseURL: "http://localhost:8180/v1",
+  apiKey: "none",
+});
+
+const session = crypto.randomUUID();
+const history: OpenAI.ChatCompletionMessageParam[] = [
+  { role: "system", content: "You are a terse assistant." },
+];
+
+async function turn(user: string) {
+  history.push({ role: "user", content: user });
+  const res = await client.chat.completions.create(
+    { model: "1bit-halo-v2", messages: history },
+    { headers: { "X-1bit-halo-Session": session } },
+  );
+  const reply = res.choices[0].message.content ?? "";
+  history.push({ role: "assistant", content: reply });
+  return reply;
+}
+
+console.log(await turn("Two facts about RDNA 3.5."));
+console.log(await turn("And one that contradicts a common myth."));</code></pre>
+
+      <h3>Where your app lives</h3>
+      <p>
+        If the app is a serving surface (game integration, Discord bot, MCP bridge, API adapter), it belongs in <strong>1bit.services</strong>, not in 1bit.systems core. Core stays kernel + serving only.
+      </p>
+      <p>
+        If the app is a library meant to be embedded (SDK wrapper, client helper), keep it in your own repo. The project maintains the HTTP contract; you maintain the client surface.
+      </p>
+
+      <div class="callout">
+        <strong>API stability</strong> — the OpenAI-compatible surface is the stable contract. The FFI boundary between <code>1bit-halo-server</code> and <code>bitnet_decode</code> is internal and changes without notice. Build on HTTP, not on FFI.
+      </div>
+    </section>
+
+    <div class="divider-ornament">· · ·</div>
+
+    <section id="troubleshooting">
+      <h2>Troubleshooting</h2>
+      <p>
+        Known failure modes and their fixes. Ordered by frequency, not severity.
+      </p>
+
+      <h3>amdgpu OPTC CRTC hang — full Wayland freeze</h3>
+      <p><strong>Symptom:</strong> compositor freezes hard under concurrent model servers. Requires power-cycle. Kernel log:</p>
+<pre><code>amdgpu: [drm:dc_dmub_srv_wait_idle [amdgpu]] *ERROR*
+  REG_WAIT timeout 1us * 100000 tries - optc35_disable_crtc</code></pre>
+      <p><strong>Cause:</strong> gfx1151 bug on kernel 7.x.</p>
+      <p><strong>Fix:</strong> rollback to LTS via snapper snapshot #6 ("7.00 with claude"):</p>
+<pre><code>sudo snapper -c root rollback 6
+sudo limine-mkconfig
+sudo reboot
+# at limine menu, pick 6.18.22-lts</code></pre>
+
+      <h3>SMU / VCN / PSP hang on LTS</h3>
+      <p><strong>Symptom:</strong> <code>journalctl -b</code> on boot:</p>
+<pre><code>amdgpu: SMU: Failed to send message 0x... rv -110  (-ETIME)
+amdgpu: [PSP] Failed to load IP FW — LOAD_IP_FW failed
+amdgpu: VPE / VCN powergate transition failed</code></pre>
+      <p><strong>Cause:</strong> <code>/etc/modprobe.d/halo.conf</code> Tier-3b parameters tuned for 7.0 misfire on LTS.</p>
+      <p><strong>Fix:</strong></p>
+<pre><code>sudo mv /etc/modprobe.d/halo.conf /etc/modprobe.d/halo.conf.disabled
+sudo mkinitcpio -P
+sudo reboot</code></pre>
+
+      <h3>Long-context PPL explodes</h3>
+      <p><strong>Symptom:</strong> PPL rises monotonically with context, repetition PPL &gt; 4.</p>
+      <p><strong>Cause:</strong> RoPE convention drift (interleaved vs HF split-half). Fixed 2026-04-19.</p>
+      <p><strong>Fix:</strong> confirm flag and commit:</p>
+<pre><code>bitnet_decode --rope-mode hf-split-half   # not `interleaved`
+git -C ~/1bit-halo-core log --oneline | grep -i rope
+# must include the 2026-04-19 fix commit</code></pre>
+
+      <h3>Service won't start — mlock failed</h3>
+      <p><strong>Symptom:</strong> systemd unit exits immediately, journal shows:</p>
+<pre><code>bitnet_decode: mlock failed: Operation not permitted</code></pre>
+      <p><strong>Fix:</strong> add to the unit:</p>
+<pre><code>LimitMEMLOCK=infinity</code></pre>
+      <p>The NPU probe path (<code>xrt-smi</code>) needs the same, for the day the gate opens.</p>
+
+      <h3>ROCm build fails — gfx1151 not supported</h3>
+      <p><strong>Symptom:</strong> CMake reports target not supported, or linker bails on unknown arch.</p>
+      <p><strong>Fix:</strong> pass the target explicitly everywhere:</p>
+<pre><code>cmake -B build \
+  -DAMDGPU_TARGETS=gfx1151 \
+  -DCMAKE_HIP_ARCHITECTURES=gfx1151 \
+  -DGPU_TARGETS=gfx1151</code></pre>
+      <p>If the distro ROCm drops the arch entirely, build from source. The <code>llamacpp-rocm</code> fork's install script is the paved road.</p>
+
+      <h3>Latency spikes under load</h3>
+      <p><strong>Symptom:</strong> tok/s drops 30 – 60% after the first minute of sustained generation.</p>
+      <p><strong>Cause:</strong> SCLK falls out of high-perf state.</p>
+      <p><strong>Fix:</strong> <code>1bit-halo-gpu-perf.service</code> pins SCLK high. Verify:</p>
+<pre><code>systemctl status 1bit-halo-gpu-perf
+cat /sys/class/drm/card0/device/power_dpm_force_performance_level
+# expect: high
+cat /sys/class/drm/card0/device/pp_dpm_sclk</code></pre>
+
+      <h3>1bit-halo-memory-sync failing every 15 min</h3>
+      <p><strong>Symptom:</strong> user timer logs show:</p>
+<pre><code>1bit-halo-memory-sync: push failed (credentials?)</code></pre>
+      <p><strong>Cause:</strong> GitHub PAT expired, corrupted <code>GH_TOKEN</code> fish universal variable, or missing <code>admin:public_key</code> scope.</p>
+      <p><strong>Fix:</strong></p>
+<pre><code># 1. clear corrupted universal env
+set -e --universal GH_TOKEN
+
+# 2. refresh auth with correct scopes
+gh auth login --scopes "admin:public_key,repo,workflow"
+
+# 3. re-run the timer
+systemctl --user restart 1bit-halo-memory-sync.timer
+journalctl --user -u 1bit-halo-memory-sync -f</code></pre>
+
+      <div class="asciinema-slot" data-cast="troubleshoot-optc-01">
+        <span class="meta">cast reserved · OPTC rollback walkthrough</span>
+      </div>
+    </section>
+
+    <section id="observability">
+      <h2>Observability</h2>
+      <p>
+        Three levels: service logs, kernel-level profiling, and model-quality benchmarking. Everything local; no telemetry leaves the host.
+      </p>
+
+      <h3>Logs</h3>
+<pre><code># service logs
+journalctl -u 1bit-halo-bitnet -f
+journalctl -u 1bit-halo-server -f --since "1h ago"
+
+# user-scope services
+journalctl --user -u 1bit-halo-memory-sync.timer</code></pre>
+      <p>
+        Structured JSON logs with Loki + Grafana on the same host are planned; for now, <code>journalctl -o json</code> is the paved road.
+      </p>
+
+      <h3>Kernel profiling</h3>
+<pre><code># bandwidth-bound sanity check
+rocprof --stats --timestamp on \
+  ./build/bitnet_decode --model 1bit-halo-v2.h1b --port 8080 --bench 64
+
+# expect: ternary GEMV at ~92% LPDDR5 peak
+# if lower, the tile or packed layout regressed</code></pre>
+
+      <h3>Model quality — PPL harness</h3>
+<pre><code># wikitext-103 perplexity · post-RoPE-fix reference numbers:
+# 1bit-halo-v2: PPL ~12 on wikitext-103, ~1.04 on repetition
+./build/bitnet_decode \
+  --model ~/1bit-halo/models/1bit-halo-v2.h1b \
+  --ppl ~/datasets/wikitext-103/wiki.test.tokens \
+  --context 2048</code></pre>
+
+      <h3>Live benchmark</h3>
+<pre><code># clean-burn reference numbers (2026-04-18):
+# 64-token context:   66 tok/s
+# 1024-token context: 33 tok/s
+./build/bitnet_decode --bench 64 --bench 256 --bench 1024</code></pre>
+
+      <h3>Output conventions</h3>
+      <p>
+        On the reference host, benchmark JSON lands in <code>/home/bcloud/claude output/</code>. Other hosts pick their own path; the convention matters for the project's internal tracking only.
+      </p>
+
+      <div class="asciinema-slot" data-cast="observability-rocprof-01">
+        <span class="meta">cast reserved · rocprof bandwidth check</span>
+      </div>
+    </section>
+
+    <div class="divider-ornament">· · ·</div>
+
+    <section id="npu-xdna2">
+      <h2>XDNA2 on Strix Halo</h2>
+      <p>
+        Strix Halo ships an XDNA2 NPU advertised at 50 TOPS. On paper it is the correct accelerator for sub-2-bit inference: ternary is cheap in silicon, the NPU has its own DMA path to unified memory, and thermal headroom is large when the iGPU is idle.
+      </p>
+      <p>
+        In practice, the NPU is not accessible to this project today. The blockers are documented below.
+      </p>
+    </section>
+
+    <section id="amd-gate">
+      <h2>The AMD gate</h2>
+
+      <div class="gate-mark">×</div>
+
+      <div class="callout warn">
+        <strong>Gatekept</strong> — the vendor has not shipped what this project would need. This is not a performance or implementation problem on our end. It is a platform-access problem.
+      </div>
+
+      <h3>Blocker 1 — no Linux execution provider for STX-H</h3>
+      <p>
+        AMD's Ryzen AI 1.7 Linux stack supports Strix Point (STX) and Krackan (KRK) only. Strix Halo (STX-H) has no Linux execution provider. The Windows stack exposes the NPU through a proprietary VitisAI provider that requires paid Xilinx tooling and is Windows-only.
+      </p>
+
+      <h3>Blocker 2 — quant format mismatch</h3>
+      <p>
+        All 62 models across AMD's <code>ryzen-ai-171-npu-4k</code> and <code>ryzen-ai-171-npu-16k</code> Hugging Face collections use the exact same quant string: <strong>UINT4-AWQ weights with BFP16 activations</strong>. No ternary kernel. No 1.58-bit compile path. <code>MatMulNBits</code> with <code>N=4</code> is the only shape the AIE control-packet graph compiler accepts today; <code>N=2</code> is listed as "planned" in AMD Quark with no shipping date.
+      </p>
+
+      <h3>Blocker 3 — AIE kernel authoring is gated</h3>
+      <p>
+        Even if the execution provider existed, writing native AIE kernels requires <code>AMDResearch/Riallto</code>. Riallto is Phoenix-only (device <code>1502_00</code>), requires Ubuntu 24.04.2 plus Docker plus a paid Xilinx license, and contains zero matmul / GEMM kernels — it is a computer-vision demo kit. Its blobs do not load on <code>npu5</code> anyway.
+      </p>
+
+      <h3>Current verdict</h3>
+      <p>
+        <strong>Defer.</strong> Revisit Q3 2026, gated on either (a) AMD shipping STX-H on Ryzen AI Linux, or (b) a community BitNet / ternary backend for XDNA2 landing in public.
+      </p>
+      <p>
+        Until one of those happens, the entire stack runs on the iGPU. Nothing in the project's public roadmap depends on the NPU shipping.
+      </p>
+
+      <div class="todo-slot">
+        section reserved · will be extended with each AMD release cycle. track: Ryzen AI version bumps, Quark N=2 shipping date, upstream bitnet.cpp XDNA patches, community-led BitNet-on-AIE efforts.
+      </div>
+    </section>
+
+    <div class="divider-ornament">· · ·</div>
+
+    <section id="origin">
+      <h2>Origin</h2>
+      <p>
+        The project started as an efficiency exercise. The question was whether a CAD $3,000 Strix Halo mini-PC could serve as a private, always-on AI workstation from a silent closet — no fans screaming, no power bill spike, no cloud.
+      </p>
+      <p>
+        First experiments used Apple's MLX via its ROCm backend. That path died almost immediately: MLX ROCm has no ternary mode, and BitNet warmup would crash on every run. The pivot to native HIP followed — <code>rocm-cpp</code> became the core kernel repo and everything upstream of it was rewritten around ternary weights as a first-class citizen.
+      </p>
+      <p>
+        The earliest Bonsai-style ternary models were studied through the PrismML fork, but none of their kernels were borrowed: their HIP path was ~70× slower than what gfx1151 can deliver. Model ideas in, kernels out.
+      </p>
+      <p>
+        The codebase, the binaries, and the install path have since been unified under the <strong>1bit</strong> name. Earlier artefacts under <code>halo-ai</code> in git history or memory refer to the same project under its prior name.
+      </p>
+    </section>
+
+    <section id="timeline">
+      <h2>Timeline</h2>
+      <p>Dates are absolute. Entries are ordered oldest-first within each grouping.</p>
+
+      <h3>Kernel foundation</h3>
+      <ul>
+        <li><strong>2026-04-18</strong> · Sherry 1.25-bit spike committed (3:4 sparsity packing). <code>sd.cpp</code> native-HIP port promoted to core. <code>bitnet_decode</code> clean burn: 66 tok/s @ 64-token, 33 tok/s @ 1024-token.</li>
+        <li><strong>2026-04-19</strong> · RoPE convention fix (interleaved → HF split-half): PPL 524 → ~12 on wikitext-103, 4.29 → 1.04 on repetition. Split-KV Flash-Decoding attention landed: 6.78× @ L=2048. PPL harness landed. 1bit-halo-mcp canonicalized (22 tests).</li>
+      </ul>
+
+      <h3>Platform decisions</h3>
+      <ul>
+        <li><strong>2026-04-20</strong> · "Bare-metal first" lock-in — no containers, no interpreters, no overhead. AMD + AMDResearch org scan (27 relevant repos, zero BitNet code). XDNA2 path analysis concluded: defer.</li>
+        <li><strong>2026-04-21</strong> · TriLM INT4 ONNX export complete. NPU placement confirmed blocked. Six session crashes across one day, traced to amdgpu OPTC CRTC hang on kernel 7.0. RTK hook removed from Claude settings after cascading SIGABRT. All <code>stampby/*</code> GitHub repos deleted; <code>bong-water-water-bong</code> is the only live identity.</li>
+      </ul>
+
+      <h3>Current window</h3>
+      <ul>
+        <li><strong>2026-04-22</strong> · Kernel rolled back to 6.18.22-lts. Sparse-BitNet retrain Run 3 launched on H200 pod. Network topology documented (4-node mesh across two buildings). Shadow-burnin baseline reset (polluted pre-reboot data archived).</li>
+      </ul>
+    </section>
+
+    <section id="rollbacks">
+      <h2>Crashes &amp; rollbacks</h2>
+      <p>Three hardware- and runtime-level issues worth documenting honestly.</p>
+
+      <h3>amdgpu OPTC CRTC hang</h3>
+      <p>
+        Kernel 7.0 on gfx1151 exhibited <code>REG_WAIT timeout 1us * 100000 tries — optc35_disable_crtc</code> under concurrent model servers. Wayland would freeze hard; recovery required a power-cycle. Partial mitigation via <code>1bit-halo-gpu-perf.service</code> pinning SCLK high. Permanent resolution: rollback to 6.18.22-lts.
+      </p>
+
+      <h3>SMU / VCN / PSP hang chain</h3>
+      <p>
+        On LTS 6.18.22, a new failure signature appeared: <code>SMU mailbox -ETIME</code>, VPE / VCN powergate failure, PSP <code>LOAD_IP_FW</code> failure. Traced to <code>halo.conf</code> modprobe parameters tuned for 7.0 that misfire on LTS. Tier-3b <code>halo.conf</code> stashed, initramfs regenerated, reboot test pending.
+      </p>
+
+      <h3>RTK hook SIGABRT</h3>
+      <p>
+        An <code>rtk grep</code> call failed under a <code>PreToolUse:Bash</code> Claude Code hook on 2026-04-21 at 21:45:59, cascading into a full session crash. The hook was removed from <code>settings.json</code>. The <code>rtk</code> binary remains available for manual use.
+      </p>
+    </section>
+
+    <div class="divider-ornament">· · ·</div>
+
+    <section id="roadmap">
+      <h2>Roadmap</h2>
+      <p>Quarter granularity. Everything subject to slip.</p>
+
+      <h3>Near-term — next 4 to 6 weeks</h3>
+      <ol>
+        <li>Sparse-BitNet retrain completion (H200 pod · ~55 h remaining from launch)</li>
+        <li>Sherry requantizer per-row scale fix — one-line diff, try before full format retrain</li>
+        <li>SMU / VCN reboot test on LTS with Tier-3b <code>halo.conf</code> stashed</li>
+        <li>1bit-halo v2 + TriLM served side-by-side behind <code>1bit-halo-server</code></li>
+        <li>1bit-helm v0.1 — tray icon, <code>1bit-*</code> service start / stop / status</li>
+      </ol>
+
+      <h3>Mid-term — Q2 to Q3 2026</h3>
+      <ol>
+        <li>BitNet v2 implementation — Hadamard-native W1.58 A4 (obsoletes a4.8 staged recipe)</li>
+        <li>MedusaBitNet speculative heads — expected 1.4 – 1.8× at batch = 1, capped by the 92% LPDDR5 ceiling</li>
+        <li>1bit-halo-whisper sentence-boundary streaming — closes the voice-loop latency gap</li>
+        <li>Wan 2.2 TI2V-5B video generation port</li>
+        <li>1bit-helm v0.3 — full desktop shell, voice-first UX, plugin API via MCP, <code>1bit-halo-pkg</code> package manager</li>
+        <li>Open WebUI sunset once Helm v0.3 reaches parity</li>
+      </ol>
+
+      <h3>Long-term</h3>
+      <ol>
+        <li>CachyOS OOB ISO shipping the full stack preinstalled</li>
+        <li>gfx1201 kernel port for <code>ryzen</code> host (RX 9070 XT · RDNA 4) — second inference / distillation target</li>
+        <li>NPU unblock — gated on AMD (see <a href="#amd-gate">the AMD gate</a>)</li>
+        <li>Public launch, including Reddit presence — gated on NPU unblock</li>
+        <li><code>1bit-halo-pkg</code> package manager — long-term, paced by capital for compute time (Gibson budget for training runs, H200 pod hours, BitNet v2 retrain, Sparse-BitNet follow-ups)</li>
+        <li>Patreon / funding surface — opens when the ship-gate lifts, underwrites compute for the above</li>
+      </ol>
+    </section>
+
+    <section id="network">
+      <h2>Network</h2>
+      <p>
+        Four-node private mesh on Headscale, spanning two buildings. Passwordless sudo on the rigs that need it. Pi is canonical archive — check it before assuming any file is gone.
+      </p>
+      <table>
+        <thead>
+          <tr><th>Host</th><th>Address</th><th>Role</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>strixhalo</code></td><td>100.64.0.1</td><td>Primary inference · gfx1151 iGPU · 128 GB unified LPDDR5X</td></tr>
+          <tr><td><code>sliger</code></td><td>100.64.0.2</td><td>Workstation · development</td></tr>
+          <tr><td><code>ryzen</code></td><td>(mesh)</td><td>Secondary compute · Radeon RX 9070 XT · gfx1201 · GDDR6 dGPU · RDNA 4 target for kernel port</td></tr>
+          <tr><td><code>pi</code></td><td>100.64.0.4</td><td>Archive · ZFS 3.6 TB · nightly rsync + KCS snapshots</td></tr>
+        </tbody>
+      </table>
+      <p>
+        Cross-building link is ASUS ET12 mesh (Garage + shop) through a YuLinca 2.5G switch at <code>10.0.0.50</code>. Subnets split into main / guest / IoT; the shop's ATM lives on IoT. mDNS via <code>pi5.local</code>.
+      </p>
+    </section>
+
+    <section id="repos">
+      <h2>Repos</h2>
+      <p>
+        <code>bong-water-water-bong</code> is the only live GitHub identity. All <code>stampby/*</code> repositories were deleted on 2026-04-21; any reference you see to that namespace is stale.
+      </p>
+
+      <h3>Public</h3>
+      <ul>
+        <li><code>bong-water-water-bong/1bit-systems</code> — landing page and this documentation</li>
+        <li><code>bong-water-water-bong/halo-agents</code> — Rust MCP and agent crates</li>
+        <li><code>bong-water-water-bong/sd.cpp</code> — native-HIP image-generation fork</li>
+        <li><code>bong-water-water-bong/rocm-cpp</code> — HIP kernel library (MIT)</li>
+        <li><code>bong-water-water-bong/lemonade</code> · <code>lemon-mlx-engine</code> · <code>llamacpp-rocm</code> · <code>lemonade-mobile</code> — AMD Lemonade forks</li>
+      </ul>
+
+      <h3>Private</h3>
+      <ul>
+        <li><code>1bit-halo-workspace</code> — Rust orchestration workspace</li>
+        <li><code>1bit-halo-core</code> — C++ / HIP kernel library + <code>bitnet_decode</code> serving binary</li>
+      </ul>
+
+      <p>
+        GitHub repository names on <code>bong-water-water-bong</code> are still <code>halo-*</code> for <code>agents</code>, <code>kokoro</code>, <code>whisper</code>, and <code>workspace</code>. Rename pass scheduled separately.
+      </p>
+    </section>
+
+    <section id="changelog">
+      <h2>Changelog</h2>
+      <p>Version counter is loose. Entries track shipped changes in the core serving path.</p>
+      <ul>
+        <li><strong>0.1.7</strong> · 2026-04-22 — Docs clean-break rename from <code>halo-*</code> to <code>1bit-*</code>. Public identity unified. GitHub repo renames pending as separate pass.</li>
+        <li><strong>0.1.6</strong> · 2026-04-22 — Sparse-BitNet Run 3 launched on H200 pod. Kernel rolled back to 6.18.22-lts. Network topology documented. Shadow-burnin baseline reset. Sparse-BitNet Run 3 bailed at step 500 on false-positive mask-integrity check (three-line trainer bug — see Run 3 autopsy). Run 4 relaunched with fix. Second kernel target added for gfx1201 (RX 9070 XT on <code>ryzen</code> host) — <code>rocm-cpp</code> CMake defaults to multi-arch fat binary (<code>gfx1151;gfx1201</code>), <code>install.sh</code> gains <code>GFX=auto</code> detect. ROCm 7.2.2 system-installed on <code>ryzen</code>. WMMA intrinsic port for gfx12 still pending — RDNA 4 uses <code>_gfx12</code>-suffixed builtins with different operand types.</li>
+        <li><strong>0.1.5</strong> · 2026-04-21 — TriLM INT4 ONNX export complete. NPU placement confirmed blocked. Six-crash investigation and kernel-7.0 rollback plan. RTK hook removed from Claude settings. GitHub identity consolidated to <code>bong-water-water-bong</code>.</li>
+        <li><strong>0.1.4</strong> · 2026-04-20 — Bare-metal-first lock-in. AMD + AMDResearch org scan. XDNA2 defer verdict.</li>
+        <li><strong>0.1.3</strong> · 2026-04-19 — RoPE split-half fix (PPL 524 → ~12). Split-KV Flash-Decoding attention (6.78× @ L=2048). PPL harness landed. 1bit-halo-mcp canonicalized (22 tests).</li>
+        <li><strong>0.1.2</strong> · 2026-04-18 — Sherry 1.25-bit spike committed. <code>sd.cpp</code> native-HIP port promoted to core. <code>bitnet_decode</code> clean-burn bench (66 / 33 tok/s).</li>
+        <li><strong>0.1.0</strong> · 2026-04 — <code>bitnet_decode</code> serving binary online. 1bit-halo v2 first responding. ROCm 7.x system build against gfx1151.</li>
+      </ul>
+    </section>
+
+    <section id="contact">
+      <h2>Contact &amp; support</h2>
+      <p>
+        Project maintainer: <strong>the architect</strong>. Reach out via the project repo or through the live 1bit.systems presence once public channels open.
+      </p>
+
+      <h3>Support the project</h3>
+      <p>
+        Compute is the rate-limiting resource. Training runs, H200 pod hours, BitNet v2 retrains, Sparse-BitNet follow-ups — all of it needs Gibson time. A Patreon surface will open to underwrite that cost; funds go to compute, not salary.
+      </p>
+      <div class="todo-slot">
+        patreon url · reserved · activates when the NPU ship-gate lifts and the project opens public channels
+      </div>
+
+      <h3>Community &amp; discussion</h3>
+      <p>
+        GitHub is the primary surface for community input while public channels are ship-gated. Three doors in, each for a different shape of contribution.
+      </p>
+      <ul>
+        <li><strong>Discussions</strong> — <code>github.com/bong-water-water-bong/1bit-systems/discussions</code> — open-ended questions, design debates, hardware reports, benchmark comparisons. Start here if you're not sure where your post fits.</li>
+        <li><strong>Issues</strong> — <code>github.com/bong-water-water-bong/1bit-systems/issues</code> — concrete bugs, regressions, documentation errors. Include kernel version, ROCm version, commit SHA, and journal excerpt where relevant.</li>
+        <li><strong>Pull requests</strong> — land code directly. Kernels against <code>rocm-cpp</code>, docs against <code>1bit-systems</code>, orchestration against <code>halo-agents</code> and the workspace repos as they open.</li>
+      </ul>
+      <p>
+        Discord exists for live discussion and help. No Matrix or Slack — Discord is the single real-time surface. GitHub remains the source of truth for code, issues, and design debate; Discord is the room, not the record.
+      </p>
+      <div class="todo-slot">
+        discord invite · reserved · drop the permanent invite URL when the server is ready for wider links
+      </div>
+      <p>
+      </p>
+
+      <h3>Contribute kernels</h3>
+      <p>
+        Code contributions are welcome and especially valuable at the kernel layer. This is the only public gfx1151 BitNet / ternary stack; every additional shape, tile, or precision variant helps the whole ecosystem.
+      </p>
+      <p>
+        If you write HIP and want to help, the highest-impact drop is a <strong>GEMM / GEMV kernel</strong> for a shape we don't cover well yet. Build it, benchmark it against the existing implementation, open a PR against <code>rocm-cpp</code> or <code>1bit-halo-core</code> with:
+      </p>
+      <ul>
+        <li>Kernel source — HIP C++, wave32 WMMA where applicable</li>
+        <li>A one-line shape signature in the PR body (<code>M × N × K</code>, dtype, packed layout)</li>
+        <li>Bench numbers from <code>rocprof</code> — latency, bandwidth utilization vs LPDDR5 peak, occupancy</li>
+        <li>A short note on which tile / block size chose itself and why</li>
+      </ul>
+      <p>
+        Kernels accepted on merit. No hipBLAS runtime dependency. No Python in the build path. Rule A applies to contributions too.
+      </p>
+
+      <h3>Contact surfaces</h3>
+      <div class="todo-slot">
+        public contact surfaces open after NPU ship-gate is lifted. no Reddit, no Twitter, no launch post until the gate unlocks or the project's positioning changes.
+      </div>
+      <p style="color: var(--text-subtle); font-family: 'JetBrains Mono', monospace; font-size: 13px; margin-top: 48px;">
+        — end of document —
+      </p>
+    </section>
+
+  </main>
+</div>
+
+<script>
+  const sidebar = document.getElementById('sidebar');
+
+  document.querySelectorAll('.nav-group-header').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const group = btn.closest('.nav-group');
+      group.classList.toggle('collapsed');
+      btn.setAttribute('aria-expanded', !group.classList.contains('collapsed'));
+    });
+  });
+
+  document.querySelectorAll('.nav-subgroup-header').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      btn.closest('.nav-subgroup').classList.toggle('collapsed');
+    });
+  });
+
+  document.getElementById('expandAll').addEventListener('click', () => {
+    document.querySelectorAll('.nav-group, .nav-subgroup').forEach(g => g.classList.remove('collapsed'));
+  });
+  document.getElementById('collapseAll').addEventListener('click', () => {
+    document.querySelectorAll('.nav-group, .nav-subgroup').forEach(g => g.classList.add('collapsed'));
+  });
+
+  document.querySelectorAll('.nav-list a').forEach(a => {
+    a.addEventListener('click', () => {
+      const parentSub = a.closest('.nav-subgroup');
+      const parentGroup = a.closest('.nav-group');
+      if (parentSub) parentSub.classList.remove('collapsed');
+      if (parentGroup) parentGroup.classList.remove('collapsed');
+      sidebar.classList.remove('open');
+    });
+  });
+
+  const sections = document.querySelectorAll('section[id]');
+  const navLinks = document.querySelectorAll('.nav-list a');
+
+  function updateActive() {
+    const scrollPos = window.scrollY + 120;
+    let currentId = null;
+    sections.forEach(s => {
+      if (s.offsetTop <= scrollPos) currentId = s.id;
+    });
+
+    navLinks.forEach(a => {
+      const isActive = a.getAttribute('href') === '#' + currentId;
+      a.classList.toggle('active', isActive);
+      if (isActive) {
+        const parentSub = a.closest('.nav-subgroup');
+        const parentGroup = a.closest('.nav-group');
+        if (parentSub && parentSub.classList.contains('collapsed')) parentSub.classList.remove('collapsed');
+        if (parentGroup && parentGroup.classList.contains('collapsed')) parentGroup.classList.remove('collapsed');
+      }
+    });
+  }
+  window.addEventListener('scroll', updateActive, { passive: true });
+  updateActive();
+
+  document.getElementById('menuToggle').addEventListener('click', () => sidebar.classList.toggle('open'));
+</script>
+
+</body>
+</html>
