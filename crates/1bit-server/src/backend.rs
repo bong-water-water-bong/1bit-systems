@@ -97,7 +97,14 @@ pub trait InferenceBackend: Send + Sync + 'static {
         params: &'a GenerationParams,
     ) -> BoxFut<'a, Result<TokenStream, ServerError>>;
 
-    /// Model cards advertised through `GET /v1/models`.
+    /// Model cards the backend *can* serve. Historically this was the
+    /// only source for `GET /v1/models`; as of the `ModelRegistry`
+    /// landing, the on-disk registry is the source of truth for the HTTP
+    /// surface. This method is still consulted once at startup so a
+    /// backend that loads weights from outside the `--models-dir` scan
+    /// path (e.g. `--model /tmp/foo.h1b`) still shows up in
+    /// `/v1/models` via `ModelRegistry::ensure_id`. Keep overrides here
+    /// narrow — the registry does the real work.
     fn list_models(&self) -> Vec<ModelCard> {
         vec![ModelCard::halo("bitnet-b1.58-2b-4t")]
     }

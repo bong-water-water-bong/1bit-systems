@@ -38,6 +38,7 @@ pub mod error;
 pub mod metrics;
 pub mod middleware;
 pub mod npu;
+pub mod registry;
 pub mod routes;
 pub mod shutdown;
 

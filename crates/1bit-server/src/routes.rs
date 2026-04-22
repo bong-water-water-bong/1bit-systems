@@ -41,6 +41,7 @@ use crate::backend::{GenerationParams, SharedBackend};
 use crate::error::ServerError;
 use crate::metrics::{Metrics, MetricsSnapshot};
 use crate::middleware::{RateLimit, rate_limit, request_id};
+use crate::registry::ModelRegistry;
 
 /// Axum shared state — the backend plus a metrics handle. Kept `Clone`
 /// because axum stores it behind `with_state` which requires `Clone`.
@@ -61,6 +62,11 @@ pub struct AppState {
     /// routes via `route_layer(from_fn_with_state(..))`. Wrap in `Arc` so
     /// the `AppState: Clone` bound stays cheap.
     pub rate_limit: Arc<RateLimit>,
+    /// Discovered `.h1b` models. Source of truth for `/v1/models` and for
+    /// chat-completion `model` field validation. Immutable after server
+    /// startup today; when lazy-load lands this will grow a `Mutex` so the
+    /// dispatcher can mark the resident model.
+    pub models: Arc<ModelRegistry>,
 }
 
 // ─── Router assembly ─────────────────────────────────────────────────────
@@ -75,6 +81,15 @@ pub struct AppState {
 /// [`build_router_with_state`] to share a metrics handle across multiple
 /// routers (or to inspect it externally).
 pub fn build_router(backend: SharedBackend) -> Router {
+    // Default library constructor: seed the registry from whatever the
+    // backend advertises via `list_models()`. This preserves the
+    // pre-registry behaviour — EchoBackend reports "bitnet-b1.58-2b-4t"
+    // and that's the only id clients see — while letting every test path
+    // share the same validation code.
+    let mut registry = ModelRegistry::empty();
+    for card in backend.list_models() {
+        registry.ensure_id(card.id);
+    }
     build_router_with_state(AppState {
         backend,
         metrics: Arc::new(Metrics::new()),
@@ -84,6 +99,7 @@ pub fn build_router(backend: SharedBackend) -> Router {
         // callers don't have to reason about timing. The binary wires a
         // non-zero value via `--rate-limit-rpm`.
         rate_limit: Arc::new(RateLimit::new(0)),
+        models: Arc::new(registry),
     })
 }
 
@@ -154,10 +170,12 @@ async fn metrics_handler(State(s): State<AppState>) -> Json<MetricsSnapshot> {
 }
 
 async fn list_models(State(s): State<AppState>) -> Json<ModelList> {
-    Json(ModelList {
-        object: "list",
-        data: s.backend.list_models(),
-    })
+    // Registry is the source of truth. The legacy
+    // `InferenceBackend::list_models()` path is only consulted at
+    // registry-construction time (in `build_router` / `main.rs`) so a
+    // backend that reports a model not on disk still shows up in
+    // `/v1/models` for the duration of the run.
+    Json(s.models.to_list())
 }
 
 /// `POST /v1/chat/completions` — streaming or non-streaming per request.
@@ -169,6 +187,23 @@ async fn chat_completions(
         return Err(ServerError::BadRequest(
             "messages array must not be empty".into(),
         ));
+    }
+
+    // Validate `model` against the registry BEFORE we dispatch. An empty
+    // registry (no `--models-dir` set on a stub server) is treated as
+    // "permissive" so the default EchoBackend smoke path still works — we
+    // only reject unknown ids when the registry has something to compare
+    // against.
+    //
+    // TODO: lazy-load on request — when multi-model support lands, the
+    // dispatch site below picks the backend based on `req.model` instead
+    // of relying on the single `s.backend`. The registry already carries
+    // the on-disk `path` for each entry so it's a direct indexing change.
+    if !s.models.is_empty() && !s.models.contains(&req.model) {
+        return Err(ServerError::BadRequest(unknown_model_message(
+            &req.model,
+            &s.models.ids(),
+        )));
     }
 
     let params = GenerationParams {
@@ -234,6 +269,15 @@ async fn completions(
     let prompt = req.prompt.first().to_string();
     if prompt.is_empty() {
         return Err(ServerError::BadRequest("prompt must not be empty".into()));
+    }
+
+    // Model validation — same permissive-empty-registry rule as chat. See
+    // the TODO in `chat_completions` for the multi-model hook point.
+    if !s.models.is_empty() && !s.models.contains(&req.model) {
+        return Err(ServerError::BadRequest(unknown_model_message(
+            &req.model,
+            &s.models.ids(),
+        )));
     }
 
     let params = GenerationParams {
@@ -610,6 +654,34 @@ fn cmpl_id() -> String {
     format!("cmpl-{}", Uuid::new_v4().simple())
 }
 
+/// Error message for a `model` field that doesn't match any registry
+/// entry. Embeds the registered ids so clients get an actionable hint
+/// without having to hit `/v1/models` separately.
+///
+/// Body shape (after `IntoResponse` on `ServerError::BadRequest`):
+/// ```json
+/// {
+///   "error": {
+///     "message": "model 'foo' not found; available: [halo-1bit-2b, halo-bitnet-2b-tq2]",
+///     "type": "invalid_request_error",
+///     "code": "bad_request"
+///   }
+/// }
+/// ```
+fn unknown_model_message(requested: &str, available: &[String]) -> String {
+    if available.is_empty() {
+        format!(
+            "model {requested:?} not found; server has no models registered (check --models-dir)"
+        )
+    } else {
+        format!(
+            "model {:?} not found; available: [{}]",
+            requested,
+            available.join(", ")
+        )
+    }
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -799,6 +871,7 @@ mod tests {
             sd_base_url: Arc::new("http://127.0.0.1:8081".to_string()),
             http_client: default_http_client(),
             rate_limit: Arc::new(crate::middleware::RateLimit::new(0)),
+            models: Arc::new(ModelRegistry::empty()),
         };
         let app = build_router_with_state(state.clone());
 

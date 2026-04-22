@@ -41,6 +41,7 @@ fn app_with_limiter(rpm: u32) -> Router {
         sd_base_url: Arc::new("http://127.0.0.1:8081".to_string()),
         http_client: default_http_client(),
         rate_limit: Arc::new(RateLimit::new(rpm)),
+        models: Arc::new(onebit_server::registry::ModelRegistry::empty()),
     };
     // `layer(MockConnectInfo)` stamps the extension on every inbound
     // request so the rate-limiter sees a client IP. In production the

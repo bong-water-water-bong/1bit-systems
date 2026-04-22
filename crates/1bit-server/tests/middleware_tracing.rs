@@ -30,6 +30,7 @@ fn app() -> Router {
         sd_base_url: Arc::new("http://127.0.0.1:8081".to_string()),
         http_client: default_http_client(),
         rate_limit: Arc::new(RateLimit::new(0)),
+        models: Arc::new(onebit_server::registry::ModelRegistry::empty()),
     };
     build_router_with_state(state).layer(MockConnectInfo(SocketAddr::new(
         IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),

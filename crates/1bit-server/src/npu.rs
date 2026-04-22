@@ -416,6 +416,7 @@ mod tests {
             sd_base_url: Arc::new("http://127.0.0.1:8081".to_string()),
             http_client: crate::routes::default_http_client(),
             rate_limit: Arc::new(crate::middleware::RateLimit::new(0)),
+            models: Arc::new(crate::registry::ModelRegistry::empty()),
         };
         let app = build_router_with_state(state);
 

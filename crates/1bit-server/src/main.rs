@@ -15,6 +15,7 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 use onebit_server::middleware::RateLimit;
+use onebit_server::registry::ModelRegistry;
 use onebit_server::routes::{AppState, build_router_with_state, default_http_client};
 use onebit_server::{EchoBackend, InferenceBackend, Metrics, shutdown_signal};
 
@@ -47,6 +48,17 @@ struct Args {
     /// strixhalo box behind Caddy where tailnet auth already gates).
     #[arg(long, env = "HALO_SERVER_RATE_LIMIT_RPM", default_value_t = 30)]
     rate_limit_rpm: u32,
+
+    /// Directory to scan for `.h1b` models at startup. Discovered files
+    /// populate `/v1/models` and gate the `model` field on chat
+    /// completions. Leave unset to derive from `--model`'s parent
+    /// directory (backwards-compatible) or fall back to
+    /// `/home/bcloud/1bit-halo-models/models`.
+    ///
+    /// The server still only loads **one** backend at a time; this is
+    /// discovery + validation, not concurrent multi-model serving.
+    #[arg(long, env = "HALO_SERVER_MODELS_DIR")]
+    models_dir: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -67,12 +79,34 @@ async fn main() -> Result<()> {
     } else {
         info!(rpm = args.rate_limit_rpm, "per-IP rate limiter enabled on /v{{1,2}}/chat/completions");
     }
+
+    // Resolve the scan directory. Precedence:
+    //   1. --models-dir / $HALO_SERVER_MODELS_DIR
+    //   2. parent dir of --model (so `--model .../models/x.h1b` keeps
+    //      sibling `.h1b` files discoverable without an extra flag)
+    //   3. the canonical /home/bcloud/1bit-halo-models/models layout
+    let models_dir = args
+        .models_dir
+        .clone()
+        .or_else(|| args.model.as_deref().and_then(|m| m.parent()).map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from("/home/bcloud/1bit-halo-models/models"));
+    info!(dir = %models_dir.display(), "scanning for .h1b models");
+    let mut registry = ModelRegistry::from_dir(&models_dir);
+    // Make sure the backend's advertised model id is reachable even if it
+    // lives outside the scan dir — keeps /v1/models honest when someone
+    // runs with `--model /tmp/foo.h1b` and no `--models-dir`.
+    for card in backend.list_models() {
+        registry.ensure_id(card.id);
+    }
+    info!(count = registry.entries().len(), ids = ?registry.ids(), "model registry ready");
+
     let state = AppState {
         backend,
         metrics: Arc::new(Metrics::new()),
         sd_base_url: Arc::new(args.sd_url.clone()),
         http_client: default_http_client(),
         rate_limit: Arc::new(RateLimit::new(args.rate_limit_rpm)),
+        models: Arc::new(registry),
     };
     let app = build_router_with_state(state);
 
