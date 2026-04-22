@@ -16,8 +16,10 @@ mod install;
 mod logs;
 mod memory;
 mod npu;
+mod oobe_error;
 mod power;
 mod ppl;
+mod preflight;
 mod restart;
 mod say;
 mod skill;
@@ -68,6 +70,15 @@ enum Cmd {
         /// List available components
         #[arg(long)]
         list: bool,
+        /// Run the fresh-box OOBE flow: preflight gates, diagnostic
+        /// errors, sensible-default component (`core`). Non-interactive.
+        #[arg(long)]
+        oobe: bool,
+        /// Skip the cargo build / install phase. Useful when the binary
+        /// is already in `target/release` (CI) or when the operator
+        /// only wants to run preflight.
+        #[arg(long)]
+        skip_build: bool,
     },
     /// Speak text through 1bit-halo-kokoro :8083 + the host's audio player
     Say {
@@ -173,10 +184,25 @@ async fn main() -> Result<()> {
             no_restart,
         } => update::run(no_build, no_restart).await,
         Cmd::Version => version::run().await,
-        Cmd::Install { component, list } => match (list, component) {
-            (true, _) | (false, None) => install::list().await,
-            (false, Some(name)) => install::run_install(&name).await,
-        },
+        Cmd::Install {
+            component,
+            list,
+            oobe,
+            skip_build,
+        } => {
+            if oobe {
+                let defaults = install::OobeDefaults {
+                    component: component.unwrap_or_else(|| "core".into()),
+                    skip_build,
+                };
+                install::run_oobe(defaults).await
+            } else {
+                match (list, component) {
+                    (true, _) | (false, None) => install::list().await,
+                    (false, Some(name)) => install::run_install(&name).await,
+                }
+            }
+        }
         Cmd::Say { text, voice, speed } => {
             let phrase = text.join(" ");
             let voice_owned: String = voice.unwrap_or_else(|| say::default_voice().into());

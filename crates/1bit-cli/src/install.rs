@@ -8,6 +8,11 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
+use crate::oobe_error::OobeError;
+use crate::preflight::{
+    GateResult, PreflightOutcome, RealProbe, SystemProbe, run_all,
+};
+
 const MANIFEST_SRC: &str = include_str!("../../../packages.toml");
 
 #[derive(Debug, Deserialize)]
@@ -368,6 +373,127 @@ pub async fn run_install(component: &str) -> Result<()> {
 
     println!("\n✓ install complete");
     Ok(())
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// OOBE path (anchors 1-5 in project_oobe_bar.md)
+// ─────────────────────────────────────────────────────────────────────
+//
+// `run_oobe` is the "fresh box" entry point: it runs preflight first,
+// pretty-prints the results, bails out with a diagnostic `OobeError` if
+// any gate is red, then calls `run_install(default.component)`. Anchor 5
+// ("sensible defaults, zero config") is encoded in `OobeDefaults`.
+
+/// Defaults the OOBE applies before invoking `run_install`. Every value
+/// here is deliberately a field on a struct, not a global const, so the
+/// tests can build a custom default for the offline/CI path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OobeDefaults {
+    /// Component to install. The manifest's `core` is the fresh-box
+    /// entry point and pulls in voice + echo + mcp + landing + gaia +
+    /// lemonade transitively.
+    pub component: String,
+    /// When true, `run_oobe` skips the `cargo build` phase inside
+    /// `run_install` — useful for the `--skip-build` flag in CI where
+    /// the binary is already in `target/release` from an upstream job,
+    /// and for unit tests that drive the OOBE path without a toolchain.
+    pub skip_build: bool,
+}
+
+impl Default for OobeDefaults {
+    fn default() -> Self {
+        Self {
+            component: "core".into(),
+            skip_build: false,
+        }
+    }
+}
+
+/// One-glyph status prefix for a preflight outcome. Uses ASCII so the
+/// output is readable over SSH + captured in logs without Unicode
+/// surprises.
+fn outcome_glyph(o: &PreflightOutcome) -> &'static str {
+    match o {
+        PreflightOutcome::Pass(_) => "[ OK ]",
+        PreflightOutcome::Skip(_) => "[WARN]",
+        PreflightOutcome::Fail(_) => "[FAIL]",
+    }
+}
+
+/// Pretty-print the preflight table to stdout. Output shape:
+///
+/// ```text
+/// preflight:
+///   [ OK ] kernel   : kernel 6.18.22-1-cachyos-lts (LTS OK)
+///   [ OK ] rocm     : rocminfo reachable
+///   ...
+/// ```
+///
+/// Deliberately boring — an operator scanning `1bit install --oobe`
+/// logs over SSH should read it in under a second.
+pub fn print_preflight_table(results: &[GateResult]) {
+    println!("preflight:");
+    for r in results {
+        let note = match &r.outcome {
+            PreflightOutcome::Pass(s) => s.clone(),
+            PreflightOutcome::Skip(s) => s.clone(),
+            PreflightOutcome::Fail(e) => e.what.to_string(),
+        };
+        println!("  {:6} {:8}: {}", outcome_glyph(&r.outcome), r.name, note);
+    }
+}
+
+/// Render a failed gate as the four-field OOBE block + the `fix` /
+/// `wiki` trailers. Kept as a helper so every surface that can emit an
+/// `OobeError` (preflight, install step, future uninstall) renders it
+/// identically.
+pub fn print_oobe_error(label: &str, e: &OobeError) {
+    println!();
+    println!("error: {label}");
+    println!("{e}");
+}
+
+/// Fresh-box OOBE run with the real host probe. Wraps
+/// `run_oobe_with_probe` so the main CLI stays a one-liner and the
+/// tests can drive a `FakeProbe` for the offline / `--offline` path.
+pub async fn run_oobe(defaults: OobeDefaults) -> Result<()> {
+    let probe = RealProbe;
+    run_oobe_with_probe(&probe, defaults).await
+}
+
+/// Core OOBE flow with an injectable probe. Returns an error if any
+/// preflight gate is red (so the CLI exits non-zero and the operator
+/// sees a non-green `echo $?`) and otherwise calls into `run_install`.
+pub async fn run_oobe_with_probe(
+    probe: &dyn SystemProbe,
+    defaults: OobeDefaults,
+) -> Result<()> {
+    let results = run_all(probe);
+    print_preflight_table(&results);
+
+    // Any `Fail` gate aborts before destructive work happens. We print
+    // the *first* failure in full four-field shape; the rest are in the
+    // table already, so we don't spam the operator.
+    if let Some(bad) = results.iter().find(|r| !r.outcome.is_green()) {
+        if let PreflightOutcome::Fail(e) = &bad.outcome {
+            print_oobe_error(bad.name, e);
+        }
+        bail!("preflight failed at gate '{}'", bad.name);
+    }
+
+    if defaults.skip_build {
+        println!(
+            "\n(--skip-build) preflight green; skipping cargo build / install for '{}'.",
+            defaults.component
+        );
+        return Ok(());
+    }
+
+    println!(
+        "\npreflight green — proceeding with `1bit install {}`\n",
+        defaults.component
+    );
+    run_install(&defaults.component).await
 }
 
 #[cfg(test)]
