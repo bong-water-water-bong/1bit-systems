@@ -1,13 +1,14 @@
 // `1bit doctor` — health check across the stack. Exit 0 green, 1 warn, 2 fail.
 
 use anyhow::Result;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
 use crate::status::SERVICES;
 
-#[derive(Copy, Clone)]
-enum Outcome {
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Outcome {
     Ok,
     Warn,
     Fail,
@@ -174,6 +175,197 @@ fn check_tunnel_config() -> (Outcome, String) {
     }
 }
 
+// --- accelerator probes ------------------------------------------------------
+//
+// Each probe takes an injected filesystem root so tests can assemble a fake
+// /sys tree under a tempdir. In production the caller passes `Path::new("/")`.
+//
+// Probes never shell out — they read sysfs only. This keeps them fast, cheap,
+// and mockable.
+
+/// XDNA2 NPU probe. Looks for `/sys/class/accel/accel*/device/vendor == 0x1022`
+/// AND a `device` id in the Strix Halo NPU range (0x1502 = Phoenix, 0x17f0 =
+/// STX/STX-H NPU5). A kernel module presence check on `/sys/module/amdxdna`
+/// is reported as a stronger signal when both match.
+pub(crate) fn npu_probe(root: &Path) -> (Outcome, String) {
+    let accel_dir = root.join("sys/class/accel");
+    let entries = match std::fs::read_dir(&accel_dir) {
+        Ok(e) => e,
+        Err(_) => {
+            return (
+                Outcome::Warn,
+                "no /sys/class/accel — XDNA2 NPU absent or driver unloaded".into(),
+            );
+        }
+    };
+
+    let mut found: Vec<(String, String)> = Vec::new();
+    for ent in entries.flatten() {
+        let dev = ent.path().join("device");
+        let vendor = std::fs::read_to_string(dev.join("vendor"))
+            .ok()
+            .map(|s| s.trim().to_lowercase())
+            .unwrap_or_default();
+        let device = std::fs::read_to_string(dev.join("device"))
+            .ok()
+            .map(|s| s.trim().to_lowercase())
+            .unwrap_or_default();
+        if vendor == "0x1022" && !device.is_empty() {
+            found.push((ent.file_name().to_string_lossy().into_owned(), device));
+        }
+    }
+
+    let mod_loaded = root.join("sys/module/amdxdna").exists();
+
+    match (found.as_slice(), mod_loaded) {
+        ([], _) => (
+            Outcome::Warn,
+            "no AMD accel device in /sys/class/accel (expected on LTS kernel)".into(),
+        ),
+        ([(name, id)], true) => (
+            Outcome::Ok,
+            format!("{name} device={id} amdxdna loaded"),
+        ),
+        ([(name, id)], false) => (
+            Outcome::Warn,
+            format!("{name} device={id} but amdxdna module not loaded"),
+        ),
+        (many, _) => (
+            Outcome::Ok,
+            format!("{} AMD accel devices found", many.len()),
+        ),
+    }
+}
+
+/// Intel Xe2 (Battlemage) probe on the sliger host. Walks PCI devices under
+/// `/sys/bus/pci/devices/*`, matches vendor 0x8086 plus device ids in the
+/// Battlemage range (0xE20B, 0xE202, 0xE20C, 0xE210, 0xE212, 0xE215, 0xE216),
+/// and reports `xe` as the preferred kernel driver over `i915`.
+pub(crate) fn xe2_probe(root: &Path) -> (Outcome, String) {
+    let pci_dir = root.join("sys/bus/pci/devices");
+    let entries = match std::fs::read_dir(&pci_dir) {
+        Ok(e) => e,
+        Err(_) => {
+            return (
+                Outcome::Warn,
+                "no /sys/bus/pci/devices — not a PCI host?".into(),
+            );
+        }
+    };
+
+    const BATTLEMAGE_IDS: &[&str] = &[
+        "0xe20b", "0xe202", "0xe20c", "0xe210", "0xe212", "0xe215", "0xe216",
+    ];
+
+    for ent in entries.flatten() {
+        let p = ent.path();
+        let vendor = std::fs::read_to_string(p.join("vendor"))
+            .ok()
+            .map(|s| s.trim().to_lowercase())
+            .unwrap_or_default();
+        let device = std::fs::read_to_string(p.join("device"))
+            .ok()
+            .map(|s| s.trim().to_lowercase())
+            .unwrap_or_default();
+        if vendor == "0x8086" && BATTLEMAGE_IDS.contains(&device.as_str()) {
+            // Resolve the bound driver via the `driver` symlink.
+            let drv_link = p.join("driver");
+            let drv_name = std::fs::read_link(&drv_link)
+                .ok()
+                .and_then(|t| {
+                    t.file_name()
+                        .map(|s| s.to_string_lossy().into_owned())
+                })
+                .unwrap_or_else(|| "<none>".into());
+            return match drv_name.as_str() {
+                "xe" => (
+                    Outcome::Ok,
+                    format!("Battlemage {device} bound to xe"),
+                ),
+                "i915" => (
+                    Outcome::Warn,
+                    format!("Battlemage {device} bound to i915 — force xe.conf"),
+                ),
+                "<none>" => (
+                    Outcome::Warn,
+                    format!("Battlemage {device} present, no driver bound"),
+                ),
+                other => (
+                    Outcome::Warn,
+                    format!("Battlemage {device} bound to {other}"),
+                ),
+            };
+        }
+    }
+    (
+        Outcome::Warn,
+        "no Intel Battlemage device on PCI bus (sliger-only)".into(),
+    )
+}
+
+/// gfx1201 (RDNA 4 / RX 9070 XT) probe for the ryzen host. Uses
+/// /sys/class/drm/card*/device/{vendor,device} + the `amdgpu` driver binding.
+/// gfx1201 has PCI device id 0x7590 (Navi 48 XT, RX 9070 XT).
+pub(crate) fn gfx1201_probe(root: &Path) -> (Outcome, String) {
+    let drm_dir = root.join("sys/class/drm");
+    let entries = match std::fs::read_dir(&drm_dir) {
+        Ok(e) => e,
+        Err(_) => {
+            return (
+                Outcome::Warn,
+                "no /sys/class/drm — no DRM subsystem".into(),
+            );
+        }
+    };
+
+    const NAVI48_IDS: &[&str] = &["0x7590", "0x7591", "0x7592"];
+
+    for ent in entries.flatten() {
+        let name = ent.file_name().to_string_lossy().into_owned();
+        if !name.starts_with("card") || name.contains('-') {
+            continue;
+        }
+        let dev = ent.path().join("device");
+        let vendor = std::fs::read_to_string(dev.join("vendor"))
+            .ok()
+            .map(|s| s.trim().to_lowercase())
+            .unwrap_or_default();
+        let device = std::fs::read_to_string(dev.join("device"))
+            .ok()
+            .map(|s| s.trim().to_lowercase())
+            .unwrap_or_default();
+        if vendor == "0x1002" && NAVI48_IDS.contains(&device.as_str()) {
+            let drv_link = dev.join("driver");
+            let drv_name = std::fs::read_link(&drv_link)
+                .ok()
+                .and_then(|t| {
+                    t.file_name()
+                        .map(|s| s.to_string_lossy().into_owned())
+                })
+                .unwrap_or_else(|| "<none>".into());
+            return if drv_name == "amdgpu" {
+                (
+                    Outcome::Ok,
+                    format!("gfx1201 RX 9070 XT ({device}) bound to amdgpu"),
+                )
+            } else {
+                (
+                    Outcome::Warn,
+                    format!("gfx1201 {device} present, driver={drv_name}"),
+                )
+            };
+        }
+    }
+    (
+        Outcome::Warn,
+        "no gfx1201 (Navi 48) on DRM bus (ryzen host only)".into(),
+    )
+}
+
+fn fs_root() -> PathBuf {
+    PathBuf::from("/")
+}
+
 pub async fn run() -> Result<()> {
     let mut warn = 0u32;
     let mut fail = 0u32;
@@ -190,6 +382,18 @@ pub async fn run() -> Result<()> {
     let (o, d) = check_kernel();
     tally(o);
     row("kernel", o, &d);
+
+    println!("\n─── accelerators ────────────────────────────");
+    let root = fs_root();
+    let (o, d) = npu_probe(&root);
+    tally(o);
+    row("npu (xdna2)", o, &d);
+    let (o, d) = xe2_probe(&root);
+    tally(o);
+    row("xe2 (sliger)", o, &d);
+    let (o, d) = gfx1201_probe(&root);
+    tally(o);
+    row("gfx1201 (ryzen)", o, &d);
 
     println!("\n─── services ────────────────────────────────");
     for (short, unit, port) in SERVICES {
@@ -239,4 +443,241 @@ pub async fn run() -> Result<()> {
     } else {
         0
     });
+}
+
+#[cfg(test)]
+mod tests {
+    //! Fake-sysfs tests for the three accelerator probes. Each test builds a
+    //! tempdir root and passes it in as the injected fs root. We deliberately
+    //! do not touch the real filesystem.
+    use super::*;
+    use std::fs;
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
+    use tempfile::TempDir;
+
+    // ---- helpers ------------------------------------------------------------
+
+    fn write(path: &Path, contents: &str) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(path, contents).unwrap();
+    }
+
+    fn mk_accel(root: &Path, name: &str, vendor: &str, device: &str) {
+        let dev = root
+            .join("sys/class/accel")
+            .join(name)
+            .join("device");
+        write(&dev.join("vendor"), &format!("{vendor}\n"));
+        write(&dev.join("device"), &format!("{device}\n"));
+    }
+
+    fn mk_pci(root: &Path, bdf: &str, vendor: &str, device: &str, driver: Option<&str>) {
+        let dev = root.join("sys/bus/pci/devices").join(bdf);
+        write(&dev.join("vendor"), &format!("{vendor}\n"));
+        write(&dev.join("device"), &format!("{device}\n"));
+        if let Some(drv) = driver {
+            let drv_dir = root.join("sys/bus/pci/drivers").join(drv);
+            fs::create_dir_all(&drv_dir).unwrap();
+            #[cfg(unix)]
+            symlink(&drv_dir, dev.join("driver")).unwrap();
+        }
+    }
+
+    fn mk_drm_card(
+        root: &Path,
+        card: &str,
+        vendor: &str,
+        device: &str,
+        driver: Option<&str>,
+    ) {
+        let dev = root.join("sys/class/drm").join(card).join("device");
+        write(&dev.join("vendor"), &format!("{vendor}\n"));
+        write(&dev.join("device"), &format!("{device}\n"));
+        if let Some(drv) = driver {
+            let drv_dir = root.join("sys/bus/pci/drivers").join(drv);
+            fs::create_dir_all(&drv_dir).unwrap();
+            #[cfg(unix)]
+            symlink(&drv_dir, dev.join("driver")).unwrap();
+        }
+    }
+
+    // ---- npu_probe ----------------------------------------------------------
+
+    #[test]
+    fn npu_probe_missing_accel_dir_warns() {
+        let td = TempDir::new().unwrap();
+        let (o, d) = npu_probe(td.path());
+        assert_eq!(o, Outcome::Warn);
+        assert!(d.contains("/sys/class/accel") || d.contains("absent"));
+    }
+
+    #[test]
+    fn npu_probe_empty_accel_dir_warns() {
+        let td = TempDir::new().unwrap();
+        fs::create_dir_all(td.path().join("sys/class/accel")).unwrap();
+        let (o, d) = npu_probe(td.path());
+        assert_eq!(o, Outcome::Warn);
+        assert!(d.contains("no AMD accel"));
+    }
+
+    #[test]
+    fn npu_probe_phoenix_with_module_ok() {
+        let td = TempDir::new().unwrap();
+        mk_accel(td.path(), "accel0", "0x1022", "0x1502");
+        fs::create_dir_all(td.path().join("sys/module/amdxdna")).unwrap();
+        let (o, d) = npu_probe(td.path());
+        assert_eq!(o, Outcome::Ok);
+        assert!(d.contains("accel0"));
+        assert!(d.contains("0x1502"));
+        assert!(d.contains("amdxdna"));
+    }
+
+    #[test]
+    fn npu_probe_stxh_without_module_warns() {
+        let td = TempDir::new().unwrap();
+        mk_accel(td.path(), "accel0", "0x1022", "0x17f0");
+        let (o, d) = npu_probe(td.path());
+        assert_eq!(o, Outcome::Warn);
+        assert!(d.contains("amdxdna module not loaded"));
+    }
+
+    #[test]
+    fn npu_probe_wrong_vendor_ignored() {
+        let td = TempDir::new().unwrap();
+        mk_accel(td.path(), "accel0", "0x10de", "0x2330"); // nvidia-ish
+        let (o, _d) = npu_probe(td.path());
+        assert_eq!(o, Outcome::Warn);
+    }
+
+    // ---- xe2_probe ----------------------------------------------------------
+
+    #[test]
+    fn xe2_probe_missing_pci_warns() {
+        let td = TempDir::new().unwrap();
+        let (o, _d) = xe2_probe(td.path());
+        assert_eq!(o, Outcome::Warn);
+    }
+
+    #[test]
+    fn xe2_probe_no_battlemage_device_warns() {
+        let td = TempDir::new().unwrap();
+        mk_pci(
+            td.path(),
+            "0000:00:02.0",
+            "0x8086",
+            "0x46a6",
+            Some("i915"),
+        );
+        let (o, d) = xe2_probe(td.path());
+        assert_eq!(o, Outcome::Warn);
+        assert!(d.contains("no Intel Battlemage"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn xe2_probe_b580_on_xe_ok() {
+        let td = TempDir::new().unwrap();
+        mk_pci(td.path(), "0000:03:00.0", "0x8086", "0xe20b", Some("xe"));
+        let (o, d) = xe2_probe(td.path());
+        assert_eq!(o, Outcome::Ok);
+        assert!(d.contains("0xe20b"));
+        assert!(d.contains("xe"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn xe2_probe_b580_on_i915_warns() {
+        let td = TempDir::new().unwrap();
+        mk_pci(td.path(), "0000:03:00.0", "0x8086", "0xe20b", Some("i915"));
+        let (o, d) = xe2_probe(td.path());
+        assert_eq!(o, Outcome::Warn);
+        assert!(d.contains("i915"));
+    }
+
+    #[test]
+    fn xe2_probe_b580_no_driver_warns() {
+        let td = TempDir::new().unwrap();
+        mk_pci(td.path(), "0000:03:00.0", "0x8086", "0xe20b", None);
+        let (o, d) = xe2_probe(td.path());
+        assert_eq!(o, Outcome::Warn);
+        assert!(d.contains("no driver") || d.contains("<none>"));
+    }
+
+    // ---- gfx1201_probe ------------------------------------------------------
+
+    #[test]
+    fn gfx1201_probe_missing_drm_warns() {
+        let td = TempDir::new().unwrap();
+        let (o, _d) = gfx1201_probe(td.path());
+        assert_eq!(o, Outcome::Warn);
+    }
+
+    #[test]
+    fn gfx1201_probe_no_navi48_warns() {
+        let td = TempDir::new().unwrap();
+        // gfx1151 Strix Halo iGPU (not Navi 48) — must not match.
+        mk_drm_card(
+            td.path(),
+            "card0",
+            "0x1002",
+            "0x1586",
+            Some("amdgpu"),
+        );
+        let (o, d) = gfx1201_probe(td.path());
+        assert_eq!(o, Outcome::Warn);
+        assert!(d.contains("no gfx1201"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn gfx1201_probe_rx9070xt_on_amdgpu_ok() {
+        let td = TempDir::new().unwrap();
+        mk_drm_card(
+            td.path(),
+            "card1",
+            "0x1002",
+            "0x7590",
+            Some("amdgpu"),
+        );
+        let (o, d) = gfx1201_probe(td.path());
+        assert_eq!(o, Outcome::Ok);
+        assert!(d.contains("gfx1201"));
+        assert!(d.contains("amdgpu"));
+    }
+
+    #[test]
+    fn gfx1201_probe_skips_card_partitions() {
+        let td = TempDir::new().unwrap();
+        // a `card0-DP-1` connector entry should be skipped, and the real
+        // card0 underneath should still match.
+        let dev = td
+            .path()
+            .join("sys/class/drm/card0-DP-1/device");
+        write(&dev.join("vendor"), "0x1002\n");
+        write(&dev.join("device"), "0x7590\n");
+        let (o, d) = gfx1201_probe(td.path());
+        // The connector-shaped dir is skipped by the `contains('-')` guard,
+        // so with no other card present we warn.
+        assert_eq!(o, Outcome::Warn);
+        assert!(d.contains("no gfx1201"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn gfx1201_probe_wrong_driver_warns() {
+        let td = TempDir::new().unwrap();
+        mk_drm_card(
+            td.path(),
+            "card1",
+            "0x1002",
+            "0x7590",
+            Some("vfio-pci"),
+        );
+        let (o, d) = gfx1201_probe(td.path());
+        assert_eq!(o, Outcome::Warn);
+        assert!(d.contains("vfio-pci"));
+    }
 }
