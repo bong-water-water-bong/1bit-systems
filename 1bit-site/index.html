@@ -805,7 +805,7 @@
       <ul>
         <li><strong>Sparse-BitNet retrain</strong> on an H200 pod — targeting <strong>1.25 effective bits per weight</strong> via 3:4 N:M sparsity on top of 1.58-bit. Run 4 live. 10B-token budget, ~57 h wall-clock.</li>
         <li><strong>BitNet v2</strong> implementation (Hadamard-native W1.58 A4) planned next.</li>
-        <li><strong>gfx1201 build variant</strong> for RX 9070 XT — second hardware target. ROCm 7.2.2 live on the second box. WMMA intrinsic port still in progress.</li>
+        <li><strong>gfx1201 build variant</strong> for RX 9070 XT — <strong>shipped 2026-04-22</strong>. All 14 WMMA prefill kernels bit-exact vs CK on both gfx1151 and gfx1201. PPL on wikitext-103 is <strong>11.9758 on both arches</strong> — identical to every printed digit. Decode gains +18% short-context, +25% at 4K context. <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/benchmarks/data/ppl-cross-arch-20260422.json" target="_blank" rel="noopener">raw JSON</a>.</li>
         <li><strong>Desktop shell</strong> — voice-first, plugin API via MCP, package manager.</li>
       </ul>
 
