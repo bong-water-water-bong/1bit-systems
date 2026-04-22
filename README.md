@@ -10,7 +10,7 @@
 [![Platform: Strix Halo gfx1151](https://img.shields.io/badge/platform-Strix%20Halo%20gfx1151-red.svg)](./docs/wiki/Why-Strix-Halo.md)
 [![Website: 1bit.systems](https://img.shields.io/badge/web-1bit.systems-7c3aed.svg)](https://1bit.systems)
 
-_"I know kung fu."_ — `2B ternary BitNet @ 83 tok/s on one AMD APU`, whole stack (router · HTTP · agents · MCP · desktop · package manager) in a single Cargo workspace. Neo learned kung fu in a cable upload. You learn it in `cargo build --release`.
+_"I know kung fu."_ — `2B ternary BitNet @ 83 tok/s on one AMD APU`, whole stack (router · HTTP · agents · MCP · desktop · package manager) in a single Cargo workspace. <sub><em>Neo learned kung fu in a cable upload. You learn it in `cargo build --release`.</em></sub>
 
 </div>
 
@@ -22,7 +22,7 @@ One mini-PC in a closet, one binary per service, a 1.58-bit ternary LLM answerin
 
 The kernels are hand-written HIP targeting **gfx1151** (Strix Halo iGPU). Everything above them — router, HTTP server, agent bus, MCP bridge, desktop client, package manager — is **Rust**. `systemd` supervises it. Caddy fronts it. And when `1bit status` prints a full column of green dots, that's your household AI. No SaaS, no rent, no spoon.
 
-There is no spoon. There's just LPDDR5, and a GEMV that's eating it at 92% of theoretical peak.
+<sub><em>There is no spoon.</em></sub> There's just LPDDR5, and a GEMV that's eating it at 92% of theoretical peak.
 
 ```
   ┌─────────────────────────────────────────────────────────────┐
@@ -44,14 +44,14 @@ There is no spoon. There's just LPDDR5, and a GEMV that's eating it at 92% of th
 
 ## Why it's worth looking at
 
-- **The need — the need for bandwidth.** (We feel it, Mav.) The ternary GEMV sits at **~92% of measured LPDDR5 peak**. Can't go much faster without reading fewer bytes — which is exactly what Sherry 1.25-bit is for.
+- **The need — the need for bandwidth.** <sub><em>(We feel it, Mav.)</em></sub> The ternary GEMV sits at **~92% of measured LPDDR5 peak**. Can't go much faster without reading fewer bytes — which is exactly what Sherry 1.25-bit is for.
 - **Native kernels, no black boxes.** `Rust → extern "C" → HIP`. No hipBLAS. No rocBLAS. No ONNX Runtime. No Python. You can read the whole thing in one sitting, top to bottom, like it's 1987 and you've got a printout of DOOM's source.
-- **One box, many roads.** 128 GB unified memory on Strix Halo is enough for a 2B ternary model **plus** KV cache **plus** Whisper STT **plus** Kokoro TTS **plus** SDXL image generation, all concurrent, all local. Where we're going, we don't need racks.
-- **OpenAI-compat first.** Point any `openai` SDK, DSPy, Open WebUI, LibreChat, or Claude Code MCP client at `http://localhost:8180/v1` and it just works. "It just works" is a load-bearing sentence here.
+- **One box, many roads.** 128 GB unified memory on Strix Halo is enough for a 2B ternary model **plus** KV cache **plus** Whisper STT **plus** Kokoro TTS **plus** SDXL image generation, all concurrent, all local. <sub><em>Where we're going, we don't need racks.</em></sub>
+- **OpenAI-compat first.** Point any `openai` SDK, DSPy, Open WebUI, LibreChat, or Claude Code MCP client at `http://localhost:8180/v1` and it just works. <sub><em>"It just works" is a load-bearing sentence here.</em></sub>
 
 ## Benchmarks
 
-_Great Scott!_ — measured on the Strix Halo reference box (Radeon 8060S / gfx1151, 128 GB LPDDR5). No fudging, no "measured on a different box," no asterisks the size of Nebraska.
+<sub><em>Great Scott!</em></sub> — measured on the Strix Halo reference box (Radeon 8060S / gfx1151, 128 GB LPDDR5). No fudging, no "measured on a different box," no asterisks the size of Nebraska.
 
 | metric            | value                   | notes                                      |
 | ----------------- | ----------------------- | ------------------------------------------ |
@@ -66,7 +66,7 @@ _Great Scott!_ — measured on the Strix Halo reference box (Radeon 8060S / gfx1
 
 ## Quickstart
 
-Buckle up.
+<sub><em>Buckle up.</em></sub>
 
 ```sh
 # build the whole workspace
@@ -85,7 +85,7 @@ curl -s http://127.0.0.1:8180/v1/chat/completions \
   }'
 ```
 
-Skip the package manager, go straight to the matrix:
+Skip the package manager, <sub><em>go straight to the matrix:</em></sub>
 
 ```sh
 cargo run --release -p 1bit-server --features real-backend
@@ -127,7 +127,7 @@ All eleven compile under default features with **zero** ROCm deps; `link-rocm` /
 
 ## The four pillars
 
-Four repos walk into a closet. One of them runs the HTTP server, one writes the kernels, one ports to Apple Silicon, and one we keep around because it's the blueprint we're chasing. This workspace is pillar 1.
+<sub><em>Four repos walk into a closet.</em></sub> One of them runs the HTTP server, one writes the kernels, one ports to Apple Silicon, and one we keep around because it's the blueprint we're chasing. This workspace is pillar 1.
 
 1. **Rust orchestration** — this monorepo. Everything above the kernels. Rule A safe (no Python at runtime).
 2. **AMD HIP kernels** — [`bong-water-water-bong/rocm-cpp`](https://github.com/bong-water-water-bong/rocm-cpp). Ternary GEMV, RMSNorm, RoPE, split-KV Flash-Decoding attention, rotorquant PlanarQuant-3 KV compression. Folded into this repo's `rocm-cpp/` subtree.
@@ -136,7 +136,7 @@ Four repos walk into a closet. One of them runs the HTTP server, one writes the 
 
 ## Clients
 
-Show me the money. `1bit-server` speaks plain OpenAI chat-completions on `:8180`, so off-the-shelf clients work out of the box. Point them at `http://strixhalo.local:8180/v1` — or, through Caddy, `https://strixhalo.local/v2/...` with the halo bearer token.
+<sub><em>Show me the money.</em></sub> `1bit-server` speaks plain OpenAI chat-completions on `:8180`, so off-the-shelf clients work out of the box. Point them at `http://strixhalo.local:8180/v1` — or, through Caddy, `https://strixhalo.local/v2/...` with the halo bearer token.
 
 ### DSPy (Stanford)
 
