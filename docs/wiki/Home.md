@@ -2,6 +2,10 @@
 
 Plain-English explanations of the architectural calls we made — one page per decision, citations where they exist.
 
+## Internals
+
+- [Architecture deep](./Architecture-Deep.md) — end-to-end request walkthrough, per-kernel provenance, FFI signatures, agent registry, training pipeline, mesh, failure surface
+
 ## Decisions
 
 - [Why 1.58-bit ternary?](./Why-Ternary.md) — the weight format

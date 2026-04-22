@@ -659,6 +659,7 @@
         <div class="nav-group-body">
           <ul class="nav-list">
             <li><a href="#architecture">Architecture</a></li>
+            <li><a href="#deep-architecture">Deep architecture</a></li>
             <li><a href="#constraints">Constraints</a></li>
 
             <li class="nav-subgroup">
@@ -842,6 +843,200 @@
 
       <p>
         Every layer is native. Rust handles orchestration (HTTP, sessions, scheduling, streaming). C++20 + HIP handles kernels and model state. No Python in the serving path at any layer.
+      </p>
+    </section>
+
+    <section id="deep-architecture">
+      <h2>Deep architecture</h2>
+      <p>
+        Condensed walkthrough. The full treatment lives in the wiki at <a href="/docs/wiki/Architecture-Deep">Architecture-Deep</a> — request life-cycle byte accounting, per-kernel provenance, FFI signatures, the agent registry, training pipeline math, mesh topology, and the failure surface.
+      </p>
+
+      <h3>Ports + surfaces</h3>
+      <table>
+        <thead><tr><th>port</th><th>binding</th><th>service</th><th>surface</th></tr></thead>
+        <tbody>
+          <tr><td>443</td><td>public</td><td>caddy</td><td>TLS, bearer check, <code>/v1</code> / <code>/v2</code> split</td></tr>
+          <tr><td>8080</td><td>127.0.0.1</td><td>bitnet_decode (C++)</td><td><code>/v1/*</code> (gen-1)</td></tr>
+          <tr><td>8180</td><td>127.0.0.1</td><td>1bit-halo-server (Rust)</td><td><code>/v2/*</code> (gen-2)</td></tr>
+          <tr><td>8081</td><td>127.0.0.1</td><td>sd.cpp</td><td>SDXL image-gen sidecar</td></tr>
+          <tr><td>8181</td><td>127.0.0.1</td><td>halo-whisper</td><td>STT</td></tr>
+          <tr><td>8182</td><td>127.0.0.1</td><td>halo-kokoro</td><td>TTS</td></tr>
+          <tr><td>8190</td><td>127.0.0.1</td><td>1bit-landing</td><td>landing + wiki proxy</td></tr>
+          <tr><td>8200</td><td>127.0.0.1</td><td>1bit-lemonade</td><td><code>/v1/models</code> gateway</td></tr>
+          <tr><td>stdio</td><td>—</td><td>halo-mcp</td><td>JSON-RPC 2.0 tools</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Request life-cycle</h3>
+      <p>
+        A chat-completion walked through every layer. Client POSTs to <code>https://halo.&lt;host&gt;/v2/chat/completions</code> with a bearer token.
+      </p>
+      <ol>
+        <li>TLS terminates at Caddy. Constant-time bearer compare against <code>/etc/caddy/Caddyfile</code>. Under 1 ms after the initial TCP+TLS setup.</li>
+        <li>Caddy <code>reverse_proxy localhost:8180</code>. Plain HTTP/1.1 over loopback.</li>
+        <li>axum deserializes <code>Json&lt;ChatCompletionRequest&gt;</code>. Shape errors return 400 before any inference work. Metrics histogram starts after the 400 check.</li>
+        <li><code>1bit-router</code> dispatches to <code>Backend::Hip</code> (the only compiled backend in production). The <code>Backend::Cpu</code> variant exists but returns <code>BackendError::CpuLaneStub</code>.</li>
+        <li>Mutex around the shared KV cache locks. <code>pos</code> resets to 0 per request. KV bytes per token on halo v2: <code>2 × 8 × 256 × 2 = 8 KiB</code> per layer, 240 KiB total across 30 layers.</li>
+        <li>Tokenizer (<code>1bit-core::htok</code>) encodes. Llama-3 <code>&lt;|eot_id|&gt;</code> (128009) is recognised as a single ID — the fix that took burn-in parity from 18% to <strong>96.67%</strong>.</li>
+        <li>Prefill: one forward pass per prompt token. Rust calls <code>1bit-hip::ternary_gemv_halo_f16</code> which crosses <code>extern &quot;C&quot;</code> into <code>rocm-cpp</code>. Per-call overhead is measured-TBD; no Rust allocations per call.</li>
+        <li>Decode: sample (argmax on host at <code>temperature ≤ 0</code>, sampler kernel above), append, write next K/V slot, check stop tokens on token IDs before detokenization.</li>
+        <li>Stream: if <code>req.stream</code>, wrap in an accounting iterator that tallies tokens per SSE frame. Else return a single JSON body.</li>
+        <li>Caddy forwards bytes unchanged. Wall-clock: ~200 ms for a 10-token prompt + 10-token reply.</li>
+      </ol>
+
+      <h3>Kernels</h3>
+      <dl>
+        <dt><code>ternary_gemv_halo_f16</code></dt>
+        <dd>
+          Packed ternary weights (2 bits per weight, <code>uint8[M, (K+3)/4]</code>), FP32 row scale, INT8 activations, FP16 output. Uses <code>v_dot4_i32_i8</code> and WMMA on gfx1151. <strong>92% of LPDDR5 peak</strong> at decode @ N=64. Bandwidth-bound; compute utilization under 10%. Bytes-read reduction (Sherry 1.25-bit, TQ1 base-3) is the #1 speedup lever.
+        </dd>
+        <dt><code>kv_cache_attn_decode_fd</code></dt>
+        <dd>
+          Split-KV Flash-Decoding. Per-head parallelism across thread-blocks; each head splits its KV range into B chunks, reduces to <code>(m, l, o)</code> triples, combines via log-sum-exp. Landed 2026-04-19, default in both servers. <strong>6.78× speedup at L=2048</strong>, bit-exact against the reference path.
+        </dd>
+        <dt><code>rope_fp16</code></dt>
+        <dd>
+          Rotary position embedding, HF split-half convention. Pre-fix interleaved convention gave wikitext-103 PPL 524; post-fix ~12. Repeated-text PPL 4.29 → 1.04. Six-line diff.
+        </dd>
+        <dt><code>rmsnorm_fp16</code>, <code>silu_glu_fp16</code></dt>
+        <dd>
+          RMSNorm + SwiGLU fused into the FFN path. The <code>relu2_glu_*</code> variants exist for the activation-sparsity experiments (Phase 1 measured 79.91% sparsity; upper-bound speedup 10-15%, deferred behind Sherry).
+        </dd>
+        <dt>KV cache</dt>
+        <dd>
+          <code>[num_layers][2][num_kv_heads][max_seq_len][head_dim]</code> FP16. Append-only ring; one buffer per in-flight request; 128-byte <code>hipMalloc</code> alignment.
+        </dd>
+      </dl>
+
+      <h3>Memory model</h3>
+      <p>
+        Unified LPDDR5X, 128 GB total. No PCIe copy — the same DDR bank the CPU just wrote to is the memory the iGPU reads via <code>hipMalloc</code>'d virtual addresses. For halo v2:
+      </p>
+      <table>
+        <thead><tr><th>region</th><th>size</th><th>lifetime</th></tr></thead>
+        <tbody>
+          <tr><td>weights (.h1b mmap)</td><td>~1.1 GiB</td><td>process; shared across sessions</td></tr>
+          <tr><td>KV cache @ 4096 ctx</td><td>~960 MiB</td><td>per session; pinned</td></tr>
+          <tr><td>activations (scratch)</td><td>~100 MiB</td><td>per forward; reused across layers</td></tr>
+          <tr><td>HIP runtime + ROCm</td><td>~1 GiB</td><td>process</td></tr>
+          <tr><td>OS + everything else</td><td>~4 GiB</td><td>system</td></tr>
+          <tr><td><strong>subtotal</strong></td><td><strong>~7 GiB</strong></td><td>out of <strong>128 GiB</strong></td></tr>
+        </tbody>
+      </table>
+
+      <h3>Model formats</h3>
+      <p>
+        <code>.h1b</code> v2: 4-byte magic <code>H1B\0</code>, int32 version, 9 int32 config (hidden_size, intermediate_size, num_layers, num_heads, num_kv_heads, vocab_size, max_seq_len, tie_embeddings, reserved), 2 float32 extras (<code>rope_theta</code>, <code>rms_norm_eps</code>), then per-layer tensors. <code>reserved</code> is a flag word: <code>0x1</code> Hadamard-rotated (BitNet v2), <code>0x2</code> Sherry FP16, <code>0x4</code> Bonsai Q1, <code>0x8</code> Bonsai TQ2.
+      </p>
+      <p>
+        <code>.htok</code> is the tokenizer side-file — Llama-3 128k BPE + special tokens, mmap-parsed at startup.
+      </p>
+      <p>
+        Why not GGUF: the GGUF loader walked ~5× slower against a cold page cache (per-tensor metadata we don't need), and the halo layout is O(num_layers) offset math. Conversion tool <code>tools/gguf-to-h1b</code> runs one-shot at dev time, not in a serving path.
+      </p>
+
+      <h3>Agents</h3>
+      <p>
+        17 specialists in <code>1bit-agents::Name</code>. One registry, surfaced both on the agents bus and on the MCP tool list.
+      </p>
+      <table>
+        <thead><tr><th>specialist</th><th>role</th><th>dispatched by</th></tr></thead>
+        <tbody>
+          <tr><td>Anvil</td><td>kernel rebuild + bench on <code>rocm-cpp</code> commits</td><td>anvil.timer</td></tr>
+          <tr><td>Carpenter</td><td>file scaffolding</td><td>Planner</td></tr>
+          <tr><td>Cartograph</td><td>cross-repo changelog + topology snapshot</td><td>Librarian</td></tr>
+          <tr><td>EchoEar</td><td>STT ingress (halo-whisper)</td><td>halo-voice</td></tr>
+          <tr><td>EchoMouth</td><td>TTS egress (halo-kokoro)</td><td>EchoEar / Herald</td></tr>
+          <tr><td>Forge</td><td>PR drafts + commit messages</td><td>Planner</td></tr>
+          <tr><td>Gateway</td><td>inbound classification + routing policy</td><td>watchers</td></tr>
+          <tr><td>Herald</td><td>comms / Q&amp;A / chat replies</td><td>Gateway</td></tr>
+          <tr><td>Librarian</td><td>CHANGELOG + wiki upkeep</td><td>librarian.timer</td></tr>
+          <tr><td>Magistrate</td><td>PR review + CC lint + secret scan</td><td>gh-trio.timer</td></tr>
+          <tr><td>Muse</td><td>long-form prose</td><td>operator</td></tr>
+          <tr><td>Planner</td><td>multi-step task decomposition</td><td>operator</td></tr>
+          <tr><td>Quartermaster</td><td>issue triage</td><td>gh-trio.timer</td></tr>
+          <tr><td>Scribe</td><td>doc edits</td><td>Librarian / ops</td></tr>
+          <tr><td>Sentinel</td><td>incident watchdog</td><td>continuous</td></tr>
+          <tr><td>Sommelier</td><td>backend / model recommendation</td><td>Planner</td></tr>
+          <tr><td>Warden</td><td>secret + credential drift</td><td>ops</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Discord + GitHub pipelines</h3>
+      <p>
+        Discord: <strong>halo</strong> listens, <strong>echo</strong> posts. halo requires the privileged <code>MESSAGE_CONTENT</code> gateway intent plus <code>GUILDS</code> and <code>GUILD_MESSAGES</code>. Mentions are classified (<code>BugReport → Sentinel</code>, <code>FeatureRequest → Magistrate</code>, <code>Question → Herald</code>, <code>Chat → Herald</code>). Bug reports auto-create a thread on the original message.
+      </p>
+      <p>
+        GitHub: <code>1bit-watch-github</code> polls every <code>DEFAULT_POLL_SECONDS = 300</code>. Read-only fine-grained PAT. Any PR → Magistrate. Label <code>bug</code> or title containing <code>error</code> / <code>crash</code> / <code>fail</code> → Sentinel. Label <code>enhancement</code> / <code>feature</code> → Planner. Label <code>documentation</code> → Scribe. Fallback → Sentinel. Lookback window is <code>poll_seconds × 2</code>.
+      </p>
+
+      <h3>MCP</h3>
+      <p>
+        <code>1bit-mcp</code> speaks JSON-RPC 2.0 over stdio, one object per <code>\n</code>-delimited line (Claude Code convention). Protocol version <code>2024-11-05</code>. <code>tools/list</code> is derived from <code>Name::ALL</code>; <code>tools/call</code> dispatches through <code>Arc&lt;Registry&gt;</code>. 22 in-crate tests cover the wire framing, registry routing, and the five JSON-RPC error codes (<code>-32600</code> invalid request, <code>-32601</code> method not found, <code>-32602</code> invalid params, <code>-32603</code> internal, <code>-32001</code> unknown tool).
+      </p>
+
+      <h3>Training pipeline</h3>
+      <p>
+        Retrains run on a persistent RunPod H200 pod. TRL + HuggingFace streaming loader. Step cadence: <code>batch_size=16</code>, <code>seq_len=2048</code>, <code>grad_accum=32</code>, <code>log_every=10</code>, <code>save_every=100</code>, <code>verify_nm_mask_every=500</code>. Per-step tokens <code>16 × 2048 × 32 ≈ 1.05M</code>. 10 B-token budget ≈ 9600 steps. Measured throughput <strong>49.5k tok/s</strong> on H200 → full run ≈ <strong>56 h wall-clock</strong>. Artifacts flow: pod → pi archive → requantizer → <code>.h1b</code> → strixhalo → shadow-burnin → cutover.
+      </p>
+
+      <h3>Shadow-burnin</h3>
+      <p>
+        Continuous <code>/v1</code> vs <code>/v2</code> argmax comparison every 30 s.
+      </p>
+      <pre><code>state file : ~/.local/share/1bit-halo/shadow-burnin.state
+log (JSONL): ~/claude output/shadow-burnin.jsonl
+cutover    : ≥ 96% bit-exact argmax over a 72 h rolling window
+current    : 96.67% (post-special-token fix)</code></pre>
+      <p>
+        Cutover gates: (1) PPL parity on wikitext within ±0.05 of the gen-1 baseline 9.1607 — gen-2 currently 9.1805, delta +0.02, PASS. (2) Shadow-burnin ≥96% for 72 h continuous under real traffic, no restarts, no memory growth.
+      </p>
+
+      <h3>Mesh</h3>
+      <p>
+        Private Headscale tailnet, <code>100.64.0.0/10</code> CGNAT-reserved range (RFC 6598). Coordinator on strixhalo, fronted by Caddy at <code>:443</code>, upstream loopback <code>127.0.0.1:8380</code>. No Tailscale DERP, no third-party control plane. STUN on <code>:3478</code>; every pair is direct LAN.
+      </p>
+      <table>
+        <thead><tr><th>node</th><th>mesh IP</th><th>role</th></tr></thead>
+        <tbody>
+          <tr><td>strixhalo</td><td>100.64.0.1</td><td>gfx1151, Caddy, Headscale, primary inference</td></tr>
+          <tr><td>sliger</td><td>100.64.0.2</td><td>NVIDIA 1080 Ti, failover candidate</td></tr>
+          <tr><td>ryzen</td><td>100.64.0.3</td><td>RX 9070 XT (gfx1201), second kernel target</td></tr>
+          <tr><td>pi</td><td>100.64.0.4</td><td>ZFS 3.6 TB, canonical archive, nightly rsync</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Deployment</h3>
+      <p>
+        All long-lived processes are user-scope systemd units installed from <code>strixhalo/systemd/</code>. Caddy fronts TLS at the system level. <code>1bit install &lt;component&gt;</code> reads <code>packages.toml</code> — <code>[components.&lt;name&gt;]</code> with <code>unit</code>, <code>binary</code>, <code>source</code>, <code>deps</code> — and runs <code>systemctl stop → cargo install --path → copy → systemctl start</code>. Idempotent.
+      </p>
+      <pre><code>strix-server.service        — 1bit-halo-server :8180  (gen-2 Rust)
+1bit-halo-bitnet.service    — bitnet_decode :8080     (gen-1 C++)
+strix-lemonade.service      — 1bit-lemonade :8200
+strix-landing.service       — 1bit-landing :8190
+strix-echo.service          — echo (Discord poster)
+strix-watch-discord.service — halo (Discord listener)
+strix-watch-github.timer    — 300 s poll
+1bit-halo-whisper.service   — STT :8181
+1bit-halo-kokoro.service    — TTS :8182
+1bit-halo-sd.service        — sd.cpp :8081
+1bit-halo-anvil.timer       — kernel rebuild on rocm-cpp commits
+1bit-halo-memory-sync.timer — GH push every 15 m
+strix-burnin.service        — shadow-burnin harness</code></pre>
+
+      <h3>Supply chain</h3>
+      <p>
+        Trusted dependencies: TheRock (ROCm), <code>serenity-rs</code> (Discord), <code>octocrab</code> (GitHub), <code>axum</code> + <code>tower</code> + <code>hyper</code> + <code>reqwest</code>, <code>serde</code>, <code>nlohmann/json</code>, <code>cpp-httplib</code>. <em>Not</em> used: hipBLAS at runtime (Rule C — banned), <code>torch</code> / any Python-serving library (Rule A), in-proc Python Open WebUI (caller-side only, sunsets on Helm v0.3).
+      </p>
+
+      <h3>Failure surface</h3>
+      <p>
+        Every service uses <code>Restart=on-failure</code> with a 5-10 s <code>RestartSec</code>. Blast radius is per-service — <code>strix-server</code> crashing returns 502 via Caddy but leaves the rest of the stack intact. Kernel-level issues (the OPTC CRTC hang signature <code>REG_WAIT timeout 1us * 100000 tries - optc35_disable_crtc</code>) are mitigated by <code>halo-gpu-perf.service</code> pinning SCLK high; persistent issues roll back via Btrfs + snapper to snapshot #6. Memory-sync failures usually mean an expired GH PAT and a rotation fixes them.
+      </p>
+
+      <p>
+        Full write-up including byte-accounting for a 32-token reply, FFI cheat sheet, who-calls-what graph, and the complete environment-variable surface: <a href="/docs/wiki/Architecture-Deep">Architecture-Deep</a>.
       </p>
     </section>
 
