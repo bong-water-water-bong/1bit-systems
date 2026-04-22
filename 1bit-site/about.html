@@ -257,6 +257,33 @@
     color: var(--magenta);
     font-weight: 500;
   }
+  .wink {
+    font-style: italic;
+    font-size: 0.92em;
+    color: var(--text-subtle);
+    letter-spacing: 0.01em;
+  }
+  blockquote.wink {
+    border-left: 2px solid var(--magenta-soft);
+    padding: 8px 0 8px 18px;
+    margin: 24px 0;
+    color: var(--text-subtle);
+    font-size: 0.95em;
+    font-style: italic;
+    max-width: 640px;
+    box-shadow: -4px 0 14px -8px var(--magenta-glow);
+  }
+  .architect-sig {
+    margin-top: 56px;
+    text-align: center;
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 13px;
+    color: var(--text-subtle);
+    letter-spacing: 0.04em;
+    opacity: 0.75;
+  }
+
   footer {
     max-width: calc(var(--content-max) + 80px);
     margin: 80px auto 0;
@@ -320,6 +347,10 @@
     The trade-off is quantization. A 70B-parameter model doesn't fit in 128 GB at FP16 — it does at 1.58 bits per parameter. Current ternary-quantized models land within a few percent of full precision on hard evals. The stack is built around ternary and sub-2-bit weights from the ground up, not retrofitted around an existing FP16 path.
   </p>
 
+  <blockquote class="wink">
+    the 1-bit monster is already here. it just had to learn to count.
+  </blockquote>
+
   <h2>What it is</h2>
   <ul>
     <li><strong>A serving stack</strong> — kernels, HTTP surface, MCP server, speech and image components.</li>
@@ -360,6 +391,7 @@
     <li><a href="docs.html">Read the technical docs</a> — full architecture, kernels, models, roadmap.</li>
     <li><a href="contact.html">Reach out</a> — questions, corrections, research pointers.</li>
   </ul>
+  <div class="architect-sig">stamped by the architect</div>
 </main>
 
 <footer>

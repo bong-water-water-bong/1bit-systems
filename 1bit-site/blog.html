@@ -65,6 +65,33 @@
   .empty-state .title { font-family: 'Fraunces', serif; font-size: 24px; color: var(--text); margin-bottom: 12px; }
   .empty-state .sub { color: var(--text-muted); font-size: 15px; max-width: 480px; margin: 0 auto 24px; }
   .empty-state .watch { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--accent); letter-spacing: 0.08em; text-shadow: 0 0 10px var(--accent-glow); }
+  .wink {
+    font-style: italic;
+    font-size: 0.92em;
+    color: var(--text-subtle);
+    letter-spacing: 0.01em;
+  }
+  blockquote.wink {
+    border-left: 2px solid var(--magenta-soft);
+    padding: 8px 0 8px 18px;
+    margin: 24px 0;
+    color: var(--text-subtle);
+    font-size: 0.95em;
+    font-style: italic;
+    max-width: 640px;
+    box-shadow: -4px 0 14px -8px var(--magenta-glow);
+  }
+  .architect-sig {
+    margin-top: 56px;
+    text-align: center;
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 13px;
+    color: var(--text-subtle);
+    letter-spacing: 0.04em;
+    opacity: 0.75;
+  }
+
   footer { max-width: calc(var(--content-max) + 80px); margin: 80px auto 0; padding: 32px 40px 48px; border-top: 1px solid var(--border); font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.08em; color: var(--text-subtle); display: flex; justify-content: space-between; align-items: center; position: relative; z-index: 2; }
   footer .nav-links { display: flex; gap: 16px; }
   footer a { color: var(--text-subtle); text-decoration: none; }
@@ -110,6 +137,10 @@
     <div class="watch">watch this space · or <a href="https://github.com/bong-water-water-bong/1bit-systems">the repo</a></div>
   </div>
 
+  <blockquote class="wink">
+    they get the kingdom. they forge their own keys.
+  </blockquote>
+
   <h2>What this blog will cover</h2>
   <ul>
     <li><strong>Kernel autopsies</strong> — ternary GEMV at 92% of LPDDR5 peak, attention rewrites, RoPE convention bugs, the non-obvious stuff.</li>
@@ -128,6 +159,7 @@
   <div class="todo-slot">
     first post reserved · likely topic = ternary GEMV bandwidth saturation on gfx1151, or the split-KV Flash-Decoding rewrite autopsy. Lands when shipped-and-measured.
   </div>
+  <div class="architect-sig">stamped by the architect</div>
 </main>
 
 <footer>

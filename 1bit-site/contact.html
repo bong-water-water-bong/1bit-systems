@@ -65,6 +65,33 @@
   .contact-grid { display: grid; grid-template-columns: 140px 1fr; gap: 14px 20px; max-width: 700px; margin: 24px 0 40px; font-size: 15px; }
   .contact-grid dt { font-family: 'JetBrains Mono', monospace; font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--magenta); align-self: center; }
   .contact-grid dd { color: var(--text); }
+  .wink {
+    font-style: italic;
+    font-size: 0.92em;
+    color: var(--text-subtle);
+    letter-spacing: 0.01em;
+  }
+  blockquote.wink {
+    border-left: 2px solid var(--magenta-soft);
+    padding: 8px 0 8px 18px;
+    margin: 24px 0;
+    color: var(--text-subtle);
+    font-size: 0.95em;
+    font-style: italic;
+    max-width: 640px;
+    box-shadow: -4px 0 14px -8px var(--magenta-glow);
+  }
+  .architect-sig {
+    margin-top: 56px;
+    text-align: center;
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 13px;
+    color: var(--text-subtle);
+    letter-spacing: 0.04em;
+    opacity: 0.75;
+  }
+
   footer { max-width: calc(var(--content-max) + 80px); margin: 80px auto 0; padding: 32px 40px 48px; border-top: 1px solid var(--border); font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.08em; color: var(--text-subtle); display: flex; justify-content: space-between; align-items: center; position: relative; z-index: 2; }
   footer .nav-links { display: flex; gap: 16px; }
   footer a { color: var(--text-subtle); text-decoration: none; }
@@ -131,6 +158,10 @@
     </dd>
   </dl>
 
+  <blockquote class="wink">
+    there is no cloud. there is only zuul.
+  </blockquote>
+
   <h2>What to send where</h2>
 
   <h3>Bugs, regressions, doc errors</h3>
@@ -174,6 +205,7 @@
   <div class="callout">
     <strong>Expected reply time</strong> — GitHub Issues get a read within 48h. Pull requests get feedback within a week. Discussions move when they move. Single maintainer; volume scales with how much noise the inbox takes.
   </div>
+  <div class="architect-sig">stamped by the architect</div>
 </main>
 
 <footer>
