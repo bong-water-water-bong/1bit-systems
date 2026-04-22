@@ -49,16 +49,18 @@ jobs:
         with:
           cache-on-failure: true
 
-      # 1bit-hip requires ROCm headers (no ROCm on ubuntu-latest).
-      # 1bit-mlx is Apple Silicon only.
+      # onebit-hip requires ROCm headers (no ROCm on ubuntu-latest).
+      # onebit-mlx is Apple Silicon only.
+      # Package names use the underscore-prefixed form (cargo rejects
+      # digit-leading names); filesystem + bin names keep the 1bit- brand.
       # uninlined-format-args stays a warning — bulk-fixing it is disruptive
       # and not load-bearing for correctness.
       - name: cargo clippy (-D warnings)
         run: >
           cargo clippy
           --workspace
-          --exclude 1bit-hip
-          --exclude 1bit-mlx
+          --exclude onebit-hip
+          --exclude onebit-mlx
           --release
           --all-targets
           --no-deps
