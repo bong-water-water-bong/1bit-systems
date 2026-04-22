@@ -27,15 +27,55 @@
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
+use onebit_retrieval::WikiIndex;
 use schemars::{JsonSchema, schema_for};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub mod sessions;
 pub use sessions::{Hit, SessionDb};
+
+/// Default wiki directory path used by [`Registry::default_stubs`]. Relative
+/// to the workspace root (what most callers' CWD will be). Overridable via
+/// the `HALO_WIKI_DIR` env var so systemd units and tests don't have to cd.
+pub fn default_wiki_dir() -> PathBuf {
+    if let Ok(v) = std::env::var("HALO_WIKI_DIR") {
+        return PathBuf::from(v);
+    }
+    PathBuf::from("docs/wiki")
+}
+
+/// Best-effort wiki index loader. Returns `None` if the directory is
+/// missing, empty, or fails to parse — never panics, never errors. On
+/// failure we log a `tracing::warn!` so operators see why retrieval is
+/// disabled, but the caller can keep serving with the bare LLM prompt.
+///
+/// Callers that want a hard failure should use [`WikiIndex::load`]
+/// directly.
+pub fn load_wiki_index(wiki_dir: &Path) -> Option<Arc<WikiIndex>> {
+    match WikiIndex::load(wiki_dir) {
+        Ok(idx) => {
+            tracing::info!(
+                path = %wiki_dir.display(),
+                chunks = idx.len(),
+                "loaded wiki index for specialist retrieval"
+            );
+            Some(Arc::new(idx))
+        }
+        Err(e) => {
+            tracing::warn!(
+                path = %wiki_dir.display(),
+                err = %e,
+                "wiki index unavailable — specialists will run without retrieval"
+            );
+            None
+        }
+    }
+}
 
 pub mod skills;
 pub use skills::{Skill, SkillAction, SkillStore};
@@ -266,7 +306,12 @@ impl Registry {
     pub fn default_stubs() -> Self {
         let mut r = Self::all_stubs();
         r.insert(Typed::arc(AnvilSpecialist));
-        r.install_live_triage(&specialists::default_base_url(), &specialists::default_model_id());
+        let wiki = load_wiki_index(&default_wiki_dir());
+        r.install_live_triage_with_retrieval(
+            &specialists::default_base_url(),
+            &specialists::default_model_id(),
+            wiki,
+        );
         r
     }
 
@@ -285,10 +330,30 @@ impl Registry {
     /// Sentinel / Magistrate / Quartermaster) pointed at the given
     /// halo-server base URL + model id. Exposed so integration tests
     /// can point at a mock server.
+    ///
+    /// No retrieval index is wired in — see
+    /// [`Registry::install_live_triage_with_retrieval`] to ground Herald
+    /// replies in the project wiki.
     pub fn install_live_triage(&mut self, base_url: &str, model_id: &str) {
-        self.insert(Arc::new(specialists::LlmSpecialist::herald(
-            base_url, model_id,
-        )));
+        self.install_live_triage_with_retrieval(base_url, model_id, None);
+    }
+
+    /// Same as [`Registry::install_live_triage`] but optionally wires a
+    /// shared [`WikiIndex`] into Herald so its replies can cite project
+    /// docs. Sentinel / Magistrate / Quartermaster are deliberately left
+    /// untouched: their prompts are tuned for narrow, structured triage
+    /// and don't benefit from retrieval yet.
+    pub fn install_live_triage_with_retrieval(
+        &mut self,
+        base_url: &str,
+        model_id: &str,
+        wiki: Option<Arc<WikiIndex>>,
+    ) {
+        let mut herald = specialists::LlmSpecialist::herald(base_url, model_id);
+        if let Some(idx) = wiki {
+            herald = herald.with_retrieval(idx);
+        }
+        self.insert(Arc::new(herald));
         self.insert(Arc::new(specialists::LlmSpecialist::sentinel(
             base_url, model_id,
         )));

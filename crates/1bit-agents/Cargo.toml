@@ -64,6 +64,12 @@ chrono      = { version = "0.4", default-features = false, features = ["clock"] 
 # that only want the registry. Librarian / Magistrate / Quartermaster
 # use this to call external MCP servers (GitHub, Semgrep, …).
 onebit-mcp-clients = { path = "../1bit-mcp-clients", optional = true }
+# BM25 retrieval over docs/wiki — lets LLM-backed specialists (Herald today)
+# ground their replies in project docs instead of hallucinating. Non-optional:
+# constructor is best-effort and the `use_retrieval` field on LlmSpecialist is
+# off by default, so a missing wiki tree just logs a warn and keeps the bare
+# prompt.
+onebit-retrieval   = { workspace = true }
 
 [features]
 # Default off: the dialectic module's observe() path stays Rule A-safe

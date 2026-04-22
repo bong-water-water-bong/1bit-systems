@@ -19,8 +19,10 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
+use onebit_retrieval::{WikiIndex, format_for_system_prompt};
 use reqwest::Client;
 use serde_json::{Value, json};
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::{Name, Specialist};
@@ -41,6 +43,17 @@ pub fn default_model_id() -> String {
 /// completion on the strixhalo box.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Upper bound on characters of retrieved-doc context we'll paste into
+/// the system prompt. ~4k chars ≈ ~1k tokens — leaves plenty of room
+/// under a 2k-token context budget for the user's message + reply.
+/// Retrieved chunks are trimmed (not dropped) to fit.
+pub(crate) const MAX_RETRIEVAL_CHARS: usize = 4000;
+
+/// Number of top-k chunks Herald pulls per turn. Three is enough to give
+/// the model a shot at the right section + a fallback, without crowding
+/// the system prompt.
+pub(crate) const HERALD_RETRIEVAL_K: usize = 3;
+
 /// Generic LLM-backed specialist. Holds a pre-built reqwest client so
 /// keep-alive reuses the same TCP connection across Discord messages.
 pub struct LlmSpecialist {
@@ -49,6 +62,15 @@ pub struct LlmSpecialist {
     model_id: String,
     system_prompt: String,
     client: Client,
+    /// Shared BM25 index over docs/wiki. `Arc` so one index can back
+    /// every specialist that uses retrieval without cloning the corpus.
+    /// `None` means retrieval is disabled for this instance.
+    retrieval: Option<Arc<WikiIndex>>,
+    /// Gate the retrieval path. Default `false` — existing callers that
+    /// don't invoke `with_retrieval` get the bare-prompt behaviour they
+    /// had before, so this change is backwards-compatible with
+    /// Sentinel/Magistrate/Quartermaster wiring.
+    use_retrieval: bool,
 }
 
 impl LlmSpecialist {
@@ -71,7 +93,23 @@ impl LlmSpecialist {
             model_id: model_id.into(),
             system_prompt: system_prompt.into(),
             client,
+            retrieval: None,
+            use_retrieval: false,
         }
+    }
+
+    /// Attach a shared BM25 wiki index and enable retrieval-augmented
+    /// prompting. Idempotent: calling twice just swaps the index. The
+    /// specialist will query `top_k = HERALD_RETRIEVAL_K` against the
+    /// user turn and paste the formatted chunks between the base system
+    /// prompt and the role rules, capped at [`MAX_RETRIEVAL_CHARS`].
+    ///
+    /// Builder-style so callers can chain:
+    /// `LlmSpecialist::herald(url, model).with_retrieval(idx)`.
+    pub fn with_retrieval(mut self, idx: Arc<WikiIndex>) -> Self {
+        self.retrieval = Some(idx);
+        self.use_retrieval = true;
+        self
     }
 
     /// Herald — conversational Q&A voice of 1bit.systems on Discord.
@@ -110,14 +148,53 @@ impl LlmSpecialist {
         format!("{}/v1/chat/completions", self.base_url.trim_end_matches('/'))
     }
 
+    /// Assemble the system prompt for this turn. When retrieval is
+    /// disabled (or the index yields zero hits) this returns the base
+    /// `system_prompt` unchanged — guaranteeing the bare-Herald path
+    /// stays byte-identical to the pre-retrieval behaviour.
+    ///
+    /// When retrieval IS enabled and the query hits, the formatted
+    /// chunks are prepended to the base prompt and the whole thing is
+    /// trimmed to [`MAX_RETRIEVAL_CHARS`] + `system_prompt.len()` at
+    /// worst. We keep the retrieval block first so the role rules (end
+    /// of `system_prompt`) are the last thing the model reads, which
+    /// empirically wins over role-first ordering on small models.
+    pub(crate) fn build_system_prompt(&self, user: &str) -> String {
+        if !self.use_retrieval {
+            return self.system_prompt.clone();
+        }
+        let Some(idx) = self.retrieval.as_ref() else {
+            return self.system_prompt.clone();
+        };
+        let hits = idx.top_k(user, HERALD_RETRIEVAL_K);
+        if hits.is_empty() {
+            return self.system_prompt.clone();
+        }
+        let mut block = format_for_system_prompt(&hits);
+        if block.len() > MAX_RETRIEVAL_CHARS {
+            // Trim to a char boundary — `truncate` panics if it lands
+            // mid-codepoint. Walking backwards to the nearest boundary
+            // is cheap (<=3 bytes).
+            let mut cap = MAX_RETRIEVAL_CHARS;
+            while cap > 0 && !block.is_char_boundary(cap) {
+                cap -= 1;
+            }
+            block.truncate(cap);
+            block.push_str("\n[...retrieval truncated]\n");
+        }
+        // Keep a visible separator so the model can tell context from rules.
+        format!("{block}\n---\n{}", self.system_prompt)
+    }
+
     async fn call_llm(&self, user_content: &str) -> Result<String, String> {
+        let system_prompt = self.build_system_prompt(user_content);
         let body = json!({
             "model": self.model_id,
             "temperature": 0.3,
             "max_tokens": 400,
             "stream": false,
             "messages": [
-                {"role": "system", "content": self.system_prompt},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},
             ],
         });
@@ -390,5 +467,96 @@ mod tests {
 
         let missing = json!({"choices":[]});
         assert!(extract_content(&missing).is_none());
+    }
+
+    // ---- retrieval-augmented prompt tests ----
+    //
+    // The retrieval layer is opt-in via `with_retrieval(Arc<WikiIndex>)`;
+    // until it's attached the bare-Herald path must stay byte-identical.
+    // These tests cover the three behavioural states: (1) retrieval off
+    // → bare prompt, (2) retrieval on with hits → chunks injected,
+    // (3) retrieval on with no hits → bare prompt fallback.
+
+    #[test]
+    fn build_system_prompt_bare_herald_matches_system_prompt() {
+        // Regression: when no retrieval index is attached,
+        // `build_system_prompt` must return the base prompt verbatim.
+        // This guarantees Sentinel/Magistrate/Quartermaster (which never
+        // call `with_retrieval`) keep their exact pre-change behaviour.
+        let h = LlmSpecialist::herald("http://x", "m");
+        let got = h.build_system_prompt("anything user types here");
+        assert_eq!(
+            got,
+            h.system_prompt(),
+            "bare Herald must return the unmodified system_prompt"
+        );
+    }
+
+    #[test]
+    fn build_system_prompt_injects_retrieval_chunks_when_hits_present() {
+        // Fixture: tempdir wiki with one markdown file that clearly
+        // matches a query term. Index should find it, and the Herald
+        // system prompt should grow to include the formatted chunk
+        // header + file path, and the original prompt tail stays intact.
+        use std::fs;
+        use std::sync::Arc;
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let wiki_path = tmp.path();
+        fs::write(
+            wiki_path.join("gfx1151.md"),
+            "# gfx1151 troubleshooting\n\nThe amdgpu OPTC hang is kernel 7.x specific.\n",
+        )
+        .unwrap();
+        let idx = WikiIndex::load(wiki_path).expect("index loads");
+        assert!(idx.len() > 0, "fixture must produce at least one chunk");
+
+        let h = LlmSpecialist::herald("http://x", "m").with_retrieval(Arc::new(idx));
+        let prompt = h.build_system_prompt("amdgpu OPTC hang");
+        assert!(
+            prompt.starts_with("RELEVANT DOCS"),
+            "retrieval block should lead the system prompt, got: {prompt:.120}"
+        );
+        assert!(
+            prompt.contains("gfx1151.md"),
+            "prompt should cite the fixture file, got: {prompt}"
+        );
+        // Role rules (tail of HERALD_PROMPT) must still be present.
+        assert!(
+            prompt.contains("Herald"),
+            "base Herald role text must survive injection"
+        );
+        // And must be STRICTLY longer than the bare prompt.
+        assert!(
+            prompt.len() > h.system_prompt().len(),
+            "augmented prompt must be longer than base"
+        );
+    }
+
+    #[test]
+    fn build_system_prompt_empty_hits_falls_back_to_base_prompt() {
+        // If retrieval is wired but the query matches nothing in the
+        // index, the specialist must NOT inject an empty
+        // "RELEVANT DOCS (top 0):" header — it should silently return
+        // the base prompt so the LLM isn't primed with "here are docs"
+        // followed by nothing.
+        use std::fs;
+        use std::sync::Arc;
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let wiki_path = tmp.path();
+        fs::write(
+            wiki_path.join("unrelated.md"),
+            "# Unrelated\n\nThis file is about cooking recipes only.\n",
+        )
+        .unwrap();
+        let idx = WikiIndex::load(wiki_path).expect("index loads");
+
+        let h = LlmSpecialist::herald("http://x", "m").with_retrieval(Arc::new(idx));
+        // Query uses terms that don't appear in the fixture at all.
+        let prompt = h.build_system_prompt("xyzzy_never_appears_anywhere_in_corpus");
+        assert_eq!(
+            prompt,
+            h.system_prompt(),
+            "empty hits must fall back to bare prompt, got augmented: {prompt}"
+        );
     }
 }
