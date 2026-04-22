@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex,nofollow">
+<title>1bit.systems — announcement</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e10;
+    --bg-code: #111619;
+    --text: #e6edef;
+    --text-muted: #8a9397;
+    --text-subtle: #565d61;
+    --accent: #00e5d1;
+    --accent-soft: #00e5d166;
+    --accent-glow: #00e5d140;
+    --magenta: #ff3d9a;
+    --magenta-soft: #ff3d9a66;
+    --magenta-glow: #ff3d9a33;
+    --red: #ff4c4c;
+    --red-soft: #ff4c4c66;
+    --red-glow: #ff4c4c33;
+    --border: #1a2125;
+    --border-strong: #26323a;
+    --header-height: 60px;
+    --content-max: 760px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f5f8f9;
+      --bg-code: #e4ebee;
+      --text: #0a1518;
+      --text-muted: #4a5459;
+      --text-subtle: #859095;
+      --accent: #008577;
+      --accent-soft: #00857766;
+      --accent-glow: #00857720;
+      --magenta: #c91d6f;
+      --magenta-soft: #c91d6f66;
+      --magenta-glow: #c91d6f20;
+      --red: #c82020;
+      --red-soft: #c8202066;
+      --red-glow: #c8202020;
+      --border: #d4dde1;
+      --border-strong: #b8c3c8;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; scroll-padding-top: 80px; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(ellipse 800px 600px at 15% 20%, var(--accent-glow), transparent 60%),
+      radial-gradient(ellipse 700px 500px at 85% 80%, var(--magenta-glow), transparent 60%);
+    opacity: 0.6;
+  }
+  @media (prefers-color-scheme: light) { body::before { opacity: 0.4; } }
+
+  header.topbar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: var(--header-height);
+    background: rgba(10, 14, 16, 0.75);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--border);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    padding: 0 32px;
+  }
+  @media (prefers-color-scheme: light) {
+    header.topbar { background: rgba(245, 248, 249, 0.75); }
+  }
+  .logo {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: 18px;
+    letter-spacing: -0.02em;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--text);
+    text-decoration: none;
+  }
+  .logo-mark {
+    width: 24px; height: 24px;
+    border: 2px solid var(--accent);
+    border-radius: 50%;
+    position: relative;
+    box-shadow: 0 0 12px var(--accent-soft), inset 0 0 8px var(--accent-glow);
+    animation: halo-pulse 4s ease-in-out infinite;
+  }
+  .logo-mark::after {
+    content: '';
+    position: absolute;
+    inset: 4px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, var(--accent), transparent 65%);
+    opacity: 0.7;
+  }
+  @keyframes halo-pulse {
+    0%, 100% { box-shadow: 0 0 12px var(--accent-soft), inset 0 0 8px var(--accent-glow); }
+    50% { box-shadow: 0 0 18px var(--accent), inset 0 0 12px var(--accent-soft); }
+  }
+  .logo-text em {
+    font-style: italic;
+    font-weight: 400;
+    color: var(--magenta);
+    text-shadow: 0 0 10px var(--magenta-glow);
+  }
+  .crumb {
+    margin-left: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-subtle);
+  }
+
+  main {
+    padding: calc(var(--header-height) + 56px) 40px 120px;
+    max-width: calc(var(--content-max) + 80px);
+    margin: 0 auto;
+    position: relative;
+    z-index: 2;
+  }
+  .eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--magenta);
+    margin-bottom: 16px;
+    text-shadow: 0 0 12px var(--magenta-glow);
+  }
+  h1 {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: 48px;
+    line-height: 1.1;
+    letter-spacing: -0.03em;
+    margin-bottom: 20px;
+    color: var(--text);
+  }
+  .lede {
+    font-family: 'Fraunces', serif;
+    font-weight: 400;
+    font-size: 22px;
+    line-height: 1.5;
+    color: var(--text-muted);
+    margin-bottom: 40px;
+    max-width: 640px;
+  }
+  h2 {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: 28px;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    margin-top: 56px;
+    margin-bottom: 18px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    color: var(--text);
+    scroll-margin-top: 80px;
+  }
+  h3 {
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 19px;
+    margin-top: 32px;
+    margin-bottom: 12px;
+    color: var(--text);
+  }
+  p {
+    margin-bottom: 16px;
+    color: var(--text);
+    max-width: 700px;
+  }
+  ul, ol { margin-bottom: 20px; padding-left: 24px; max-width: 700px; }
+  li { margin-bottom: 6px; color: var(--text); }
+  a {
+    color: var(--accent);
+    text-decoration: underline;
+    text-decoration-color: var(--border-strong);
+    text-underline-offset: 3px;
+  }
+  a:hover { text-decoration-color: currentColor; text-shadow: 0 0 10px var(--accent-glow); }
+  strong { font-weight: 600; color: var(--text); }
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.88em;
+    background: var(--bg-code);
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    color: var(--accent);
+  }
+  .callout {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 6px;
+    padding: 14px 18px;
+    margin: 20px 0;
+    max-width: 700px;
+    font-size: 15px;
+    box-shadow: -6px 0 16px -8px var(--accent-soft);
+  }
+  .callout.warn {
+    border-left-color: var(--red);
+    box-shadow: -6px 0 16px -8px var(--red-soft);
+  }
+  .callout.warn strong {
+    color: var(--red);
+    text-shadow: 0 0 10px var(--red-glow);
+  }
+  .link-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    margin: 20px 0 28px;
+  }
+  .link-row a {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px;
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    text-decoration: none;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    letter-spacing: 0.04em;
+    color: var(--text);
+    transition: border-color 0.15s, color 0.15s, text-shadow 0.15s, background 0.15s;
+  }
+  .link-row a:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    text-shadow: 0 0 10px var(--accent-glow);
+    background: var(--bg-code);
+  }
+  .link-row a .arrow { opacity: 0.6; }
+
+  footer {
+    max-width: calc(var(--content-max) + 80px);
+    margin: 64px auto 0;
+    padding: 24px 40px 48px;
+    border-top: 1px solid var(--border);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--text-subtle);
+    position: relative;
+    z-index: 2;
+  }
+  footer a { color: var(--text-subtle); text-decoration: none; }
+  footer a:hover { color: var(--accent); text-shadow: 0 0 8px var(--accent-glow); }
+
+  @media (max-width: 900px) {
+    h1 { font-size: 34px; }
+    h2 { font-size: 24px; }
+    .lede { font-size: 18px; }
+    main { padding: calc(var(--header-height) + 24px) 20px 80px; }
+    header.topbar { padding: 0 20px; }
+    footer { padding: 20px 20px 32px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <a href="/" class="logo">
+    <span class="logo-mark"></span>
+    <span class="logo-text">1bit<em>.systems</em></span>
+  </a>
+  <div class="crumb">announcement</div>
+</header>
+
+<main>
+  <div class="eyebrow">1bit.systems · announcement</div>
+  <h1>Local ternary inference on AMD Strix Halo.</h1>
+  <p class="lede">
+    Native C++ and HIP kernels below. Rust orchestration above. Zero Python at runtime. Zero cloud dependency. A 70B-parameter model fits in 128 GB of unified memory at 1.58 bits per weight, which is the whole reason this is possible on a mini-PC.
+  </p>
+
+  <div class="link-row">
+    <a href="https://1bit.systems"><span>Website</span><span class="arrow">→</span></a>
+    <a href="https://github.com/bong-water-water-bong/1bit-systems"><span>GitHub</span><span class="arrow">→</span></a>
+  </div>
+
+  <h2>What works today</h2>
+  <ul>
+    <li><strong>Halo v2</strong> — 2B BitNet 1.58 serving at <strong>66 tok/s</strong> on 64-token context, <strong>33 tok/s</strong> at 1024-token context. Measured on the reference Strix Halo box, no asterisks.</li>
+    <li><strong>Ternary GEMV</strong> at <strong>92% of LPDDR5 peak bandwidth</strong> on <code>gfx1151</code>. Memory-bandwidth-bound — reducing bytes per token is where the next speedup lives.</li>
+    <li><strong>Split-KV Flash-Decoding attention</strong> — <strong>6.78×</strong> at context length 2048, bit-exact vs reference.</li>
+    <li><strong>OpenAI-compatible HTTP</strong> on <code>:8180</code>. Any <code>openai</code> SDK, Open WebUI, DSPy, or Claude Code MCP client points at it and it just works.</li>
+    <li><strong>MCP surface</strong> on <code>:8181</code> for introspection, KV-cache stats, sampler overrides.</li>
+    <li><strong>Zero telemetry, zero dial-home, zero cloud.</strong> Weights and prompts never leave the machine.</li>
+  </ul>
+
+  <h2>What's in flight</h2>
+  <ul>
+    <li><strong>Sparse-BitNet retrain</strong> on an H200 pod — targeting <strong>1.25 effective bits per weight</strong> via 3:4 N:M sparsity on top of 1.58-bit. Run 4 live. 10B-token budget, ~57 h wall-clock.</li>
+    <li><strong>BitNet v2</strong> implementation (Hadamard-native W1.58 A4) planned next.</li>
+    <li><strong>gfx1201 build variant</strong> for RX 9070 XT — second hardware target. ROCm 7.2.2 live on the second box. WMMA intrinsic port still in progress.</li>
+    <li><strong>Desktop shell</strong> — voice-first, plugin API via MCP, package manager.</li>
+  </ul>
+
+  <h2>Glass walls</h2>
+  <p>The honest part. If something broke, it's on the page.</p>
+  <ul>
+    <li><strong>Sparse-BitNet Run 3</strong> died at step 500 on a three-line trainer bug — mask monitoring was disabled by default, so the integrity check saw an empty cache and fired a false-positive bail. 524M tokens of H200 time lost. Full autopsy on the site. Run 4 is the patched relaunch.</li>
+    <li><strong>RDNA 4 WMMA port</strong> is not a flag flip — the intrinsics changed family between gfx11 and gfx12. Real work, tracked in the open.</li>
+    <li><strong>amdgpu OPTC CRTC hang</strong> on kernel 7.0 for gfx1151 — Wayland freezes hard under concurrent model servers. Rolled back to 6.18.22-lts. The kernel bug is documented, not swept under a rug.</li>
+    <li><strong>Bugs, failed runs, kernel regressions</strong> all logged in the open. The benchmark numbers are what the serving box actually did, not what was wished for.</li>
+  </ul>
+
+  <h2>What's blocked</h2>
+
+  <div class="callout warn">
+    <strong>XDNA 2 NPU on Strix Halo — gatekept.</strong> Not a performance limit. A vendor-access limit.
+  </div>
+
+  <p>Three specific blockers:</p>
+  <ol>
+    <li>AMD has not shipped a Linux execution provider for Strix Halo (STX-H). Ryzen AI 1.7 supports Strix Point and Krackan only.</li>
+    <li>Every model in AMD's Ryzen AI Hugging Face collections ships <strong>UINT4-AWQ × BFP16</strong>. No ternary kernel. No 1.58-bit compile path.</li>
+    <li>Native AIE kernel authoring is gated behind Riallto — Phoenix-only, requires a paid Xilinx license.</li>
+  </ol>
+
+  <p>
+    <strong>Verdict: defer.</strong> Revisit when AMD ships STX-H on Ryzen AI Linux, or when a community BitNet backend for XDNA 2 lands in public. Nothing on the near- or mid-term roadmap depends on the NPU shipping.
+  </p>
+
+  <p>
+    This is also the ship gate. No Reddit, no Hacker News, no press announce until the NPU unblocks or the project's positioning explicitly changes. Discord is for live discussion. GitHub is the record.
+  </p>
+
+  <h2>How to help</h2>
+  <ul>
+    <li><strong>Questions, hardware reports, benchmark diffs</strong> — Discord or GitHub Discussions.</li>
+    <li><strong>Concrete bugs</strong> — GitHub Issues with kernel version, ROCm version, commit SHA, journal excerpt.</li>
+    <li><strong>Code contributions</strong> — pull requests. Highest-leverage drop is a HIP GEMM / GEMV kernel for a shape not yet covered. Kernels accepted on merit.</li>
+    <li><strong>Funding</strong> — a Patreon surface opens when public channels open; it underwrites compute time (training runs, H200 pod hours, retrains).</li>
+  </ul>
+
+  <div class="callout">
+    The goal is not another chatbot. The goal is a stack someone can run on hardware they own, from a closet, silently, forever.
+  </div>
+
+  <div class="link-row">
+    <a href="https://1bit.systems"><span>Full docs</span><span class="arrow">→</span></a>
+    <a href="https://github.com/bong-water-water-bong/1bit-systems"><span>Source</span><span class="arrow">→</span></a>
+  </div>
+</main>
+
+<footer>
+  1bit.systems · announcement · <a href="https://1bit.systems">full docs →</a>
+</footer>
+
+</body>
+</html>
