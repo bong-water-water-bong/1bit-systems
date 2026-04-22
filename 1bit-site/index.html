@@ -643,7 +643,7 @@
         </button>
         <div class="nav-group-body">
           <ul class="nav-list">
-            <li><a href="/announcement">Announcement</a></li>
+            <li><a href="#announcement">Announcement</a></li>
             <li><a href="#introduction">Introduction</a></li>
             <li><a href="#what-it-is">What it is</a></li>
             <li><a href="#who-its-for">Who it's for</a></li>
@@ -778,16 +778,96 @@
 
   <main>
 
+    <section id="announcement">
+      <div class="eyebrow">1bit.systems · announcement</div>
+      <h2 style="border-top: none; padding-top: 0; margin-top: 0;">Local ternary inference on AMD Strix Halo.</h2>
+      <p class="lede">
+        Native C++ and HIP kernels below. Rust orchestration above. Zero Python at runtime. Zero cloud dependency. A 70B-parameter model fits in 128&nbsp;GB of unified memory at 1.58 bits per weight, which is the whole reason this is possible on a mini-PC.
+      </p>
+
+      <h3>What works today</h3>
+      <ul>
+        <li><strong>Halo v2</strong> — 2B BitNet 1.58 serving at <strong>66 tok/s</strong> on 64-token context, <strong>33 tok/s</strong> at 1024-token context. Measured on the reference Strix Halo box, no asterisks.</li>
+        <li><strong>Ternary GEMV</strong> at <strong>92% of LPDDR5 peak bandwidth</strong> on <code>gfx1151</code>. Memory-bandwidth-bound — reducing bytes per token is where the next speedup lives.</li>
+        <li><strong>Split-KV Flash-Decoding attention</strong> — <strong>6.78&times;</strong> at context length 2048, bit-exact vs reference.</li>
+        <li><strong>OpenAI-compatible HTTP</strong> on <code>:8180</code>. Any <code>openai</code> SDK, Open WebUI, DSPy, or Claude Code MCP client points at it and it just works.</li>
+        <li><strong>MCP surface</strong> on <code>:8181</code> for introspection, KV-cache stats, sampler overrides.</li>
+        <li><strong>Zero telemetry, zero dial-home, zero cloud.</strong> Weights and prompts never leave the machine.</li>
+      </ul>
+
+      <h3>What's in flight</h3>
+      <ul>
+        <li><strong>Sparse-BitNet retrain</strong> on an H200 pod — targeting <strong>1.25 effective bits per weight</strong> via 3:4 N:M sparsity on top of 1.58-bit. Run 4 live. 10B-token budget, ~57 h wall-clock.</li>
+        <li><strong>BitNet v2</strong> implementation (Hadamard-native W1.58 A4) planned next.</li>
+        <li><strong>gfx1201 build variant</strong> for RX 9070 XT — second hardware target. ROCm 7.2.2 live on the second box. WMMA intrinsic port still in progress.</li>
+        <li><strong>Desktop shell</strong> — voice-first, plugin API via MCP, package manager.</li>
+      </ul>
+
+      <h3>Glass walls</h3>
+      <p>The honest part. If something broke, it's on the page.</p>
+      <ul>
+        <li><strong>Sparse-BitNet Run 3</strong> died at step 500 on a three-line trainer bug — mask monitoring was disabled by default, so the integrity check saw an empty cache and fired a false-positive bail. 524M tokens of H200 time lost. Full autopsy on the site. Run 4 is the patched relaunch.</li>
+        <li><strong>RDNA 4 WMMA port</strong> is not a flag flip — the intrinsics changed family between gfx11 and gfx12. Real work, tracked in the open.</li>
+        <li><strong>amdgpu OPTC CRTC hang</strong> on kernel 7.0 for gfx1151 — Wayland freezes hard under concurrent model servers. Rolled back to 6.18.22-lts. The kernel bug is documented, not swept under a rug.</li>
+        <li><strong>Bugs, failed runs, kernel regressions</strong> all logged in the open. The benchmark numbers are what the serving box actually did, not what was wished for.</li>
+      </ul>
+
+      <h3>What's blocked — XDNA 2 NPU</h3>
+
+      <div class="callout warn">
+        <strong>XDNA 2 NPU on Strix Halo — gatekept.</strong> Not a performance limit. A vendor-access limit.
+      </div>
+
+      <p>Three specific blockers:</p>
+      <ol>
+        <li>AMD has not shipped a Linux execution provider for Strix Halo (STX-H). Ryzen AI 1.7 supports Strix Point and Krackan only.</li>
+        <li>Every model in AMD's Ryzen AI Hugging Face collections ships <strong>UINT4-AWQ &times; BFP16</strong>. No ternary kernel. No 1.58-bit compile path.</li>
+        <li>Native AIE kernel authoring is gated behind Riallto — Phoenix-only, requires a paid Xilinx license.</li>
+      </ol>
+
+      <p>
+        <strong>Verdict: defer.</strong> Revisit when AMD ships STX-H on Ryzen AI Linux, or when a community BitNet backend for XDNA 2 lands in public. Nothing on the near- or mid-term roadmap depends on the NPU shipping.
+      </p>
+
+      <p>
+        This is also the ship gate. No Reddit, no Hacker News, no press announce until the NPU unblocks or the project's positioning explicitly changes. Discord is for live discussion. GitHub is the record.
+      </p>
+
+      <h3>How to help</h3>
+      <ul>
+        <li><strong>Questions, hardware reports, benchmark diffs</strong> — Discord or GitHub Discussions.</li>
+        <li><strong>Concrete bugs</strong> — GitHub Issues with kernel version, ROCm version, commit SHA, journal excerpt.</li>
+        <li><strong>Code contributions</strong> — pull requests. Highest-leverage drop is a HIP GEMM / GEMV kernel for a shape not yet covered. Kernels accepted on merit.</li>
+        <li><strong>Funding</strong> — a Patreon surface opens when public channels open; it underwrites compute time (training runs, H200 pod hours, retrains).</li>
+      </ul>
+
+      <div class="callout">
+        The goal is not another chatbot. The goal is a stack someone can run on hardware they own, from a closet, silently, forever.
+      </div>
+    </section>
+
     <section id="introduction">
       <div class="eyebrow">1bit.systems · v0.1</div>
-      <h1>Local ternary inference on consumer AMD silicon.</h1>
+      <h1>the 1-bit monster — local AI inference, bare metal, no python at runtime.</h1>
       <p class="lede">
-        1bit.systems is a native C++ and Rust stack for sub-2-bit language, speech, and image models on AMD Strix Halo. No Python at runtime. No discrete GPU. No cloud dependency.
+        1bit.systems is the 1-bit monster: a full local AI stack for AMD Strix Halo that runs entirely in native code. C++20 and HIP for the kernels, Rust for everything above. No Python at runtime. No discrete GPU. No cloud tether. One mini-PC in a closet, OpenAI-compatible HTTP on the wire, ternary weights on disk.
       </p>
+
+      <p><em>"I know kung fu."</em></p>
+
+      <div class="callout">
+        <strong>Jump to:</strong>
+        <a href="#install">Install</a> &middot;
+        <a href="#troubleshooting">Troubleshooting</a> &middot;
+        <a href="#add-your-app">Add your own app</a> &middot;
+        <a href="#connect-openwebui">Open WebUI</a>
+      </div>
 
       <p>
         This is the full documentation, the full history, and the full roadmap on one page. Scroll, <code>Ctrl+F</code>, or bookmark a section. No separate blog, no separate benchmark report. If a thing exists about the project, it should be here.
       </p>
+
+      <blockquote><em>every layer is someone else's lego block if they want it. take the whole monster or take one piece.</em></blockquote>
 
       <div class="callout">
         <strong>Heads up</strong> — the XDNA 2 NPU on Strix Halo is not yet accessible to this project. AMD has not shipped a Linux execution provider for Strix Halo. Everything here runs on the integrated GPU. See <a href="#npu-status">NPU status</a>.

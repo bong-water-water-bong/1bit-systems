@@ -2,7 +2,11 @@
 
 # 1bit systems
 
-**Local, ternary-weight LLM inference on a mini-PC. All Rust above the kernels, all HIP below, zero Python at runtime.**
+### the 1-bit monster — local AI inference, bare metal, no python at runtime
+
+**rocm c++ · ternary weights · fused HIP kernels · wave32 wmma · rust orchestration · zero telemetry · zero cloud**
+
+*stamped by the architect*
 
 [![CI](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/ci.yml/badge.svg)](https://github.com/bong-water-water-bong/1bit-systems/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
@@ -10,63 +14,87 @@
 [![Platform: Strix Halo gfx1151](https://img.shields.io/badge/platform-Strix%20Halo%20gfx1151-red.svg)](./docs/wiki/Why-Strix-Halo.md)
 [![Website: 1bit.systems](https://img.shields.io/badge/web-1bit.systems-7c3aed.svg)](https://1bit.systems)
 
-_"I know kung fu."_ — `2B ternary BitNet @ 83 tok/s on one AMD APU`, whole stack (router · HTTP · agents · MCP · desktop · package manager) in a single Cargo workspace. <sub><em>Neo learned kung fu in a cable upload. You learn it in `cargo build --release`.</em></sub>
+*"I know kung fu."* — the whole stack (router · HTTP · agents · MCP · desktop · package manager) in one Cargo workspace, sitting on hand-written HIP kernels, eating LPDDR5 at 92% of theoretical peak.
 
 </div>
 
 ---
 
-## What this is
+## what is this
 
-One mini-PC in a closet, one binary per service, a 1.58-bit ternary LLM answering questions over OpenAI-compatible HTTP — and a PyTorch trace that matches to the top-5 logit. No containers. No Python at runtime. No dial-home. **Bring Your Own APU.**
+1bit systems is the **install path for the 1-bit monster** — a full local AI stack that runs entirely in native code on AMD Strix Halo. no python at runtime. no cloud. no telemetry. no subscriptions.
 
-The kernels are hand-written HIP targeting **gfx1151** (Strix Halo iGPU). Everything above them — router, HTTP server, agent bus, MCP bridge, desktop client, package manager — is **Rust**. `systemd` supervises it. Caddy fronts it. And when `1bit status` prints a full column of green dots, that's your household AI. No SaaS, no rent, no spoon.
+one mini-PC in a closet, one binary per service, a 1.58-bit ternary LLM answering questions over OpenAI-compatible HTTP. no containers. no dial-home. **bring your own APU.**
 
-<sub><em>There is no spoon.</em></sub> There's just LPDDR5, and a GEMV that's eating it at 92% of theoretical peak.
+the kernels are hand-written HIP targeting **gfx1151** (Strix Halo iGPU). everything above them — router, HTTP server, agent bus, MCP bridge, desktop client, package manager — is **Rust**. `systemd` supervises it. Caddy fronts it. when `1bit status` prints a full column of green dots, that's your household AI.
+
+*"I know kung fu."*
+
+## numbers that matter
+
+measured on the Strix Halo reference box (Radeon 8060S / gfx1151, 128 GB LPDDR5). no fudging, no "measured on a different box," no asterisks the size of Nebraska.
+
+| metric | value | note |
+|---|---|---|
+| **decode @ 64-tok context** | 66 tok/s | halo v2 — 2B BitNet 1.58, greedy |
+| **decode @ 1024-tok context** | 33 tok/s | same model, longer context |
+| **ternary GEMV bandwidth** | 92% of LPDDR5 peak | measured via rocprof on gfx1151 |
+| **split-KV FD attention** | 6.78× @ L=2048 | bit-exact vs reference path |
+| **shadow-burnin byte-exact** | 96.67% | gen-1 ↔ gen-2 argmax parity |
+| **PPL on wikitext-103** | 9.18 | gen-1 baseline 9.1607, delta +0.02 |
+| **python at runtime** | 0 | Rule A — no python on the hot path |
+
+details and methodology: [benchmarks wiki](./docs/wiki/Benchmarks.md) · [peak projection](./docs/wiki/Peak-Performance-Projection.md)
+
+## the stack
 
 ```
-  ┌─────────────────────────────────────────────────────────────┐
-  │                   any OpenAI-compatible client                │
-  │   (curl · DSPy · Open WebUI · LibreChat · Claude Code MCP)    │
-  └───────────────────────────────┬─────────────────────────────┘
-                                  │ HTTPS (Caddy, :443)
-                                  ▼
-           ╔══════════════════════╧═════════════════════╗
-           ║  1bit-server (axum, Rust)  ──  :8180 /v2/*  ║
-           ║  1bit-router  →  1bit-core  →  1bit-hip     ║
-           ╚══════════════════════╤═════════════════════╝
-                                  ▼
-           ┌───────────────────── ▼ ─────────────────────┐
-           │  rocm-cpp (HIP, gfx1151, zero hipBLAS)      │
-           │  ternary GEMV · RMSNorm · RoPE · FD attn    │
-           └─────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│  any OpenAI-compatible client                             │
+│  curl · DSPy · Open WebUI · LibreChat · Claude Code MCP   │
+└────────────────────────────┬─────────────────────────────┘
+                             │ HTTPS (Caddy, :443)
+┌────────────────────────────▼─────────────────────────────┐
+│  1bit-server (axum, Rust)              :8180 /v2/*       │
+│  1bit-router → 1bit-core → 1bit-hip                      │
+├──────────────────────────────────────────────────────────┤
+│  17 rust specialists (agent bus + MCP bridge)            │
+├──────────────────────────────────────────────────────────┤
+│  rocm-cpp (HIP kernels, gfx1151, zero hipBLAS)           │
+│  ternary GEMV · RMSNorm · RoPE · split-KV FD attention   │
+├──────────────────────────────────────────────────────────┤
+│  whisper.cpp (STT) · kokoro (TTS) · sd.cpp (image)       │
+├──────────────────────────────────────────────────────────┤
+│  ROCm 7.13 · gfx1151 · wave32 WMMA                       │
+├──────────────────────────────────────────────────────────┤
+│  CachyOS · systemd · btrfs                               │
+└──────────────────────────────────────────────────────────┘
 ```
 
-## Why it's worth looking at
+> *every layer is someone else's lego block if they want it. take the whole monster or take one piece.*
 
-- **The need — the need for bandwidth.** <sub><em>(We feel it, Mav.)</em></sub> The ternary GEMV sits at **~92% of measured LPDDR5 peak**. Can't go much faster without reading fewer bytes — which is exactly what Sherry 1.25-bit is for.
-- **Native kernels, no black boxes.** `Rust → extern "C" → HIP`. No hipBLAS. No rocBLAS. No ONNX Runtime. No Python. You can read the whole thing in one sitting, top to bottom, like it's 1987 and you've got a printout of DOOM's source.
-- **One box, many roads.** 128 GB unified memory on Strix Halo is enough for a 2B ternary model **plus** KV cache **plus** Whisper STT **plus** Kokoro TTS **plus** SDXL image generation, all concurrent, all local. <sub><em>Where we're going, we don't need racks.</em></sub>
-- **OpenAI-compat first.** Point any `openai` SDK, DSPy, Open WebUI, LibreChat, or Claude Code MCP client at `http://localhost:8180/v1` and it just works. <sub><em>"It just works" is a load-bearing sentence here.</em></sub>
+## what you get
 
-## Benchmarks
+### the engine
+- **1bit-server** — OpenAI-compatible HTTP on `:8180/v2`. chat completions, models list, bearer auth optional, SSE streaming.
+- **bitnet_decode** — the C++ gen-1 server on `:8080/v1`, held for parity while gen-2 bakes in.
+- **HIP kernels** — fused ternary MatMul, RMSNorm, SiLU, RoPE, split-KV Flash-Decoding attention. wave32 WMMA. no CK, no hipBLAS at runtime.
+- **`.h1b` + GGUF loaders** — ternary weights, memory-mapped, zero-copy. IQ2_S via GGUF for gen-1 compat.
 
-<sub><em>Great Scott!</em></sub> — measured on the Strix Halo reference box (Radeon 8060S / gfx1151, 128 GB LPDDR5). No fudging, no "measured on a different box," no asterisks the size of Nebraska.
+### the agents
+- **17 Rust specialists** on an async registry. each one job, each one trait impl. message bus with tamper-evident journal.
+- **MCP bridge** — tokio stdio JSON-RPC 2.0. tool calls from any MCP client land on the registry.
+- **consent-verification gate** — warden enforces policy/intent/consent/bounds. structural, not advisory.
+- **hash-chained audit log** — every inbound and outbound message SHA-256 chained, genesis-seeded per session.
 
-| metric            | value                   | notes                                      |
-| ----------------- | ----------------------- | ------------------------------------------ |
-| tok/s @ 64 prompt | **83**                  | BitNet b1.58 2B 4T, `real-backend`         |
-| tok/s @ 1024      | **68**                  | same model, longer context                 |
-| PPL (wikitext-103, 1024 tok) | **9.18**     | gen-1 baseline 9.1607, delta +0.02         |
-| shadow-burnin byte-exact     | **96.66%**   | gen-1 ↔ gen-2 over 1,500+ rounds           |
-| LPDDR5 bandwidth utilization | **~92%**     | ternary GEMV, measured via rocprof         |
-| kernels in Python at runtime | **0**        | Rule A: no Python on the hot path          |
+### the model + training
+- **halo-1bit** — absmean quantization, QAT with STE, distillation from bf16 teachers. See the training subtree for the pipeline.
+- **Sparse-BitNet** — 3:4 N:M sparsity on top of 1.58-bit, targeting 1.25 effective bits per weight. Run 4 on an H200 pod.
+- **BitNet v2** — Hadamard-native W1.58 A4. planned next.
 
-[Full benchmark methodology →](./docs/wiki/Benchmarks.md) · [Peak projection →](./docs/wiki/Peak-Performance-Projection.md)
+## quickstart
 
-## Quickstart
-
-<sub><em>Buckle up.</em></sub>
+*buckle up.*
 
 ```sh
 # build the whole workspace
@@ -85,58 +113,57 @@ curl -s http://127.0.0.1:8180/v1/chat/completions \
   }'
 ```
 
-Skip the package manager, <sub><em>go straight to the matrix:</em></sub>
+skip the package manager, *go straight to the matrix*:
 
 ```sh
 cargo run --release -p 1bit-server --features real-backend
 ```
 
-(That's the red pill. `--features real-backend` wires HIP, loads the weights, and throws you onto gfx1151 with no safety harness. Default features give you a `NullBackend` echo server — the blue pill — which is what CI runs.)
+(that's the red pill. `--features real-backend` wires HIP, loads the weights, and throws you onto gfx1151 with no safety harness. default features give you a `NullBackend` echo server — the blue pill — which is what CI runs.)
 
-Full install + first-boot walkthrough: [**Installation Guide (wiki)**](./docs/wiki/Repo-Layout.md) · [**3-minute demo script**](./DEMO.md)
+full install + first-boot walkthrough: [installation guide (wiki)](./docs/wiki/Repo-Layout.md) · [3-minute demo script](./DEMO.md)
 
-## Table of contents
+## lego blocks
 
-- [Architecture](./ARCHITECTURE.md) — data flow, crate map, feature gates, systemd layout, cutover plan
-- [Contributing](./CONTRIBUTING.md) — how to help, code style, testing
-- [Code of conduct](./CODE_OF_CONDUCT.md)
-- [Security policy](./SECURITY.md) — responsible disclosure
-- [Changelog](./CHANGELOG.md)
-- [Conventions for AI agents](./CLAUDE.md) — the hard rules (A/B/C/D/E)
-- [Demo script](./DEMO.md) — 3-minute cold-open walkthrough
-- [Cutover runbook](./CUTOVER.md) — gen-1 → gen-2 traffic flip criteria
-- [**Wiki**](./docs/wiki/Home.md) — one page per architectural decision, plus FAQ and integration guides
+pick what you want. drop the rest.
 
-## Crates in this workspace
+| crate | role | status |
+|---|---|---|
+| `1bit-cli` | unified ops CLI: `status / logs / restart / doctor / update / install / chat / bench / ppl / say / version` | shipped |
+| `1bit-core` | `.h1b` + `.htok` parsers, GGUF loader (IQ2_S), sampler, chat template | shipped |
+| `1bit-router` | backend dispatcher (`HipBackend` / `MlxBackend`), format sniffing | shipped |
+| `1bit-server` | axum HTTP, OpenAI-compat + `/ppl` + `/metrics` | shipped |
+| `1bit-agents` | 17-specialist async registry, `TypedSpecialist` + JsonSchema | shipped |
+| `1bit-mcp` | MCP bridge, stdio JSON-RPC | shipped |
+| `1bit-landing` | marketing page + live `/metrics` probe on `:8190` | shipped |
+| `1bit-lemonade` | OpenAI + Lemonade-SDK compat gateway on `:8200` | shipped |
+| `1bit-helm` | egui/eframe desktop client (formerly halo-gaia) | shipped |
+| `1bit-hip` | FFI → `rocm-cpp` ternary GEMV + Flash-Decoding attention | shipped |
+| `1bit-mlx` | FFI → `bitnet-mlx-rs` (Apple Silicon, feature-gated) | shipped |
 
-| crate             | role                                                                         | status     |
-| ----------------- | ---------------------------------------------------------------------------- | ---------- |
-| `1bit-cli`        | unified ops CLI: `status / logs / restart / doctor / update / install / chat / bench / ppl / say / version` | shipped |
-| `1bit-core`       | `.h1b` + `.htok` parsers, GGUF loader (IQ2_S), sampler, chat template        | shipped    |
-| `1bit-router`     | backend dispatcher (`HipBackend` / `MlxBackend`), format sniffing            | shipped    |
-| `1bit-server`     | axum HTTP, OpenAI-compat + `/ppl` + `/metrics`                               | shipped    |
-| `1bit-agents`     | 17-specialist async registry, `TypedSpecialist` + JsonSchema                 | shipped    |
-| `1bit-mcp`        | MCP bridge, stdio JSON-RPC                                                   | shipped    |
-| `1bit-landing`    | marketing page + live `/metrics` probe on `:8190`                            | shipped    |
-| `1bit-lemonade`   | OpenAI + Lemonade-SDK compat gateway on `:8200`                              | shipped    |
-| `1bit-helm`       | egui/eframe desktop client (formerly halo-gaia)                              | shipped    |
-| `1bit-hip`        | FFI → `rocm-cpp` ternary GEMV + Flash-Decoding attention                     | shipped    |
-| `1bit-mlx`        | FFI → `bitnet-mlx-rs` (Apple Silicon, feature-gated)                         | shipped    |
+all eleven compile under default features with **zero** ROCm deps; `link-rocm` / `real-backend` / `mlx-apple` are the opt-in feature gates. CI builds all three variants.
 
-All eleven compile under default features with **zero** ROCm deps; `link-rocm` / `real-backend` / `mlx-apple` are the opt-in feature gates. CI builds all three variants.
+## philosophy
 
-## The four pillars
+> every piece snaps in and snaps out. no hard dependencies. no vendor lock-in. no cloud tethers.
 
-<sub><em>Four repos walk into a closet.</em></sub> One of them runs the HTTP server, one writes the kernels, one ports to Apple Silicon, and one we keep around because it's the blueprint we're chasing. This workspace is pillar 1.
+python shipped the LLM era. C++ and Rust own the next one. python at training time is fine; python at runtime is a liability on hardware you own. **1bit systems has zero python at runtime.**
 
-1. **Rust orchestration** — this monorepo. Everything above the kernels. Rule A safe (no Python at runtime).
-2. **AMD HIP kernels** — [`bong-water-water-bong/rocm-cpp`](https://github.com/bong-water-water-bong/rocm-cpp). Ternary GEMV, RMSNorm, RoPE, split-KV Flash-Decoding attention, rotorquant PlanarQuant-3 KV compression. Folded into this repo's `rocm-cpp/` subtree.
-3. **Apple Silicon MLX backend** — [`bong-water-water-bong/bitnet-mlx-rs`](https://github.com/bong-water-water-bong/bitnet-mlx-rs) (fork of `leizerowicz/bitnet-mlx.rs`). Feature-gated behind `--features mlx-apple`.
-4. **Lemonade reference** — [`bong-water-water-bong/lemonade-sdk`](https://github.com/bong-water-water-bong/lemonade-sdk) (mirror of `lemonade-sdk/lemonade`, Python). **Not run at runtime.** Kept as the reference for OpenAI-compat surface area and Gaia desktop-app features being ported to Rust.
+the AI industry wants you renting someone else's computer. we think you should own the whole stack — the hardware, the models, the weights, the pipeline. when you control your own software, you control your own destiny.
 
-## Clients
+*"they get the kingdom. they forge their own keys."*
 
-<sub><em>Show me the money.</em></sub> `1bit-server` speaks plain OpenAI chat-completions on `:8180`, so off-the-shelf clients work out of the box. Point them at `http://strixhalo.local:8180/v1` — or, through Caddy, `https://strixhalo.local/v2/...` with the halo bearer token.
+## privacy
+
+**zero telemetry. zero tracking. zero data collection.** nothing phones home. your data stays on your machine.
+
+paid API providers are supported through the router with your own keys — but that's your choice, not our default. local-first means local-first.
+
+*"there is no cloud. there is only zuul."*
+
+## clients
+
+*show me the money.* `1bit-server` speaks plain OpenAI chat-completions on `:8180`, so off-the-shelf clients work out of the box. point them at `http://strixhalo.local:8180/v1` — or, through Caddy, `https://strixhalo.local/v2/...` with the halo bearer token.
 
 ### DSPy (Stanford)
 
@@ -156,11 +183,11 @@ qa = dspy.ChainOfThought("question -> answer")
 print(qa(question="Why is ternary BitNet memory-bound on Strix Halo?").answer)
 ```
 
-`1bit-mcp` tools are directly consumable via `dspy.Tool.from_mcp_tool(...)` — no shim needed. Rule A is untouched: Python runs on the caller, `1bit-server` stays Rust.
+`1bit-mcp` tools are directly consumable via `dspy.Tool.from_mcp_tool(...)` — no shim needed. Rule A is untouched: python runs on the caller, `1bit-server` stays Rust.
 
 ### Open WebUI / LibreChat
 
-Any OpenAI-compat chat UI works. In Open WebUI:
+any OpenAI-compat chat UI works. in Open WebUI:
 
 ```
 Settings → Connections → Add OpenAI API
@@ -169,40 +196,56 @@ Settings → Connections → Add OpenAI API
   Model:    halo-1bit-2b
 ```
 
-Full RAG, multi-conversation, document chat, and MCP tools — Linux/macOS/Windows, zero server-side shim. LibreChat works identically through its `librechat.yaml` `endpoints.custom` block. Both are the blessed desktop clients until the native `1bit-helm` hits feature parity.
+full RAG, multi-conversation, document chat, and MCP tools — Linux/macOS/Windows, zero server-side shim. LibreChat works identically through its `librechat.yaml` `endpoints.custom` block. both are the blessed desktop clients until the native `1bit-helm` hits feature parity.
 
-## Roadmap
+## roadmap
 
-- **Near-term** — Sherry 1.25-bit weight packing (bytes-read reduction), BitNet v2 Hadamard activation quant (W1.58A4), Medusa speculative decoding heads. See [BitNet v2 Hadamard plan](./docs/wiki/BitNet-v2-Hadamard-Plan.md), [Medusa integration plan](./docs/wiki/Medusa-Integration-Plan.md), [Sherry default decision](./docs/wiki/Sherry-Default-Decision.md).
-- **Medium** — Voice loop end-to-end (whisper.cpp STT streaming + Kokoro TTS), full SD.cpp image-gen wiring, `halo-helm` as the first-class desktop client.
-- **Longer** — XDNA 2 NPU lane via ORT C++ + VitisAI EP for prefill. See [Why no NPU yet](./docs/wiki/Why-No-NPU-Yet.md) and [NPU Kernel Design](./docs/wiki/NPU-Kernel-Design.md) for the current state of the Linux NPU stack.
-- **Distribution (post-launch)** — three install lanes: source build (`cargo build --release --workspace`, the canonical path), **AppImage** (single-file, system-ROCm required), and **Flatpak** on Flathub (sandboxed, extension-built over the Freedesktop SDK). Model weights are too big to ship in any package — download-on-first-run, cached under `.halo/models/`.
+- **near-term** — Sherry 1.25-bit weight packing (bytes-read reduction), BitNet v2 Hadamard activation quant (W1.58A4), Medusa speculative decoding heads. see [BitNet v2 Hadamard plan](./docs/wiki/BitNet-v2-Hadamard-Plan.md), [Medusa integration plan](./docs/wiki/Medusa-Integration-Plan.md), [Sherry default decision](./docs/wiki/Sherry-Default-Decision.md).
+- **medium** — voice loop end-to-end (whisper.cpp STT streaming + Kokoro TTS), full sd.cpp image-gen wiring, `1bit-helm` as the first-class desktop client.
+- **longer** — XDNA 2 NPU lane via ORT C++ + VitisAI EP for prefill. see [why no NPU yet](./docs/wiki/Why-No-NPU-Yet.md) and [NPU kernel design](./docs/wiki/NPU-Kernel-Design.md) for the current state of the Linux NPU stack.
+- **distribution (post-launch)** — three install lanes: source build (canonical), **AppImage** (single-file, system-ROCm required), and **Flatpak** on Flathub (sandboxed). model weights download-on-first-run, cached under `.halo/models/`.
 
-## How to help
+## docs
 
-We're gonna need a bigger box. Contributions welcome from anyone running a Strix Halo (or any AMD APU, really — the CPU aggregator lane has open seats).
+| doc | what it covers |
+|---|---|
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | data flow, crate map, feature gates, systemd layout, cutover plan |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | how to help, code style, testing |
+| [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md) | — |
+| [SECURITY.md](./SECURITY.md) | responsible disclosure |
+| [CHANGELOG.md](./CHANGELOG.md) | — |
+| [CLAUDE.md](./CLAUDE.md) | conventions for AI agents (the hard rules A/B/C/D/E) |
+| [DEMO.md](./DEMO.md) | 3-minute cold-open walkthrough |
+| [CUTOVER.md](./CUTOVER.md) | gen-1 → gen-2 traffic flip criteria |
+| [docs/wiki/Home.md](./docs/wiki/Home.md) | one page per architectural decision, plus FAQ and integration guides |
 
-- **File an issue** with a reproducible case and `1bit doctor` output.
-- **Send a patch** — one logical change per commit, Conventional Commits.
-- **Run the benchmark** on your hardware. `1bit bench` output against a clean install is gold for the perf table.
-- **Test client compatibility** — if you wire Sorana, Aicono, TabNeuron, Hermes Agent, or anything else against `1bit-server`, document the config delta in an issue.
+## how to help
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) and [CLAUDE.md](./CLAUDE.md) before sending code.
+we're gonna need a bigger box. contributions welcome from anyone running a Strix Halo (or any AMD APU — the CPU aggregator lane has open seats).
 
-## Acknowledgements
+- **file an issue** with a reproducible case and `1bit doctor` output.
+- **send a patch** — one logical change per commit, Conventional Commits.
+- **run the benchmark** on your hardware. `1bit bench` output against a clean install is gold for the perf table.
+- **test client compatibility** — if you wire Sorana, Aicono, TabNeuron, Hermes Agent, or anything else against `1bit-server`, document the config delta in an issue.
+
+see [CONTRIBUTING.md](./CONTRIBUTING.md) and [CLAUDE.md](./CLAUDE.md) before sending code.
+
+## acknowledgements
 
 - **[Microsoft Research](https://github.com/microsoft/BitNet)** — the b1.58-2B-4T ternary weights we run and the [paper](https://arxiv.org/abs/2402.17764) that started this.
 - **[Light Heart Labs](https://lightheartlabs.io/)** — their [DreamServer](https://github.com/Light-Heart-Labs/DreamServer) is a reference for local-AI-first architecture, and **[@Lightheartdevs](https://github.com/Lightheartdevs)** is a collaborator on this repo.
-- **Upstream projects** — AMD ROCm, `stable-diffusion.cpp`, `whisper.cpp`, `kokoro.cpp`, axum, tokio, MLX, the Rust ecosystem. None of this ships without them.
+- **upstream projects** — AMD ROCm, `stable-diffusion.cpp`, `whisper.cpp`, `kokoro.cpp`, axum, tokio, MLX, the Rust ecosystem. none of this ships without them.
 
-## License
+## license
 
-MIT. See [LICENSE](./LICENSE). Ternary model weights follow their own upstream licenses (Microsoft MIT for BitNet b1.58-2B-4T).
+MIT. see [LICENSE](./LICENSE). ternary model weights follow their own upstream licenses (Microsoft MIT for BitNet b1.58-2B-4T).
 
 ---
 
 <div align="center">
 
-**Website:** [**1bit.systems**](https://1bit.systems) · **Status:** pre-public launch; private until the XDNA 2 NPU lane lands. We'll be back. · **Handle:** [@bong-water-water-bong](https://github.com/bong-water-water-bong)
+**website:** [**1bit.systems**](https://1bit.systems) · **status:** pre-public launch; private until the XDNA 2 NPU lane lands. we'll be back. · **handle:** [@bong-water-water-bong](https://github.com/bong-water-water-bong)
+
+*"the 1-bit monster is already here. it just had to learn to count."* — **stamped by the architect**
 
 </div>

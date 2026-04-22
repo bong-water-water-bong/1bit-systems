@@ -11,6 +11,10 @@
 /github       https://github.com/bong-water-water-bong/1bit-systems   302
 /install      /#install                            302
 
+# Announcement was folded into the main single-page docs 2026-04-22
+/announcement       /#announcement                 301
+/announcement.html  /#announcement                 301
+
 # Tolerate trailing-slash variance on the PWA and docs
 /voice        /voice/                              301
 /audio        /audio/                              301
