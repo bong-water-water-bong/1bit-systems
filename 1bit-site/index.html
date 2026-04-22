@@ -782,7 +782,13 @@
       <div class="eyebrow">1bit.systems · announcement</div>
       <h2 style="border-top: none; padding-top: 0; margin-top: 0;">Local ternary inference on AMD Strix Halo.</h2>
       <p class="lede">
-        Native C++ and HIP kernels below. Rust orchestration above. Zero Python at runtime. Zero cloud dependency. A 70B-parameter model fits in 128&nbsp;GB of unified memory at 1.58 bits per weight, which is the whole reason this is possible on a mini-PC.
+        Native C++ and HIP kernels below, Rust orchestration above. Zero Python at runtime. Zero cloud dependency.
+      </p>
+      <p>
+        A 70-billion-parameter model fits in 128&nbsp;GB of unified memory at 1.58 bits per weight. That is the whole reason this is possible on a mini-PC.
+      </p>
+      <p>
+        website · <a href="https://1bit.systems/">https://1bit.systems/</a> &nbsp;·&nbsp; source · <a href="https://github.com/bong-water-water-bong/1bit-systems">https://github.com/bong-water-water-bong/1bit-systems</a>
       </p>
 
       <h3>What works today</h3>
@@ -803,47 +809,40 @@
         <li><strong>Desktop shell</strong> — voice-first, plugin API via MCP, package manager.</li>
       </ul>
 
-      <h3>Glass walls</h3>
-      <p>The honest part. If something broke, it's on the page.</p>
+      <h3>Glass walls — the honest part</h3>
+      <p>If something broke, it is on the page.</p>
       <ul>
-        <li><strong>Sparse-BitNet Run 3</strong> died at step 500 on a three-line trainer bug — mask monitoring was disabled by default, so the integrity check saw an empty cache and fired a false-positive bail. 524M tokens of H200 time lost. Full autopsy on the site. Run 4 is the patched relaunch.</li>
+        <li><strong>Sparse-BitNet Run 3</strong> died at step 500 on a three-line trainer bug — mask monitoring was off by default so the integrity check always saw an empty cache and fired a false-positive bail. 524M tokens of H200 time lost. Full autopsy on the site. Run 4 is the patched relaunch.</li>
         <li><strong>RDNA 4 WMMA port</strong> is not a flag flip — the intrinsics changed family between gfx11 and gfx12. Real work, tracked in the open.</li>
         <li><strong>amdgpu OPTC CRTC hang</strong> on kernel 7.0 for gfx1151 — Wayland freezes hard under concurrent model servers. Rolled back to 6.18.22-lts. The kernel bug is documented, not swept under a rug.</li>
         <li><strong>Bugs, failed runs, kernel regressions</strong> all logged in the open. The benchmark numbers are what the serving box actually did, not what was wished for.</li>
       </ul>
 
       <h3>What's blocked — XDNA 2 NPU</h3>
-
-      <div class="callout warn">
-        <strong>XDNA 2 NPU on Strix Halo — gatekept.</strong> Not a performance limit. A vendor-access limit.
-      </div>
-
-      <p>Three specific blockers:</p>
+      <p><strong>Gatekept.</strong> Not a performance limit. A vendor-access limit.</p>
       <ol>
         <li>AMD has not shipped a Linux execution provider for Strix Halo (STX-H). Ryzen AI 1.7 supports Strix Point and Krackan only.</li>
         <li>Every model in AMD's Ryzen AI Hugging Face collections ships <strong>UINT4-AWQ &times; BFP16</strong>. No ternary kernel. No 1.58-bit compile path.</li>
         <li>Native AIE kernel authoring is gated behind Riallto — Phoenix-only, requires a paid Xilinx license.</li>
       </ol>
-
       <p>
         <strong>Verdict: defer.</strong> Revisit when AMD ships STX-H on Ryzen AI Linux, or when a community BitNet backend for XDNA 2 lands in public. Nothing on the near- or mid-term roadmap depends on the NPU shipping.
       </p>
-
       <p>
         This is also the ship gate. No Reddit, no Hacker News, no press announce until the NPU unblocks or the project's positioning explicitly changes. Discord is for live discussion. GitHub is the record.
       </p>
 
       <h3>How to help</h3>
       <ul>
-        <li><strong>Questions, hardware reports, benchmark diffs</strong> — Discord or GitHub Discussions.</li>
-        <li><strong>Concrete bugs</strong> — GitHub Issues with kernel version, ROCm version, commit SHA, journal excerpt.</li>
-        <li><strong>Code contributions</strong> — pull requests. Highest-leverage drop is a HIP GEMM / GEMV kernel for a shape not yet covered. Kernels accepted on merit.</li>
-        <li><strong>Funding</strong> — a Patreon surface opens when public channels open; it underwrites compute time (training runs, H200 pod hours, retrains).</li>
+        <li><strong>Questions, hardware reports, benchmark diffs</strong> → this channel or GitHub Discussions.</li>
+        <li><strong>Concrete bugs</strong> → GitHub Issues with kernel version, ROCm version, commit SHA, journal excerpt.</li>
+        <li><strong>Code</strong> → pull requests. Highest-leverage drop is a HIP GEMM / GEMV kernel for a shape not yet covered. Kernels accepted on merit.</li>
+        <li><strong>Funding</strong> → a Patreon surface opens when public channels open; it underwrites compute time (training runs, H200 hours, retrains).</li>
       </ul>
 
-      <div class="callout">
-        The goal is not another chatbot. The goal is a stack someone can run on hardware they own, from a closet, silently, forever.
-      </div>
+      <p style="margin-top: 32px; color: var(--text-muted); font-style: italic;">
+        the goal is not another chatbot — it's a stack you can run on hardware you own, from a closet, silently, forever
+      </p>
     </section>
 
     <section id="introduction">
