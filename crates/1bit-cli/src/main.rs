@@ -21,6 +21,7 @@ mod power;
 mod ppl;
 mod preflight;
 mod restart;
+mod rollback;
 mod say;
 mod skill;
 mod status;
@@ -79,6 +80,25 @@ enum Cmd {
         /// only wants to run preflight.
         #[arg(long)]
         skip_build: bool,
+        /// Anchor #9 (non-interactive): auto-answer yes to every
+        /// confirmation prompt. Required for ansible / GitHub Actions.
+        #[arg(long)]
+        yes: bool,
+        /// Anchor #7 escape hatch: skip the tail-end `1bit doctor`
+        /// probe. CI uses this because CI hosts have no gfx1151 + no
+        /// user systemd bus.
+        #[arg(long)]
+        doctor_skip: bool,
+    },
+    /// Anchor #6 — rollback to a snapper snapshot (defaults to the
+    /// latest `.halo-preinstall` if no number is given).
+    Rollback {
+        /// Explicit snapshot number. Omit for auto-pick of the latest
+        /// `.halo-preinstall` snapshot.
+        snapshot: Option<u32>,
+        /// Skip the confirmation prompt (anchor #9).
+        #[arg(long)]
+        yes: bool,
     },
     /// Speak text through 1bit-halo-kokoro :8083 + the host's audio player
     Say {
@@ -189,11 +209,15 @@ async fn main() -> Result<()> {
             list,
             oobe,
             skip_build,
+            yes,
+            doctor_skip,
         } => {
             if oobe {
                 let defaults = install::OobeDefaults {
                     component: component.unwrap_or_else(|| "core".into()),
                     skip_build,
+                    yes,
+                    doctor_skip,
                 };
                 install::run_oobe(defaults).await
             } else {
@@ -203,6 +227,7 @@ async fn main() -> Result<()> {
                 }
             }
         }
+        Cmd::Rollback { snapshot, yes } => rollback::run(snapshot, yes).await,
         Cmd::Say { text, voice, speed } => {
             let phrase = text.join(" ");
             let voice_owned: String = voice.unwrap_or_else(|| say::default_voice().into());

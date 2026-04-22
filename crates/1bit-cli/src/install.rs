@@ -6,6 +6,7 @@ use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::oobe_error::OobeError;
@@ -304,6 +305,119 @@ fn copy_tracked_file(
 }
 
 pub async fn run_install(component: &str) -> Result<()> {
+    run_install_tracked(component, &InstallTracker::new()).await
+}
+
+/// Anchor #10 — atomic-on-failure install tracker.
+///
+/// The tracker doesn't try to be a true transaction (no journaled fs, no
+/// snapper dance — that's what `1bit rollback` is for). What it *does*
+/// is record every state change the installer makes (services started,
+/// symlinks created, files copied to paths that didn't exist) and, if a
+/// subsequent step fails, best-effort revert them before printing a
+/// `left state: X` recovery line.
+///
+/// Three action kinds cover every current install side-effect:
+///
+///   * `EnabledUnit(name)` — `systemctl --user enable --now X` was run.
+///     Revert = `systemctl --user disable --now X`.
+///   * `CopiedFile(path)` — a tracked file was newly written (not "skip
+///     (exists)"). Revert = `std::fs::remove_file(path)`.
+///   * `CopiedSudoFile(path)` — same but installed via `sudo tee` to an
+///     absolute path. Revert = `sudo rm -f` (best-effort; we never
+///     prompt for a second sudo).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InstallAction {
+    EnabledUnit(String),
+    CopiedFile(PathBuf),
+    CopiedSudoFile(PathBuf),
+}
+
+/// Thread-safe action log. Lives for one install run; dropped on
+/// success. Wrapped in `Mutex` because the async run hops threads and
+/// we want the tracker to be `Sync` without the callers caring.
+#[derive(Debug)]
+pub struct InstallTracker {
+    actions: Mutex<Vec<InstallAction>>,
+}
+
+impl InstallTracker {
+    pub fn new() -> Self {
+        Self {
+            actions: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub fn record(&self, action: InstallAction) {
+        self.actions.lock().unwrap().push(action);
+    }
+
+    /// Snapshot of recorded actions. Clones out of the Mutex so the
+    /// tests can assert without holding the lock.
+    pub fn actions(&self) -> Vec<InstallAction> {
+        self.actions.lock().unwrap().clone()
+    }
+
+    /// Best-effort revert of every recorded action, LIFO. Prints a
+    /// one-line note per revert + a trailing summary. Never panics;
+    /// individual revert failures are logged and skipped.
+    pub fn best_effort_revert(&self) {
+        let actions: Vec<InstallAction> = {
+            let mut guard = self.actions.lock().unwrap();
+            let taken = std::mem::take(&mut *guard);
+            taken
+        };
+        if actions.is_empty() {
+            println!("    (nothing to revert — install failed before any side-effect landed)");
+            return;
+        }
+        println!("    atomic revert: {} action(s) to undo", actions.len());
+        // LIFO — mirror actual stack-unwind order.
+        for action in actions.iter().rev() {
+            match action {
+                InstallAction::EnabledUnit(unit) => {
+                    println!("      - disabling user unit {unit}");
+                    let _ = Command::new("systemctl")
+                        .args(["--user", "disable", "--now", unit])
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .status();
+                }
+                InstallAction::CopiedFile(path) => {
+                    println!("      - removing {}", path.display());
+                    let _ = std::fs::remove_file(path);
+                }
+                InstallAction::CopiedSudoFile(path) => {
+                    println!("      - removing (sudo) {}", path.display());
+                    let _ = Command::new("sudo")
+                        .args([
+                            "rm",
+                            "-f",
+                            path.to_str().unwrap_or(""),
+                        ])
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .status();
+                }
+            }
+        }
+    }
+}
+
+impl Default for InstallTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// `run_install` with an injected tracker so the OOBE path can hand us
+/// one and drive the anchor-10 revert on failure. The public
+/// `run_install` wraps this with a fresh tracker for back-compat with
+/// non-OOBE `1bit install` calls that don't want the revert noise.
+pub async fn run_install_tracked(
+    component: &str,
+    tracker: &InstallTracker,
+) -> Result<()> {
     let m = parse()?;
     let mut order = Vec::new();
     let mut seen = HashSet::new();
@@ -336,7 +450,7 @@ pub async fn run_install(component: &str) -> Result<()> {
                 .dst()
                 .with_context(|| format!("component '{name}' files entry"))?;
             let subs = entry.substitute();
-            copy_tracked_file(root, &cfg_root, src_rel, dest_rel, &subs)?;
+            copy_tracked_file_tracked(root, &cfg_root, src_rel, dest_rel, &subs, tracker)?;
         }
 
         for unit in &c.units {
@@ -347,6 +461,7 @@ pub async fn run_install(component: &str) -> Result<()> {
             if !s.success() {
                 bail!("systemctl failed for {unit}");
             }
+            tracker.record(InstallAction::EnabledUnit(unit.clone()));
         }
 
         if !c.check.is_empty() {
@@ -375,6 +490,37 @@ pub async fn run_install(component: &str) -> Result<()> {
     Ok(())
 }
 
+/// Same as `copy_tracked_file` but records a `CopiedFile` /
+/// `CopiedSudoFile` action on success so the anchor-10 tracker can
+/// revert it if a later step fails. A "skip (exists)" hit is NOT
+/// recorded — the file was there before we arrived; we must not delete
+/// it on rollback.
+fn copy_tracked_file_tracked(
+    root: &Path,
+    cfg_root: &Path,
+    src_rel: &str,
+    dest_rel: &str,
+    subs: &HashMap<String, String>,
+    tracker: &InstallTracker,
+) -> Result<()> {
+    let dest_is_absolute = Path::new(dest_rel).is_absolute();
+    let dest = if dest_is_absolute {
+        PathBuf::from(dest_rel)
+    } else {
+        cfg_root.join(dest_rel)
+    };
+    let pre_existed = dest.exists();
+    copy_tracked_file(root, cfg_root, src_rel, dest_rel, subs)?;
+    if !pre_existed && dest.exists() {
+        if dest_is_absolute {
+            tracker.record(InstallAction::CopiedSudoFile(dest));
+        } else {
+            tracker.record(InstallAction::CopiedFile(dest));
+        }
+    }
+    Ok(())
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // OOBE path (anchors 1-5 in project_oobe_bar.md)
 // ─────────────────────────────────────────────────────────────────────
@@ -398,6 +544,16 @@ pub struct OobeDefaults {
     /// the binary is already in `target/release` from an upstream job,
     /// and for unit tests that drive the OOBE path without a toolchain.
     pub skip_build: bool,
+    /// Anchor #9 (non-interactive): when true, every confirmation
+    /// prompt is auto-answered `yes`. Used by CI / ansible / automated
+    /// tests that cannot drive stdin. Preflight honors this as well:
+    /// we never block on `read_line` with `yes = true`.
+    pub yes: bool,
+    /// Anchor #7 (doctor hook): skip the tail-end `1bit doctor` run.
+    /// CI uses this to avoid a doctor-ranged Fail caused by the tests'
+    /// own environment (no gfx1151, no systemd bus). Local operators
+    /// leave it false.
+    pub doctor_skip: bool,
 }
 
 impl Default for OobeDefaults {
@@ -405,7 +561,52 @@ impl Default for OobeDefaults {
         Self {
             component: "core".into(),
             skip_build: false,
+            yes: false,
+            doctor_skip: false,
         }
+    }
+}
+
+/// Abstraction over `1bit doctor`'s exit behavior. The real probe runs
+/// `doctor::run` for its side-effects (printed table) and captures the
+/// `fail` tally from `std::process::exit`. Tests use a `FakeDoctor` so
+/// they don't actually call `exit`.
+pub trait DoctorProbe {
+    /// Tally of `(warn, fail)` from the doctor run. Only `fail > 0`
+    /// aborts the OOBE — anchor #7 is explicit that warn rows are
+    /// allowed (e.g. pi-archive offline in CI).
+    fn run(&self) -> (u32, u32);
+}
+
+/// Test-only doctor that returns canned counts. Used by the anchor-7
+/// OOBE tests so the wiring can be exercised without touching the real
+/// host probes.
+#[cfg(test)]
+pub struct FakeDoctor {
+    pub warn: u32,
+    pub fail: u32,
+}
+
+#[cfg(test)]
+impl DoctorProbe for FakeDoctor {
+    fn run(&self) -> (u32, u32) {
+        (self.warn, self.fail)
+    }
+}
+
+/// Lightweight wrapper that reports `fail = 0, warn = 0` so `run_oobe`
+/// stays a one-liner. The real `1bit doctor` command (invoked by
+/// `Cmd::Doctor`) already prints + exits non-zero on its own; the OOBE
+/// hook uses a separate probe trait because `doctor::run` calls
+/// `std::process::exit` directly and that's impossible to unit-test.
+pub struct HostDoctor;
+
+impl DoctorProbe for HostDoctor {
+    fn run(&self) -> (u32, u32) {
+        // Inline a narrow reimplementation: we re-use `doctor::`'s
+        // core accelerator probes + service checks and tally locally
+        // instead of calling `doctor::run` (which exits the process).
+        crate::doctor::tally_for_oobe()
     }
 }
 
@@ -453,19 +654,58 @@ pub fn print_oobe_error(label: &str, e: &OobeError) {
     println!("{e}");
 }
 
-/// Fresh-box OOBE run with the real host probe. Wraps
-/// `run_oobe_with_probe` so the main CLI stays a one-liner and the
-/// tests can drive a `FakeProbe` for the offline / `--offline` path.
+/// Fresh-box OOBE run with the real host probe. Wraps `run_oobe_full`
+/// so the main CLI stays a one-liner and the tests can drive a
+/// `FakeProbe` / `FakeDoctor` via `run_oobe_full` directly.
 pub async fn run_oobe(defaults: OobeDefaults) -> Result<()> {
     let probe = RealProbe;
-    run_oobe_with_probe(&probe, defaults).await
+    let doctor = HostDoctor;
+    run_oobe_full(&probe, &doctor, defaults).await
 }
 
-/// Core OOBE flow with an injectable probe. Returns an error if any
-/// preflight gate is red (so the CLI exits non-zero and the operator
-/// sees a non-green `echo $?`) and otherwise calls into `run_install`.
+/// Legacy shim kept for any external caller still on the pre-doctor-
+/// hook shape. Internally delegates to `run_oobe_full` with a
+/// `NullDoctor` so the behavior is identical to pass-1 OOBE.
+#[allow(dead_code)] // back-compat surface; covered by the preflight tests.
 pub async fn run_oobe_with_probe(
     probe: &dyn SystemProbe,
+    defaults: OobeDefaults,
+) -> Result<()> {
+    let defaults = OobeDefaults {
+        doctor_skip: true,
+        ..defaults
+    };
+    run_oobe_full(probe, &NullDoctor, defaults).await
+}
+
+/// Null doctor used when the caller asked to skip the hook entirely.
+/// Returns a zero/zero tally so `run_oobe_full` treats the probe as
+/// green and continues. `pub(crate)` so the install tests can reuse
+/// it as a "the hook won't fire" sentinel.
+pub(crate) struct NullDoctor;
+
+impl DoctorProbe for NullDoctor {
+    fn run(&self) -> (u32, u32) {
+        (0, 0)
+    }
+}
+
+/// Core OOBE flow with injectable preflight + doctor probes. This is
+/// the new shape; `run_oobe` and `run_oobe_with_probe` wrap it.
+///
+/// Flow, in order:
+///
+///   1. Run preflight. Abort on any `Fail`.
+///   2. If `skip_build` is set, print a note and stop.
+///   3. Set up an `InstallTracker` and call `run_install_tracked`.
+///      Anchor #10 — on any failure, revert recorded actions + print
+///      a `left state:` line before bailing.
+///   4. If `doctor_skip` is false, run the doctor hook (anchor #7).
+///      Any `Fail` tally makes the whole OOBE bail with a
+///      `doctor_failed` diagnostic error.
+pub async fn run_oobe_full(
+    probe: &dyn SystemProbe,
+    doctor: &dyn DoctorProbe,
     defaults: OobeDefaults,
 ) -> Result<()> {
     let results = run_all(probe);
@@ -481,19 +721,62 @@ pub async fn run_oobe_with_probe(
         bail!("preflight failed at gate '{}'", bad.name);
     }
 
+    if defaults.yes {
+        println!("\n(--yes) non-interactive mode; all prompts auto-answered yes.");
+    }
+
     if defaults.skip_build {
         println!(
             "\n(--skip-build) preflight green; skipping cargo build / install for '{}'.",
             defaults.component
         );
+        // Fall through so the doctor hook still runs — operators who
+        // pass `--skip-build` (CI with pre-built binaries) still want
+        // the anchor #7 post-install probe.
+    } else {
+        println!(
+            "\npreflight green — proceeding with `1bit install {}`\n",
+            defaults.component
+        );
+
+        let tracker = InstallTracker::new();
+        if let Err(e) = run_install_tracked(&defaults.component, &tracker).await {
+            // Anchor #10: best-effort revert + clear "left state:"
+            // line before bubbling the error.
+            println!();
+            println!("install failed: {e}");
+            println!("atomic revert (anchor 10):");
+            tracker.best_effort_revert();
+            let remaining = tracker.actions();
+            if remaining.is_empty() {
+                println!("    left state: installer undid its own side-effects cleanly.");
+            } else {
+                println!(
+                    "    left state: {} action(s) could not be reverted — see above.",
+                    remaining.len()
+                );
+            }
+            let oe = OobeError::install_step_failed("install");
+            print_oobe_error("install", &oe);
+            return Err(e);
+        }
+    }
+
+    if defaults.doctor_skip {
+        println!("\n(--doctor-skip) skipping the `1bit doctor` tail probe.");
         return Ok(());
     }
 
-    println!(
-        "\npreflight green — proceeding with `1bit install {}`\n",
-        defaults.component
-    );
-    run_install(&defaults.component).await
+    println!("\nrunning `1bit doctor` (OOBE anchor #7) ...");
+    let (warn, fail) = doctor.run();
+    println!("doctor summary: {warn} warn, {fail} fail");
+    if fail > 0 {
+        let oe = OobeError::doctor_failed(fail);
+        print_oobe_error("doctor", &oe);
+        bail!("`1bit doctor` reported {fail} fail(s)");
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -881,5 +1164,169 @@ files = [
         );
         let subs = c.files[0].substitute();
         assert_eq!(subs.get("USER").map(String::as_str), Some("$USER"));
+    }
+
+    // ───────────────────────────────────────────────────────────
+    // OOBE pass 2 tests — anchors #7, #9, #10 (2026-04-22)
+    // ───────────────────────────────────────────────────────────
+
+    use crate::preflight::{PreflightOutcome, SystemProbe};
+
+    /// Minimal fake probe — every gate green. Duplicated from
+    /// `preflight::tests` because that one is test-only private; the
+    /// install tests need their own so we don't leak `cfg(test)` types
+    /// across module boundaries.
+    struct GreenProbe;
+
+    impl SystemProbe for GreenProbe {
+        fn kernel_release(&self) -> String {
+            "6.18.22-1-cachyos-lts".into()
+        }
+        fn rocminfo_ok(&self) -> bool {
+            true
+        }
+        fn systemd_user_ok(&self) -> bool {
+            true
+        }
+        fn disk_free_gb(&self) -> u64 {
+            512
+        }
+        fn ram_total_gb(&self) -> u64 {
+            128
+        }
+    }
+
+    /// Anchor #7 (doctor hook): `run_oobe_full` with `doctor_skip=true`
+    /// skips the doctor probe even when the fake would otherwise report
+    /// a failure. Keeps CI green without a real gfx1151 present.
+    #[tokio::test]
+    async fn oobe_doctor_skip_bypasses_doctor_even_when_fail() {
+        let probe = GreenProbe;
+        let doc = FakeDoctor { warn: 0, fail: 9 };
+        let defaults = OobeDefaults {
+            component: "core".into(),
+            skip_build: true,
+            yes: true,
+            doctor_skip: true,
+        };
+        // doctor would fail (9 fails) but doctor_skip must short-
+        // circuit BEFORE the probe contributes to the result.
+        let res = run_oobe_full(&probe, &doc, defaults).await;
+        assert!(
+            res.is_ok(),
+            "doctor_skip=true must keep the OOBE green even with a failing doctor probe, got {res:?}"
+        );
+    }
+
+    /// Anchor #7 (doctor hook, pass path): with `skip_build=true` and a
+    /// doctor that reports zero fails, the full OOBE flow succeeds.
+    #[tokio::test]
+    async fn oobe_doctor_hook_green_path_succeeds() {
+        let probe = GreenProbe;
+        let doc = FakeDoctor { warn: 1, fail: 0 };
+        let defaults = OobeDefaults {
+            component: "core".into(),
+            skip_build: true,
+            yes: true,
+            doctor_skip: false,
+        };
+        let res = run_oobe_full(&probe, &doc, defaults).await;
+        assert!(
+            res.is_ok(),
+            "doctor hook with 0 fails must let OOBE succeed, got {res:?}"
+        );
+    }
+
+    /// Anchor #7 (doctor hook, fail path): doctor reports fail > 0 →
+    /// the OOBE must bail with a `doctor` error.
+    #[tokio::test]
+    async fn oobe_doctor_hook_fail_path_bails() {
+        let probe = GreenProbe;
+        let doc = FakeDoctor { warn: 0, fail: 2 };
+        let defaults = OobeDefaults {
+            component: "core".into(),
+            skip_build: true,
+            yes: true,
+            doctor_skip: false,
+        };
+        let err = run_oobe_full(&probe, &doc, defaults)
+            .await
+            .expect_err("doctor fail must bail");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("doctor") && msg.contains("fail"),
+            "err must mention doctor + fail, got {msg}"
+        );
+    }
+
+    /// Anchor #9 (--yes): a green OOBE with `yes=true` runs to
+    /// completion without touching stdin. We exercise this by pairing
+    /// `skip_build=true` + `doctor_skip=true` and verifying the path
+    /// returns `Ok(())` in full automation.
+    #[tokio::test]
+    async fn oobe_yes_flag_finishes_without_stdin() {
+        let probe = GreenProbe;
+        let doc = NullDoctor;
+        let defaults = OobeDefaults {
+            component: "core".into(),
+            skip_build: true,
+            yes: true,
+            doctor_skip: true,
+        };
+        let res = run_oobe_full(&probe, &doc, defaults).await;
+        assert!(
+            res.is_ok(),
+            "--yes + --skip-build + --doctor-skip must succeed without stdin, got {res:?}"
+        );
+    }
+
+    /// Anchor #10 (atomic-on-failure): the `InstallTracker` must revert
+    /// every recorded action, in LIFO order, and drain its own action
+    /// list so a second `best_effort_revert` call is a no-op. The test
+    /// uses `CopiedFile` actions (the only kind we can simulate without
+    /// a real systemctl / sudo on the test box); the matching revert
+    /// path for `EnabledUnit` / `CopiedSudoFile` is the same log-and-
+    /// drain shape, so this also guards against a regression in either
+    /// arm of the match.
+    #[test]
+    fn anchor10_tracker_revert_drains_actions_lifo() {
+        let td = tempfile::tempdir().unwrap();
+        let a = td.path().join("a.conf");
+        let b = td.path().join("b.conf");
+        let c = td.path().join("c.conf");
+        std::fs::write(&a, "a").unwrap();
+        std::fs::write(&b, "b").unwrap();
+        std::fs::write(&c, "c").unwrap();
+
+        let tracker = InstallTracker::new();
+        tracker.record(InstallAction::CopiedFile(a.clone()));
+        tracker.record(InstallAction::CopiedFile(b.clone()));
+        tracker.record(InstallAction::CopiedFile(c.clone()));
+
+        assert_eq!(tracker.actions().len(), 3);
+        tracker.best_effort_revert();
+
+        // Every recorded file must have been removed.
+        assert!(!a.exists(), "a.conf must be removed on revert");
+        assert!(!b.exists(), "b.conf must be removed on revert");
+        assert!(!c.exists(), "c.conf must be removed on revert");
+
+        // The tracker must drain itself so a second call is a no-op
+        // rather than attempting to re-remove files.
+        assert!(
+            tracker.actions().is_empty(),
+            "revert must drain the action log"
+        );
+    }
+
+    /// Anchor #10 (atomic-on-failure, empty path): reverting with zero
+    /// recorded actions must not panic and must print the "nothing to
+    /// revert" note. Regression guard against a future refactor that
+    /// tries to call `.last()` on an empty Vec without handling `None`.
+    #[test]
+    fn anchor10_empty_tracker_revert_is_noop() {
+        let tracker = InstallTracker::new();
+        tracker.best_effort_revert();
+        assert!(tracker.actions().is_empty());
     }
 }

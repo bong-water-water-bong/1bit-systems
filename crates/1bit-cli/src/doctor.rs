@@ -366,6 +366,45 @@ fn fs_root() -> PathBuf {
     PathBuf::from("/")
 }
 
+/// OOBE anchor #7 hook: run the host-side probes (GPU/kernel/services/
+/// endpoints) silently and return a `(warn, fail)` tally. Unlike `run`,
+/// this never calls `std::process::exit` — it's safe to embed in the
+/// install flow. The probes re-use the same functions `run` uses so the
+/// tally matches what the operator would see if they ran `1bit doctor`
+/// by hand.
+pub(crate) fn tally_for_oobe() -> (u32, u32) {
+    let mut warn = 0u32;
+    let mut fail = 0u32;
+    let mut tally = |o: Outcome| match o {
+        Outcome::Warn => warn += 1,
+        Outcome::Fail => fail += 1,
+        Outcome::Ok => {}
+    };
+    // Host
+    let (o, _) = check_gpu();
+    tally(o);
+    let (o, _) = check_kernel();
+    tally(o);
+    // Accelerators
+    let root = fs_root();
+    let (o, _) = npu_probe(&root);
+    tally(o);
+    let (o, _) = xe2_probe(&root);
+    tally(o);
+    let (o, _) = gfx1201_probe(&root);
+    tally(o);
+    // Services
+    for (_, unit, port) in SERVICES {
+        let (o, _) = check_service(unit, *port);
+        tally(o);
+    }
+    // Storage
+    for (_, o, _) in check_halo_storage() {
+        tally(o);
+    }
+    (warn, fail)
+}
+
 pub async fn run() -> Result<()> {
     let mut warn = 0u32;
     let mut fail = 0u32;
