@@ -32,19 +32,34 @@ the kernels are hand-written HIP targeting **gfx1151** (Strix Halo iGPU). everyt
 
 ## numbers that matter
 
-measured on the Strix Halo reference box (Radeon 8060S / gfx1151, 128 GB LPDDR5). no fudging, no "measured on a different box," no asterisks the size of Nebraska.
+no fudging, no "measured on a different box," no asterisks the size of Nebraska.
+
+**Strix Halo reference (Radeon 8060S, gfx1151, 128 GB LPDDR5X):**
 
 | metric | value | note |
 |---|---|---|
-| **decode @ 64-tok context** | 66 tok/s | halo v2 — 2B BitNet 1.58, greedy |
-| **decode @ 1024-tok context** | 33 tok/s | same model, longer context |
-| **ternary GEMV bandwidth** | 92% of LPDDR5 peak | measured via rocprof on gfx1151 |
-| **split-KV FD attention** | 6.78× @ L=2048 | bit-exact vs reference path |
+| **decode @ 64-tok** | 66.8 tok/s | halo v2 — 2B BitNet 1.58, greedy |
+| **ternary GEMV bandwidth** | 92% of LPDDR5 peak | rocprof on gfx1151 |
+| **WMMA FP16 peak** | 50.2 TFLOPS | register-resident probe, 42% of theoretical |
+| **split-KV FD attention** | 10.25× @ L=2048, 11.98× @ L=8192 | vs single-block, 1-ULP equiv |
+| **PPL on wikitext-103** | 11.98 (4095-tok single-pass) · 9.16 (chunk-1024) | gen-1 baseline 9.1607 |
 | **shadow-burnin byte-exact** | 96.67% | gen-1 ↔ gen-2 argmax parity |
-| **PPL on wikitext-103** | 9.18 | gen-1 baseline 9.1607, delta +0.02 |
-| **python at runtime** | 0 | Rule A — no python on the hot path |
+| **power draw, perf/W** | 73 W, **0.90 tok/s/W** | silent-closet territory |
 
-details and methodology: [benchmarks wiki](./docs/wiki/Benchmarks.md) · [peak projection](./docs/wiki/Peak-Performance-Projection.md)
+**RX 9070 XT cross-arch (Navi 48, gfx1201, GDDR6, ryzen host):** second target is bit-exact on the production path.
+
+| metric | value | note |
+|---|---|---|
+| **decode @ 64-tok** | 78.6 tok/s | +18% over gfx1151 |
+| **WMMA FP16 peak** | 138 TFLOPS | 81% of theoretical (RDNA4) |
+| **WMMA INT8 peak** | 288 TOPS | 2.1× FP16 (RDNA4 widened INT8 pipe) |
+| **split-KV FD @ L=8192** | **22.02×** | GDDR6 streams KV |
+| **PPL on wikitext-103** | **11.9758** (identical to Strix) | bit-exact cross-arch |
+| **power draw, perf/W** | 176 W, 0.44 tok/s/W | absolute winner, efficiency loser |
+
+**Rule A:** 0 Python on the serving path. Period.
+
+raw methodology: [benchmarks wiki](./docs/wiki/Benchmarks.md) · [peak projection](./docs/wiki/Peak-Performance-Projection.md) · [raw JSON outputs](./benchmarks/data/) (WMMA peak · cross-arch PPL · attention sweep · shadow-burnin · power + long-ctx — all unprocessed, re-runnable)
 
 ## the stack
 

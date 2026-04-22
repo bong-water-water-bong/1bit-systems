@@ -269,6 +269,14 @@ target_compile_options(bench_kv_fd PRIVATE
 target_link_libraries(bench_kv_fd PRIVATE rocm_cpp hip::host hip::device)
 set_target_properties(bench_kv_fd PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
 
+# -- tools/attn_fd_sweep : FD vs single-block attn sweep (JSON stdout) --------
+add_executable(attn_fd_sweep tools/attn_fd_sweep.cpp)
+set_source_files_properties(tools/attn_fd_sweep.cpp PROPERTIES LANGUAGE HIP)
+target_compile_options(attn_fd_sweep PRIVATE
+    $<$<COMPILE_LANGUAGE:HIP>:-O3 -Wno-unused-result>)
+target_link_libraries(attn_fd_sweep PRIVATE rocm_cpp hip::host hip::device)
+set_target_properties(attn_fd_sweep PROPERTIES HIP_ARCHITECTURES "${CMAKE_HIP_ARCHITECTURES}")
+
 # -- tools/bench_rotor : rotorquant PlanarQuant-3 KV compression microbench --
 add_executable(bench_rotor tools/bench_rotor.cpp)
 set_source_files_properties(tools/bench_rotor.cpp PROPERTIES LANGUAGE HIP)
