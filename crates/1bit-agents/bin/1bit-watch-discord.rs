@@ -155,6 +155,14 @@ impl Handler {
             return;
         };
 
+        // Specialists are prompted to draft inside ```...``` fences so the LLM
+        // produces one clean chunk without editorial padding. Discord posts
+        // should read as normal conversation, so strip the wrapping fence
+        // before sending. Inner fenced blocks (e.g. a command example inside
+        // a longer reply) are preserved — only the outer wrapper goes.
+        let clean = unwrap_outer_codeblock(text);
+        let post_text = clean.as_str();
+
         if matches!(class, Classification::BugReport) {
             let name = format!(
                 "troubleshoot: {}",
@@ -168,7 +176,7 @@ impl Handler {
                 .await
             {
                 Ok(thread) => {
-                    if let Err(e) = thread.id.say(http.as_ref(), text).await {
+                    if let Err(e) = thread.id.say(http.as_ref(), post_text).await {
                         warn!(error = %e, thread_id = %thread.id, "echo failed to post into thread");
                     }
                     return;
@@ -179,7 +187,7 @@ impl Handler {
             }
         }
 
-        if let Err(e) = msg.channel_id.say(http.as_ref(), text).await {
+        if let Err(e) = msg.channel_id.say(http.as_ref(), post_text).await {
             warn!(error = %e, "echo failed to post specialist response");
         }
     }
@@ -227,6 +235,36 @@ impl Handler {
             Name::ALL.len()
         )
     }
+}
+
+/// If the whole response is wrapped in a fenced code block (```...``` with
+/// an optional language tag) return the inner text; otherwise return the
+/// input verbatim. We only peel ONE layer — inner code blocks inside a
+/// larger reply are kept as-is so real command examples still render as
+/// code on Discord.
+fn unwrap_outer_codeblock(src: &str) -> String {
+    let trimmed = src.trim();
+    let Some(after_open) = trimmed.strip_prefix("```") else {
+        return src.to_string();
+    };
+    let Some(before_close) = after_open.strip_suffix("```") else {
+        return src.to_string();
+    };
+    // Strip the optional language tag line (e.g. "rust\n", "bash\n").
+    // Only drop the first line if it has no spaces and no backticks —
+    // that's the shape Discord accepts as a language hint.
+    let body = match before_close.split_once('\n') {
+        Some((first, rest))
+            if !first.is_empty()
+                && !first.contains(' ')
+                && !first.contains('`')
+                && first.len() <= 20 =>
+        {
+            rest
+        }
+        _ => before_close,
+    };
+    body.trim_matches('\n').to_string()
 }
 
 /// Clip a message body to a thread-title-friendly length (≤80 chars).
@@ -348,3 +386,49 @@ async fn main() -> Result<()> {
 // when the token is unset.
 //
 // See tests/watch_discord_startup.rs.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unwrap_plain_text_passes_through() {
+        assert_eq!(unwrap_outer_codeblock("hello world"), "hello world");
+    }
+
+    #[test]
+    fn unwrap_strips_outer_fence_no_lang() {
+        let src = "```\nhello from echo\n```";
+        assert_eq!(unwrap_outer_codeblock(src), "hello from echo");
+    }
+
+    #[test]
+    fn unwrap_strips_outer_fence_with_lang_tag() {
+        let src = "```text\nstatus: healthy\nmodels: 1\n```";
+        assert_eq!(unwrap_outer_codeblock(src), "status: healthy\nmodels: 1");
+    }
+
+    #[test]
+    fn unwrap_preserves_inner_code_blocks() {
+        // Outer wraps the whole thing; inner fenced block stays as-is so
+        // Discord still renders the bash sample as code.
+        let src = "```\nTry this command:\n```bash\nls -la\n```\ncheers\n```";
+        let out = unwrap_outer_codeblock(src);
+        assert!(out.starts_with("Try this command:"));
+        assert!(out.contains("```bash\nls -la\n```"));
+        assert!(out.trim_end().ends_with("cheers"));
+    }
+
+    #[test]
+    fn unwrap_unbalanced_fence_passes_through() {
+        // Only an opener, no closer — don't claw at the string.
+        let src = "```\nforgot to close";
+        assert_eq!(unwrap_outer_codeblock(src), src);
+    }
+
+    #[test]
+    fn unwrap_fence_with_trailing_whitespace() {
+        let src = "\n\n```\nanswer\n```\n\n";
+        assert_eq!(unwrap_outer_codeblock(src), "answer");
+    }
+}

@@ -1825,7 +1825,10 @@ console.log(await turn("And one that contradicts a common myth."));</code></pre>
       <p><strong>Symptom:</strong> compositor freezes hard under concurrent model servers. Requires power-cycle. Kernel log:</p>
 <pre><code>amdgpu: [drm:dc_dmub_srv_wait_idle [amdgpu]] *ERROR*
   REG_WAIT timeout 1us * 100000 tries - optc35_disable_crtc</code></pre>
-      <p><strong>Cause:</strong> gfx1151 bug on kernel 7.x.</p>
+      <p><strong>Cause:</strong> gfx1151 bug on kernel 7.x. Full signature + cascade documented in
+        <a href="https://github.com/bong-water-water-bong/1bit-systems/issues/1" target="_blank" rel="noopener">issue #1</a>
+        (SMU mailbox &rarr; VPE/VCN powergate &rarr; PSP LOAD_IP_FW &rarr; drm REG_WAIT).
+      </p>
       <p><strong>Fix:</strong> rollback to LTS via snapper snapshot #6 ("7.00 with claude"):</p>
 <pre><code>sudo snapper -c root rollback 6
 sudo limine-mkconfig
