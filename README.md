@@ -176,6 +176,7 @@ Full RAG, multi-conversation, document chat, and MCP tools — Linux/macOS/Windo
 - **Near-term** — Sherry 1.25-bit weight packing (bytes-read reduction), BitNet v2 Hadamard activation quant (W1.58A4), Medusa speculative decoding heads. See [BitNet v2 Hadamard plan](./docs/wiki/BitNet-v2-Hadamard-Plan.md), [Medusa integration plan](./docs/wiki/Medusa-Integration-Plan.md), [Sherry default decision](./docs/wiki/Sherry-Default-Decision.md).
 - **Medium** — Voice loop end-to-end (whisper.cpp STT streaming + Kokoro TTS), full SD.cpp image-gen wiring, `halo-helm` as the first-class desktop client.
 - **Longer** — XDNA 2 NPU lane via ORT C++ + VitisAI EP for prefill. See [Why no NPU yet](./docs/wiki/Why-No-NPU-Yet.md) and [NPU Kernel Design](./docs/wiki/NPU-Kernel-Design.md) for the current state of the Linux NPU stack.
+- **Distribution (post-launch)** — three install lanes: source build (`cargo build --release --workspace`, the canonical path), **AppImage** (single-file, system-ROCm required), and **Flatpak** on Flathub (sandboxed, extension-built over the Freedesktop SDK). Model weights are too big to ship in any package — download-on-first-run, cached under `.halo/models/`.
 
 ## How to help
 
