@@ -1,0 +1,250 @@
+# Installation
+
+Full build-from-source guide. No binary distribution yet — packaging (AppImage + Flatpak) is on the near-term roadmap.
+
+## Requirements
+
+The stack targets Strix Halo specifically. Other gfx1100-family hardware *may* work with minor tweaks; only Strix Halo is tested.
+
+### Hardware — minimum
+
+- AMD Ryzen AI Max+ 395 (or equivalent Strix Halo SKU)
+- Radeon 8060S iGPU · gfx1151 · wave32 WMMA
+- 64 GB unified LPDDR5X minimum · 128 GB recommended for 13B+ ternary
+- 100 GB free disk for models plus build artifacts
+
+### Software — minimum
+
+- Linux kernel **6.18.22-lts** (newer kernels carry the amdgpu OPTC hang — see [Troubleshooting](./Troubleshooting.md))
+- ROCm 7.x — built from source against gfx1151 (not on ROCm's Tier-1 list)
+- LLVM / clang 18+
+- CMake 3.27+
+- Rust 1.82+ (stable channel)
+- Node.js or Bun *only* for caller-side clients. Nothing on the serving path — Rule A.
+
+### Recommended host
+
+**CachyOS** with Btrfs + snapper + limine is the reference setup. Rollback-via-snapper has saved the project more than once. Fish shell is assumed in examples but not required.
+
+## Build ROCm against gfx1151
+
+System-package ROCm drops gfx1151 from Tier-1 in most distros. Build from source, or use the `llamacpp-rocm` fork's install script as a bootstrap.
+
+```bash
+git clone https://github.com/bong-water-water-bong/llamacpp-rocm ~/repos/llamacpp-rocm
+cd ~/repos/llamacpp-rocm
+./scripts/install-rocm.sh --target gfx1151
+```
+
+## Build rocm-cpp kernel library
+
+```bash
+git clone https://github.com/bong-water-water-bong/rocm-cpp ~/repos/rocm-cpp
+cd ~/repos/rocm-cpp
+
+cmake -B build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DAMDGPU_TARGETS=gfx1151 \
+  -DCMAKE_HIP_ARCHITECTURES=gfx1151
+
+cmake --build build -j$(nproc)
+sudo cmake --install build --prefix /usr/local
+```
+
+## Build 1bit-halo-core (bitnet_decode)
+
+```bash
+# private repo today; public release gated on NPU ship-gate
+cd ~/1bit-halo-core
+
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
+
+./build/bitnet_decode --help
+```
+
+## Build 1bit-halo-server and 1bit-halo-mcp
+
+```bash
+cd ~/1bit-halo-workspace
+
+cargo build --release --bin 1bit-halo-server
+cargo build --release --bin 1bit-halo-mcp
+
+ls -la target/release/1bit-halo-server target/release/1bit-halo-mcp
+```
+
+## Fetch model weights
+
+```bash
+# 1bit-halo-pkg is not shipped yet. Manual download for now:
+mkdir -p ~/1bit-halo/models
+cd ~/1bit-halo/models
+
+# 1bit-halo-v2 · BitNet 1.58 · 2B
+curl -LO https://.../1bit-halo-v2.h1b   # actual URL TBD
+
+# TriLM 3.9B Unpacked (experimental)
+curl -LO https://.../trilm-3.9b.h1b
+```
+
+> **Rule A reminder** — Python may appear in caller-side tooling and dev-time scripts only. `bitnet_decode`, `1bit-halo-server`, `1bit-halo-mcp`, and kernel binaries ship zero Python. Carve-outs (Open WebUI, `lemonade-server`) are caller-side and sunset on 1bit-helm v0.3 parity.
+
+## Second target — RX 9070 XT (gfx1201)
+
+Radeon RX 9070 XT (Navi 48, RDNA 4) lives in the `ryzen` mesh host and is the secondary kernel target. The build system is already multi-arch: HIP bundles per-arch code objects into a fat binary and picks at load time. Default build covers both.
+
+The hot intrinsics — `__builtin_amdgcn_wmma_*_w32`, `__builtin_amdgcn_sudot4`, `__builtin_amdgcn_sdot4` — are retained on RDNA 4. Correctness holds out of the gate. Peak throughput is not yet tuned for gfx1201; block sizes and LDS budgets are still sized for gfx1151. A fresh K-outer tile sweep is needed for GDDR6 bandwidth (~640 GB/s on 9070 XT vs ~270 GB/s LPDDR5X on Strix Halo).
+
+### Build for gfx1201
+
+```bash
+# single-arch build, 9070 XT only
+GFX=gfx1201 ./install.sh
+
+# fat-binary build, runs on both strixhalo and ryzen
+GFX="gfx1151;gfx1201" ./install.sh
+
+# auto-detect via rocminfo (use on each host natively)
+GFX=auto ./install.sh
+```
+
+Prereq: ROCm must be present on `ryzen` first. Easiest path is the same TheRock source build used on Strix Halo, re-targeted to Navi 48. System-package ROCm may also work on RDNA 4 in distros that ship it; verify with `rocminfo`.
+
+```bash
+ssh ryzen
+ls /opt/rocm* ~/therock 2>/dev/null     # confirm a ROCm dist exists
+rocminfo | grep -E 'Name:|gfx'            # expect gfx1201
+```
+
+## First run
+
+Start `bitnet_decode` on the dev port, then `1bit-halo-server` as the OpenAI-compatible front. Verify with `curl`.
+
+### Start the inference core
+
+```bash
+cd ~/1bit-halo-core
+./build/bitnet_decode \
+  --model ~/1bit-halo/models/1bit-halo-v2.h1b \
+  --port 8080 \
+  --context 4096 \
+  --attn split-kv-fd \
+  --rope-mode hf-split-half
+```
+
+### Start the HTTP surface
+
+```bash
+cd ~/1bit-halo-workspace
+./target/release/1bit-halo-server \
+  --upstream http://127.0.0.1:8080 \
+  --bind 0.0.0.0:8180
+```
+
+### Verify
+
+```bash
+curl -s http://127.0.0.1:8180/v1/models | jq
+# expect: {"data": [{"id": "1bit-halo-v2", ...}]}
+
+curl -s http://127.0.0.1:8180/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "1bit-halo-v2",
+    "messages": [{"role":"user","content":"say hello"}]
+  }' | jq
+```
+
+## Services and systemd
+
+Production is systemd. One unit per binary. Units live in `/etc/systemd/system/` (system scope) or `~/.config/systemd/user/` (user scope). LTS kernel **needs** `LimitMEMLOCK=infinity` for the inference core or pinning fails.
+
+### 1bit-halo-bitnet.service
+
+```ini
+# /etc/systemd/system/1bit-halo-bitnet.service
+[Unit]
+Description=1bit bitnet_decode (HIP inference core)
+After=network.target 1bit-halo-gpu-perf.service
+Requires=1bit-halo-gpu-perf.service
+
+[Service]
+Type=simple
+User=1bit-halo
+Group=1bit-halo
+ExecStart=/usr/local/bin/bitnet_decode \
+  --model /var/lib/1bit-halo/models/1bit-halo-v2.h1b \
+  --port 8080 \
+  --context 4096 \
+  --attn split-kv-fd \
+  --rope-mode hf-split-half
+Restart=on-failure
+RestartSec=5
+LimitMEMLOCK=infinity
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### 1bit-halo-server.service
+
+```ini
+# /etc/systemd/system/1bit-halo-server.service
+[Unit]
+Description=1bit OpenAI-compatible HTTP surface
+After=network.target 1bit-halo-bitnet.service
+Requires=1bit-halo-bitnet.service
+
+[Service]
+Type=simple
+User=1bit-halo
+ExecStart=/usr/local/bin/1bit-halo-server \
+  --upstream http://127.0.0.1:8080 \
+  --bind 0.0.0.0:8180
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### 1bit-halo-gpu-perf.service
+
+Pins SCLK high to avoid latency spikes under sustained load. Required on LTS 6.18.22.
+
+```ini
+# /etc/systemd/system/1bit-halo-gpu-perf.service
+[Unit]
+Description=1bit GPU perf pinning (SCLK high)
+After=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'echo high > /sys/class/drm/card0/device/power_dpm_force_performance_level'
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Enable and check
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now 1bit-halo-gpu-perf 1bit-halo-bitnet 1bit-halo-server
+
+systemctl status 1bit-halo-bitnet 1bit-halo-server
+journalctl -u 1bit-halo-bitnet -f
+```
+
+### Default ports
+
+| Port | Service              | Purpose                                           |
+|------|----------------------|---------------------------------------------------|
+| 8080 | `bitnet_decode`      | Internal dev · upstream for 1bit-halo-server      |
+| 8180 | `1bit-halo-server`   | OpenAI-compatible HTTP · public-facing            |
+| 8181 | `1bit-halo-mcp`      | MCP server · tool & introspection surface         |
+| 8190 | `1bit-halo-whisper`  | Streaming STT (planned)                           |
+| 8191 | `1bit-halo-kokoro`   | TTS (planned)                                     |

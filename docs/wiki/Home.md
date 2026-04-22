@@ -16,6 +16,14 @@ Plain-English explanations of the architectural calls we made — one page per d
 - [Why no NPU yet?](./Why-No-NPU-Yet.md) — XDNA 2 status + ORT/VitisAI EP evaluation
 - [Why this way + how?](./Why-This-Way-How.md) — long-form walkthrough of all the decisions + end-to-end request path
 
+## Running it
+
+- [Installation](./Installation.md) — full build-from-source guide (requirements, ROCm, rocm-cpp, 1bit-halo-core, server, MCP, weights, gfx1201 second target, first run, systemd units, ports)
+- [Clients](./Clients.md) — connecting Open WebUI, raw HTTP / curl, MCP clients (Claude Desktop + Claude Code), and SDK samples (Python, TypeScript, Rust)
+- [Add your own app](./Add-Your-Own-App.md) — caller-side pattern under Rule A, session header usage, minimal agent harness example, where apps live
+- [Troubleshooting](./Troubleshooting.md) — OPTC CRTC hang, SMU/VCN/PSP failures, long-context PPL, mlock, ROCm arch, latency under load, memory-sync credentials
+- [Observability](./Observability.md) — journalctl, rocprof bandwidth check, PPL harness on wikitext-103, live tok/s benchmark
+
 ## Integrations
 
 - [Hermes Agent integration](./Hermes-Integration.md) — Nous Research's agent as external client on 1bit-server; feature-port list for 1bit-agents

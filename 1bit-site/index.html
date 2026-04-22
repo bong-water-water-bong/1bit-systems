@@ -530,6 +530,15 @@
     text-shadow: 0 0 10px var(--accent-glow);
   }
 
+  .callout.warn {
+    border-left-color: var(--magenta);
+    box-shadow: -6px 0 16px -8px var(--magenta-soft);
+  }
+  .callout.warn strong {
+    color: var(--magenta);
+    text-shadow: 0 0 10px var(--magenta-glow);
+  }
+
   table {
     width: 100%;
     max-width: 700px;
@@ -707,6 +716,40 @@
             </li>
 
             <li><a href="#npu-status">NPU status</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="nav-group">
+        <button class="nav-group-header" aria-expanded="true">
+          <span>Run it</span>
+          <span class="chevron"></span>
+        </button>
+        <div class="nav-group-body">
+          <ul class="nav-list">
+            <li><a href="#requirements">Requirements</a></li>
+            <li><a href="#install">Install</a></li>
+            <li><a href="#first-run">First run</a></li>
+            <li><a href="#services">Services &amp; systemd</a></li>
+
+            <li class="nav-subgroup">
+              <button class="nav-subgroup-header">
+                <span>Connect</span>
+                <span class="chevron"></span>
+              </button>
+              <div class="nav-subgroup-body">
+                <ul class="nav-list">
+                  <li><a href="#connect-openwebui">Open WebUI</a></li>
+                  <li><a href="#connect-curl">Raw HTTP</a></li>
+                  <li><a href="#connect-mcp">MCP clients</a></li>
+                  <li><a href="#connect-custom">Custom / SDK</a></li>
+                </ul>
+              </div>
+            </li>
+
+            <li><a href="#add-your-app">Add your own app</a></li>
+            <li><a href="#troubleshooting">Troubleshooting</a></li>
+            <li><a href="#observability">Observability</a></li>
           </ul>
         </div>
       </div>
@@ -1043,6 +1086,580 @@
       <h3>Current verdict</h3>
       <p>
         <strong>Defer.</strong> Revisit when AMD ships STX-H on Ryzen AI Linux, or when a community BitNet backend for XDNA 2 lands in public. Nothing on the near- or mid-term roadmap depends on the NPU shipping.
+      </p>
+    </section>
+
+    <div class="divider-ornament">· · ·</div>
+
+    <section id="requirements">
+      <h2>Requirements</h2>
+      <p>
+        The stack targets Strix Halo specifically. Other gfx1100-family hardware <em>may</em> work with minor tweaks; only Strix Halo is tested.
+      </p>
+
+      <h3>Hardware — minimum</h3>
+      <ul>
+        <li>AMD Ryzen AI Max+ 395 (or equivalent Strix Halo SKU)</li>
+        <li>Radeon 8060S iGPU · gfx1151 · wave32 WMMA</li>
+        <li>64 GB unified LPDDR5X minimum · 128 GB recommended for 13B+ ternary</li>
+        <li>100 GB free disk for models plus build artifacts</li>
+      </ul>
+
+      <h3>Software — minimum</h3>
+      <ul>
+        <li>Linux kernel <strong>6.18.22-lts</strong> (newer kernels carry the amdgpu OPTC hang — see <a href="#troubleshooting">troubleshooting</a>)</li>
+        <li>ROCm 7.x — built from source against gfx1151 (not on ROCm's Tier-1 list)</li>
+        <li>LLVM / clang 18+</li>
+        <li>CMake 3.27+</li>
+        <li>Rust 1.82+ (stable channel)</li>
+        <li>Node.js or Bun <em>only</em> for caller-side clients. Nothing on the serving path — Rule A.</li>
+      </ul>
+
+      <h3>Recommended host</h3>
+      <p>
+        <strong>CachyOS</strong> with Btrfs + snapper + limine is the reference setup. Rollback-via-snapper has saved the project more than once. Fish shell is assumed in examples but not required.
+      </p>
+    </section>
+
+    <section id="install">
+      <h2>Install</h2>
+      <p>
+        No binary distribution yet. Build from source. Packaging (AppImage + Flatpak) is on the near-term roadmap; <code>1bit-halo-pkg</code> model package manager is long-term.
+      </p>
+
+      <h3>Build ROCm against gfx1151</h3>
+      <p>
+        System-package ROCm drops gfx1151 from Tier-1 in most distros. Build from source, or use the <code>llamacpp-rocm</code> fork's install script as a bootstrap.
+      </p>
+<pre><code>git clone https://github.com/bong-water-water-bong/llamacpp-rocm ~/repos/llamacpp-rocm
+cd ~/repos/llamacpp-rocm
+./scripts/install-rocm.sh --target gfx1151</code></pre>
+
+      <h3>Build rocm-cpp kernel library</h3>
+<pre><code>git clone https://github.com/bong-water-water-bong/rocm-cpp ~/repos/rocm-cpp
+cd ~/repos/rocm-cpp
+
+cmake -B build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DAMDGPU_TARGETS=gfx1151 \
+  -DCMAKE_HIP_ARCHITECTURES=gfx1151
+
+cmake --build build -j$(nproc)
+sudo cmake --install build --prefix /usr/local</code></pre>
+
+      <h3>Build 1bit-halo-core (bitnet_decode)</h3>
+<pre><code># private repo today; public release gated on NPU ship-gate
+cd ~/1bit-halo-core
+
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
+
+./build/bitnet_decode --help</code></pre>
+
+      <h3>Build 1bit-halo-server and 1bit-halo-mcp</h3>
+<pre><code>cd ~/1bit-halo-workspace
+
+cargo build --release --bin 1bit-halo-server
+cargo build --release --bin 1bit-halo-mcp
+
+ls -la target/release/1bit-halo-server target/release/1bit-halo-mcp</code></pre>
+
+      <h3>Fetch model weights</h3>
+<pre><code># 1bit-halo-pkg is not shipped yet. Manual download for now:
+mkdir -p ~/1bit-halo/models
+cd ~/1bit-halo/models
+
+# 1bit-halo-v2 · BitNet 1.58 · 2B
+curl -LO https://.../1bit-halo-v2.h1b   # actual URL TBD
+
+# TriLM 3.9B Unpacked (experimental)
+curl -LO https://.../trilm-3.9b.h1b</code></pre>
+
+      <div class="callout">
+        <strong>Rule A reminder</strong> — Python may appear in caller-side tooling and dev-time scripts only. <code>bitnet_decode</code>, <code>1bit-halo-server</code>, <code>1bit-halo-mcp</code>, and kernel binaries ship zero Python. Carve-outs (Open WebUI, <code>lemonade-server</code>) are caller-side and sunset on 1bit-helm v0.3 parity.
+      </div>
+
+      <h3>Second target — RX 9070 XT (gfx1201)</h3>
+      <p>
+        Radeon RX 9070 XT (Navi 48, RDNA 4) lives in the <code>ryzen</code> mesh host and is the secondary kernel target. The build system is already multi-arch: HIP bundles per-arch code objects into a fat binary and picks at load time. Default build covers both.
+      </p>
+      <p>
+        The hot intrinsics — <code>__builtin_amdgcn_wmma_*_w32</code>, <code>__builtin_amdgcn_sudot4</code>, <code>__builtin_amdgcn_sdot4</code> — are retained on RDNA 4. Correctness holds out of the gate. Peak throughput is not yet tuned for gfx1201; block sizes and LDS budgets are still sized for gfx1151. A fresh K-outer tile sweep is needed for GDDR6 bandwidth (~640 GB/s on 9070 XT vs ~270 GB/s LPDDR5X on Strix Halo).
+      </p>
+
+      <h3>Build for gfx1201</h3>
+<pre><code># single-arch build, 9070 XT only
+GFX=gfx1201 ./install.sh
+
+# fat-binary build, runs on both strixhalo and ryzen
+GFX="gfx1151;gfx1201" ./install.sh
+
+# auto-detect via rocminfo (use on each host natively)
+GFX=auto ./install.sh</code></pre>
+      <p>
+        Prereq: ROCm must be present on <code>ryzen</code> first. Easiest path is the same TheRock source build used on Strix Halo, re-targeted to Navi 48. System-package ROCm may also work on RDNA 4 in distros that ship it; verify with <code>rocminfo</code>.
+      </p>
+<pre><code>ssh ryzen
+ls /opt/rocm* ~/therock 2&gt;/dev/null     # confirm a ROCm dist exists
+rocminfo | grep -E 'Name:|gfx'            # expect gfx1201</code></pre>
+    </section>
+
+    <section id="first-run">
+      <h2>First run</h2>
+      <p>
+        Start <code>bitnet_decode</code> on the dev port, then <code>1bit-halo-server</code> as the OpenAI-compatible front. Verify with <code>curl</code>.
+      </p>
+
+      <h3>Start the inference core</h3>
+<pre><code>cd ~/1bit-halo-core
+./build/bitnet_decode \
+  --model ~/1bit-halo/models/1bit-halo-v2.h1b \
+  --port 8080 \
+  --context 4096 \
+  --attn split-kv-fd \
+  --rope-mode hf-split-half</code></pre>
+
+      <h3>Start the HTTP surface</h3>
+<pre><code>cd ~/1bit-halo-workspace
+./target/release/1bit-halo-server \
+  --upstream http://127.0.0.1:8080 \
+  --bind 0.0.0.0:8180</code></pre>
+
+      <h3>Verify</h3>
+<pre><code>curl -s http://127.0.0.1:8180/v1/models | jq
+# expect: {"data": [{"id": "1bit-halo-v2", ...}]}
+
+curl -s http://127.0.0.1:8180/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "1bit-halo-v2",
+    "messages": [{"role":"user","content":"say hello"}]
+  }' | jq</code></pre>
+    </section>
+
+    <section id="services">
+      <h2>Services &amp; systemd</h2>
+      <p>
+        Production is systemd. One unit per binary. Units live in <code>/etc/systemd/system/</code> (system scope) or <code>~/.config/systemd/user/</code> (user scope). LTS kernel <strong>needs</strong> <code>LimitMEMLOCK=infinity</code> for the inference core or pinning fails.
+      </p>
+
+      <h3>1bit-halo-bitnet.service</h3>
+<pre><code># /etc/systemd/system/1bit-halo-bitnet.service
+[Unit]
+Description=1bit bitnet_decode (HIP inference core)
+After=network.target 1bit-halo-gpu-perf.service
+Requires=1bit-halo-gpu-perf.service
+
+[Service]
+Type=simple
+User=1bit-halo
+Group=1bit-halo
+ExecStart=/usr/local/bin/bitnet_decode \
+  --model /var/lib/1bit-halo/models/1bit-halo-v2.h1b \
+  --port 8080 \
+  --context 4096 \
+  --attn split-kv-fd \
+  --rope-mode hf-split-half
+Restart=on-failure
+RestartSec=5
+LimitMEMLOCK=infinity
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+
+      <h3>1bit-halo-server.service</h3>
+<pre><code># /etc/systemd/system/1bit-halo-server.service
+[Unit]
+Description=1bit OpenAI-compatible HTTP surface
+After=network.target 1bit-halo-bitnet.service
+Requires=1bit-halo-bitnet.service
+
+[Service]
+Type=simple
+User=1bit-halo
+ExecStart=/usr/local/bin/1bit-halo-server \
+  --upstream http://127.0.0.1:8080 \
+  --bind 0.0.0.0:8180
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+
+      <h3>1bit-halo-gpu-perf.service</h3>
+      <p>
+        Pins SCLK high to avoid latency spikes under sustained load. Required on LTS 6.18.22.
+      </p>
+<pre><code># /etc/systemd/system/1bit-halo-gpu-perf.service
+[Unit]
+Description=1bit GPU perf pinning (SCLK high)
+After=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'echo high &gt; /sys/class/drm/card0/device/power_dpm_force_performance_level'
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+
+      <h3>Enable &amp; check</h3>
+<pre><code>sudo systemctl daemon-reload
+sudo systemctl enable --now 1bit-halo-gpu-perf 1bit-halo-bitnet 1bit-halo-server
+
+systemctl status 1bit-halo-bitnet 1bit-halo-server
+journalctl -u 1bit-halo-bitnet -f</code></pre>
+
+      <h3>Default ports</h3>
+      <table>
+        <thead>
+          <tr><th>Port</th><th>Service</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>8080</td><td><code>bitnet_decode</code></td><td>Internal dev · upstream for 1bit-halo-server</td></tr>
+          <tr><td>8180</td><td><code>1bit-halo-server</code></td><td>OpenAI-compatible HTTP · public-facing</td></tr>
+          <tr><td>8181</td><td><code>1bit-halo-mcp</code></td><td>MCP server · tool &amp; introspection surface</td></tr>
+          <tr><td>8190</td><td><code>1bit-halo-whisper</code></td><td>Streaming STT (planned)</td></tr>
+          <tr><td>8191</td><td><code>1bit-halo-kokoro</code></td><td>TTS (planned)</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="connect-openwebui">
+      <h2>Connect — Open WebUI</h2>
+      <p>
+        Open WebUI is the blessed third-party client today. Carve-out under Rule A (caller-side only; sunsets on 1bit-helm v0.3 parity).
+      </p>
+
+      <h3>Docker path</h3>
+<pre><code>docker run -d -p 3000:8080 \
+  -e OPENAI_API_BASE_URL=http://host.docker.internal:8180/v1 \
+  -e OPENAI_API_KEY=none \
+  -v openwebui-data:/app/backend/data \
+  --name openwebui \
+  --restart unless-stopped \
+  ghcr.io/open-webui/open-webui:main</code></pre>
+
+      <h3>Native path (pipx)</h3>
+<pre><code>pipx install open-webui
+OPENAI_API_BASE_URL=http://127.0.0.1:8180/v1 \
+OPENAI_API_KEY=none \
+open-webui serve --port 3000</code></pre>
+
+      <p>
+        Visit <code>http://localhost:3000</code>, create the first admin account (stored locally), select <strong>1bit-halo-v2</strong> from the model dropdown.
+      </p>
+    </section>
+
+    <section id="connect-curl">
+      <h2>Connect — Raw HTTP</h2>
+      <p>
+        Everything speaks OpenAI. No special client needed. Handy for smoke tests and shell scripts.
+      </p>
+
+      <h3>List models</h3>
+<pre><code>curl -s http://127.0.0.1:8180/v1/models | jq '.data[].id'</code></pre>
+
+      <h3>One-shot completion</h3>
+<pre><code>curl -s http://127.0.0.1:8180/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "1bit-halo-v2",
+    "messages": [
+      {"role":"system","content":"Be concise."},
+      {"role":"user","content":"Explain ternary weights in one sentence."}
+    ],
+    "temperature": 0.7,
+    "max_tokens": 256
+  }' | jq -r '.choices[0].message.content'</code></pre>
+
+      <h3>Streaming (SSE)</h3>
+<pre><code>curl -N http://127.0.0.1:8180/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "1bit-halo-v2",
+    "messages": [{"role":"user","content":"count to ten"}],
+    "stream": true
+  }'
+# server-sent events: each chunk is `data: {...}\n\n`</code></pre>
+    </section>
+
+    <section id="connect-mcp">
+      <h2>Connect — MCP clients</h2>
+      <p>
+        <code>1bit-halo-mcp</code> exposes introspection and control as a Model Context Protocol server. Any MCP-aware client (Claude Desktop, Claude Code, Continue, Cursor, custom agents) can attach.
+      </p>
+
+      <h3>Claude Desktop</h3>
+<pre><code>// ~/.config/Claude/claude_desktop_config.json
+{
+  "mcpServers": {
+    "1bit": {
+      "command": "/usr/local/bin/1bit-halo-mcp",
+      "args": ["--server", "http://127.0.0.1:8180"]
+    }
+  }
+}</code></pre>
+
+      <h3>Claude Code</h3>
+<pre><code>claude mcp add 1bit /usr/local/bin/1bit-halo-mcp -- \
+  --server http://127.0.0.1:8180</code></pre>
+
+      <p>
+        <code>1bit-halo-mcp</code> exposes tools for: model listing, health probes, KV-cache stats, active session inspection, sampler overrides (temperature, top-p, top-k), and kernel timing. 22 tests cover the surface as of 2026-04-19.
+      </p>
+    </section>
+
+    <section id="connect-custom">
+      <h2>Connect — Custom / SDK</h2>
+      <p>
+        Any OpenAI SDK works. Examples below in Python (caller-side), TypeScript (caller-side), and Rust.
+      </p>
+
+      <h3>Python · openai-python</h3>
+<pre><code>from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://localhost:8180/v1",
+    api_key="none",  # 1bit-halo-server ignores the key by default
+)
+
+stream = client.chat.completions.create(
+    model="1bit-halo-v2",
+    messages=[{"role": "user", "content": "Hello, ternary."}],
+    stream=True,
+)
+
+for chunk in stream:
+    delta = chunk.choices[0].delta.content
+    if delta:
+        print(delta, end="", flush=True)</code></pre>
+
+      <h3>TypeScript · openai (Bun-friendly)</h3>
+<pre><code>import OpenAI from "openai";
+
+const client = new OpenAI({
+  baseURL: "http://localhost:8180/v1",
+  apiKey: "none",
+});
+
+const stream = await client.chat.completions.create({
+  model: "1bit-halo-v2",
+  messages: [{ role: "user", content: "Hello, ternary." }],
+  stream: true,
+});
+
+for await (const chunk of stream) {
+  process.stdout.write(chunk.choices[0]?.delta?.content ?? "");
+}</code></pre>
+
+      <h3>Rust · async-openai</h3>
+<pre><code>use async_openai::{Client, config::OpenAIConfig, types::*};
+use futures::StreamExt;
+
+#[tokio::main]
+async fn main() -&gt; anyhow::Result&lt;()&gt; {
+    let config = OpenAIConfig::new()
+        .with_api_base("http://localhost:8180/v1")
+        .with_api_key("none");
+    let client = Client::with_config(config);
+
+    let req = CreateChatCompletionRequestArgs::default()
+        .model("1bit-halo-v2")
+        .messages([ChatCompletionRequestUserMessageArgs::default()
+            .content("Hello, ternary.")
+            .build()?
+            .into()])
+        .stream(true)
+        .build()?;
+
+    let mut stream = client.chat().create_stream(req).await?;
+    while let Some(result) = stream.next().await {
+        if let Ok(chunk) = result {
+            if let Some(content) = &amp;chunk.choices[0].delta.content {
+                print!("{content}");
+            }
+        }
+    }
+    Ok(())
+}</code></pre>
+    </section>
+
+    <section id="add-your-app">
+      <h2>Add your own app</h2>
+      <p>
+        Third-party apps attach on the client side only. Rule A hard stop: no Python, no Node, no interpreted runtime inside <code>1bit-halo-server</code> or downstream. Anything above it — UIs, agents, game bots, IDE plugins — is fair game in any language.
+      </p>
+
+      <h3>The shape of a caller-side app</h3>
+      <ol>
+        <li>Speak OpenAI-compatible HTTP to <code>:8180</code>. Every SDK works.</li>
+        <li>For richer introspection, connect to <code>1bit-halo-mcp</code> at <code>:8181</code>.</li>
+        <li>Use <code>1bit-halo-server</code>'s session header <code>X-1bit-halo-Session</code> to pin a conversation to a KV-cache slot.</li>
+        <li>Handle <code>429</code> / <code>503</code> with exponential back-off — the server returns <code>Retry-After</code>.</li>
+      </ol>
+
+      <h3>Example — minimal agent harness</h3>
+<pre><code>// minimal-agent.ts · run with `bun run minimal-agent.ts`
+import OpenAI from "openai";
+
+const client = new OpenAI({
+  baseURL: "http://localhost:8180/v1",
+  apiKey: "none",
+});
+
+const session = crypto.randomUUID();
+const history: OpenAI.ChatCompletionMessageParam[] = [
+  { role: "system", content: "You are a terse assistant." },
+];
+
+async function turn(user: string) {
+  history.push({ role: "user", content: user });
+  const res = await client.chat.completions.create(
+    { model: "1bit-halo-v2", messages: history },
+    { headers: { "X-1bit-halo-Session": session } },
+  );
+  const reply = res.choices[0].message.content ?? "";
+  history.push({ role: "assistant", content: reply });
+  return reply;
+}
+
+console.log(await turn("Two facts about RDNA 3.5."));
+console.log(await turn("And one that contradicts a common myth."));</code></pre>
+
+      <h3>Where your app lives</h3>
+      <p>
+        If the app is a serving surface (game integration, Discord bot, MCP bridge, API adapter), it belongs in <strong>1bit.services</strong>, not in 1bit.systems core. Core stays kernel + serving only.
+      </p>
+      <p>
+        If the app is a library meant to be embedded (SDK wrapper, client helper), keep it in your own repo. The project maintains the HTTP contract; you maintain the client surface.
+      </p>
+
+      <div class="callout">
+        <strong>API stability</strong> — the OpenAI-compatible surface is the stable contract. The FFI boundary between <code>1bit-halo-server</code> and <code>bitnet_decode</code> is internal and changes without notice. Build on HTTP, not on FFI.
+      </div>
+    </section>
+
+    <section id="troubleshooting">
+      <h2>Troubleshooting</h2>
+      <p>
+        Known failure modes and their fixes. Ordered by frequency, not severity.
+      </p>
+
+      <h3>amdgpu OPTC CRTC hang — full Wayland freeze</h3>
+      <p><strong>Symptom:</strong> compositor freezes hard under concurrent model servers. Requires power-cycle. Kernel log:</p>
+<pre><code>amdgpu: [drm:dc_dmub_srv_wait_idle [amdgpu]] *ERROR*
+  REG_WAIT timeout 1us * 100000 tries - optc35_disable_crtc</code></pre>
+      <p><strong>Cause:</strong> gfx1151 bug on kernel 7.x.</p>
+      <p><strong>Fix:</strong> rollback to LTS via snapper snapshot #6 ("7.00 with claude"):</p>
+<pre><code>sudo snapper -c root rollback 6
+sudo limine-mkconfig
+sudo reboot
+# at limine menu, pick 6.18.22-lts</code></pre>
+
+      <h3>SMU / VCN / PSP hang on LTS</h3>
+      <p><strong>Symptom:</strong> <code>journalctl -b</code> on boot:</p>
+<pre><code>amdgpu: SMU: Failed to send message 0x... rv -110  (-ETIME)
+amdgpu: [PSP] Failed to load IP FW — LOAD_IP_FW failed
+amdgpu: VPE / VCN powergate transition failed</code></pre>
+      <p><strong>Cause:</strong> <code>/etc/modprobe.d/halo.conf</code> Tier-3b parameters tuned for 7.0 misfire on LTS.</p>
+      <p><strong>Fix:</strong></p>
+<pre><code>sudo mv /etc/modprobe.d/halo.conf /etc/modprobe.d/halo.conf.disabled
+sudo mkinitcpio -P
+sudo reboot</code></pre>
+
+      <h3>Long-context PPL explodes</h3>
+      <p><strong>Symptom:</strong> PPL rises monotonically with context, repetition PPL &gt; 4.</p>
+      <p><strong>Cause:</strong> RoPE convention drift (interleaved vs HF split-half). Fixed 2026-04-19.</p>
+      <p><strong>Fix:</strong> confirm flag and commit:</p>
+<pre><code>bitnet_decode --rope-mode hf-split-half   # not `interleaved`
+git -C ~/1bit-halo-core log --oneline | grep -i rope
+# must include the 2026-04-19 fix commit</code></pre>
+
+      <h3>Service won't start — mlock failed</h3>
+      <p><strong>Symptom:</strong> systemd unit exits immediately, journal shows:</p>
+<pre><code>bitnet_decode: mlock failed: Operation not permitted</code></pre>
+      <p><strong>Fix:</strong> add to the unit:</p>
+<pre><code>LimitMEMLOCK=infinity</code></pre>
+      <p>The NPU probe path (<code>xrt-smi</code>) needs the same, for the day the gate opens.</p>
+
+      <h3>ROCm build fails — gfx1151 not supported</h3>
+      <p><strong>Symptom:</strong> CMake reports target not supported, or linker bails on unknown arch.</p>
+      <p><strong>Fix:</strong> pass the target explicitly everywhere:</p>
+<pre><code>cmake -B build \
+  -DAMDGPU_TARGETS=gfx1151 \
+  -DCMAKE_HIP_ARCHITECTURES=gfx1151 \
+  -DGPU_TARGETS=gfx1151</code></pre>
+      <p>If the distro ROCm drops the arch entirely, build from source. The <code>llamacpp-rocm</code> fork's install script is the paved road.</p>
+
+      <h3>Latency spikes under load</h3>
+      <p><strong>Symptom:</strong> tok/s drops 30 – 60% after the first minute of sustained generation.</p>
+      <p><strong>Cause:</strong> SCLK falls out of high-perf state.</p>
+      <p><strong>Fix:</strong> <code>1bit-halo-gpu-perf.service</code> pins SCLK high. Verify:</p>
+<pre><code>systemctl status 1bit-halo-gpu-perf
+cat /sys/class/drm/card0/device/power_dpm_force_performance_level
+# expect: high
+cat /sys/class/drm/card0/device/pp_dpm_sclk</code></pre>
+
+      <h3>1bit-halo-memory-sync failing every 15 min</h3>
+      <p><strong>Symptom:</strong> user timer logs show:</p>
+<pre><code>1bit-halo-memory-sync: push failed (credentials?)</code></pre>
+      <p><strong>Cause:</strong> GitHub PAT expired, corrupted <code>GH_TOKEN</code> fish universal variable, or missing <code>admin:public_key</code> scope.</p>
+      <p><strong>Fix:</strong></p>
+<pre><code># 1. clear corrupted universal env
+set -e --universal GH_TOKEN
+
+# 2. refresh auth with correct scopes
+gh auth login --scopes "admin:public_key,repo,workflow"
+
+# 3. re-run the timer
+systemctl --user restart 1bit-halo-memory-sync.timer
+journalctl --user -u 1bit-halo-memory-sync -f</code></pre>
+    </section>
+
+    <section id="observability">
+      <h2>Observability</h2>
+      <p>
+        Three levels: service logs, kernel-level profiling, and model-quality benchmarking. Everything local; no telemetry leaves the host.
+      </p>
+
+      <h3>Logs</h3>
+<pre><code># service logs
+journalctl -u 1bit-halo-bitnet -f
+journalctl -u 1bit-halo-server -f --since "1h ago"
+
+# user-scope services
+journalctl --user -u 1bit-halo-memory-sync.timer</code></pre>
+      <p>
+        Structured JSON logs with Loki + Grafana on the same host are planned; for now, <code>journalctl -o json</code> is the paved road.
+      </p>
+
+      <h3>Kernel profiling</h3>
+<pre><code># bandwidth-bound sanity check
+rocprof --stats --timestamp on \
+  ./build/bitnet_decode --model 1bit-halo-v2.h1b --port 8080 --bench 64
+
+# expect: ternary GEMV at ~92% LPDDR5 peak
+# if lower, the tile or packed layout regressed</code></pre>
+
+      <h3>Model quality — PPL harness</h3>
+<pre><code># wikitext-103 perplexity · post-RoPE-fix reference numbers:
+# 1bit-halo-v2: PPL ~12 on wikitext-103, ~1.04 on repetition
+./build/bitnet_decode \
+  --model ~/1bit-halo/models/1bit-halo-v2.h1b \
+  --ppl ~/datasets/wikitext-103/wiki.test.tokens \
+  --context 2048</code></pre>
+
+      <h3>Live benchmark</h3>
+<pre><code># clean-burn reference numbers (2026-04-18):
+# 64-token context:   66 tok/s
+# 1024-token context: 33 tok/s
+./build/bitnet_decode --bench 64 --bench 256 --bench 1024</code></pre>
+
+      <h3>Output conventions</h3>
+      <p>
+        On the reference host, benchmark JSON lands in <code>/home/bcloud/claude output/</code>. Other hosts pick their own path; the convention matters for the project's internal tracking only.
       </p>
     </section>
 
