@@ -266,23 +266,24 @@ pub mod real {
         }
 
         fn build_request(messages: &[ChatMessage], params: &GenerationParams) -> RouterRequest {
-            // Match gen-1 bitnet_decode's chat template exactly so /v1 and
-            // /v2 tokenize identically. Each turn becomes
-            //   "Role: content<|eot_id|>"
-            // and the prompt closes with "Assistant: ". BOS is prepended by
-            // the tokenizer inside the router.
+            // Llama-3 / BitNet-B1.58-2B-4T chat template. The naive
+            // "Role: content<|eot_id|>Assistant: " form mismatched the
+            // trained template and caused the model to emit a single `!`
+            // then EOT on every request (smoke-tested 2026-04-22 against
+            // :8180 while gen-1 bitnet_decode at :8080 returned full
+            // replies). Gen-1 does the same templating internally; this
+            // mirrors it so /v1 and /v2 tokenize identically. BOS is
+            // prepended by the tokenizer inside the router.
             let mut prompt = String::new();
             for m in messages {
-                let mut role = m.role.clone();
-                if let Some(c) = role.get_mut(0..1) {
-                    c.make_ascii_uppercase();
-                }
-                prompt.push_str(&role);
-                prompt.push_str(": ");
+                let role = m.role.as_str();
+                prompt.push_str("<|start_header_id|>");
+                prompt.push_str(role);
+                prompt.push_str("<|end_header_id|>\n\n");
                 prompt.push_str(&m.content);
                 prompt.push_str("<|eot_id|>");
             }
-            prompt.push_str("Assistant: ");
+            prompt.push_str("<|start_header_id|>assistant<|end_header_id|>\n\n");
 
             let mut cfg = SamplerConfig::default();
             if let Some(t) = params.temperature {
