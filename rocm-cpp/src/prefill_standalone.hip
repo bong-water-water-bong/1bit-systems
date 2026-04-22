@@ -21,6 +21,27 @@
 
 #include "rocm_cpp/ck_gemm.h"   // C API — shared between CK and standalone backends
 
+// RDNA4 (gfx1200/1201) WMMA has a different lane layout + fragment size than
+// RDNA3 (gfx1151). The kernels in this TU were written against the RDNA3
+// layout (lanes 0-15 duplicate 16-31 for A/B fragments; half16_t per lane).
+// Porting requires structural changes, not just intrinsic dispatch —
+// tracked in src/wmma_compat.hpp.
+//
+// We skip the whole TU on gfx12 device compiles; the CMake rule in
+// CMakeLists.txt pins `HIP_SOURCE_PROPERTY_HIP_ARCHITECTURES=gfx1151` for
+// this file, so gfx12-only builds don't include prefill symbols at all.
+// Multi-arch (gfx1151 + gfx1201) builds keep the gfx1151 slice and skip the
+// gfx1201 device pass here — the host-side launchers are still produced
+// because host compilation doesn't define any __gfxN__ macros.
+//
+// If the CMake guard is removed or misses, this `#if` stops the gfx12
+// device compile with a clear message rather than emitting wrong-result
+// kernels silently.
+#define ROCM_CPP_PREFILL_GFX11 \
+    (!(defined(__gfx1200__) || defined(__gfx1201__) || defined(__gfx12__)))
+
+#if ROCM_CPP_PREFILL_GFX11 || !defined(__HIP_DEVICE_COMPILE__)
+
 namespace {
 
 constexpr int K1       = 32;  // KPerBlock in CK parlance
@@ -1897,3 +1918,5 @@ void rcpp_standalone_launch_wmma_2x4_ldsB(
 }
 
 }  // extern "C"
+
+#endif  // ROCM_CPP_PREFILL_GFX11

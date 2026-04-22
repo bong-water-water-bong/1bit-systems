@@ -5,11 +5,15 @@
 
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
+#include "wmma_compat.hpp"
 
-using half16_t = __attribute__((ext_vector_type(16))) __fp16;
-using float8_t = __attribute__((ext_vector_type(8))) float;
-using int32x8_t = __attribute__((ext_vector_type(8))) int32_t;
-using int8x16_t = __attribute__((ext_vector_type(16))) int8_t;
+// Per-arch aliases resolved at compile time:
+//   gfx11 (RDNA3): half16_t / int8x16_t
+//   gfx12 (RDNA4): half8_t  / int8x8_t
+using half16_t  = wmma_half_frag_t;
+using float8_t  = wmma_f32_acc_t;
+using int32x8_t = wmma_i32_acc_t;
+using int8x16_t = wmma_i8_frag_t;
 
 namespace {
 
@@ -26,9 +30,9 @@ void wmma_peak_inner(
     #pragma unroll
     for(int i = 0; i < 4; ++i) {
         #pragma unroll
-        for(int e = 0; e < 16; ++e) {
-            A_frag[i][e] = (__fp16)(float)A_seed[(threadIdx.x * 4 + i) * 16 + e];
-            B_frag[i][e] = (__fp16)(float)B_seed[(threadIdx.x * 4 + i) * 16 + e];
+        for(int e = 0; e < WMMA_K_ELEMS; ++e) {
+            A_frag[i][e] = (__fp16)(float)A_seed[(threadIdx.x * 4 + i) * WMMA_K_ELEMS + e];
+            B_frag[i][e] = (__fp16)(float)B_seed[(threadIdx.x * 4 + i) * WMMA_K_ELEMS + e];
         }
     }
 
@@ -38,8 +42,7 @@ void wmma_peak_inner(
         for(int i = 0; i < 4; ++i) {
             #pragma unroll
             for(int j = 0; j < 4; ++j) {
-                acc[i][j] = __builtin_amdgcn_wmma_f32_16x16x16_f16_w32(
-                    A_frag[i], B_frag[j], acc[i][j]);
+                acc[i][j] = wmma_f32_f16(A_frag[i], B_frag[j], acc[i][j]);
             }
         }
     }
@@ -68,9 +71,9 @@ void wmma_peak_inner_i8(
     #pragma unroll
     for(int i = 0; i < 4; ++i) {
         #pragma unroll
-        for(int e = 0; e < 16; ++e) {
-            A_frag[i][e] = A_seed[(threadIdx.x * 4 + i) * 16 + e];
-            B_frag[i][e] = B_seed[(threadIdx.x * 4 + i) * 16 + e];
+        for(int e = 0; e < WMMA_K_ELEMS; ++e) {
+            A_frag[i][e] = A_seed[(threadIdx.x * 4 + i) * WMMA_K_ELEMS + e];
+            B_frag[i][e] = B_seed[(threadIdx.x * 4 + i) * WMMA_K_ELEMS + e];
         }
     }
 
@@ -81,10 +84,8 @@ void wmma_peak_inner_i8(
             #pragma unroll
             for(int j = 0; j < 4; ++j) {
                 // signed x signed = int32, no clamp
-                acc[i][j] = __builtin_amdgcn_wmma_i32_16x16x16_iu8_w32(
-                    /*neg_a=*/true, A_frag[i],
-                    /*neg_b=*/true, B_frag[j],
-                    acc[i][j], /*clamp=*/false);
+                acc[i][j] = wmma_i32_iu8</*NegA=*/true, /*NegB=*/true, /*Clamp=*/false>(
+                    A_frag[i], B_frag[j], acc[i][j]);
             }
         }
     }

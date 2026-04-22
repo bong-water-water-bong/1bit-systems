@@ -50,9 +50,19 @@ FetchContent_MakeAvailable(cpp_httplib nlohmann_json ftxui)
 # phases 1-4 will replace that; once they land, this find_package goes away too.
 find_package(composable_kernel REQUIRED CONFIG PATHS "${ROCM_ROOT}")
 
-# GPU arch(es) to build for. Default is Strix Halo; overridable from the
-# command line with -DCMAKE_HIP_ARCHITECTURES="gfx1151;gfx1201" to produce
-# a multi-arch binary (HIP bundles code objects per-arch, runtime picks).
+# GPU arch(es) to build for. Default is Strix Halo; override with
+#   -DCMAKE_HIP_ARCHITECTURES="gfx1151;gfx1201" for a multi-arch build,
+#   or "gfx1201" alone for RX 9070 XT (Navi 48 / RDNA4) only.
+#
+# gfx1201 port status (2026-04-22):
+#   PORTED    — wmma_peak_probe.hip (via src/wmma_compat.hpp)
+#               sdot4/sudot4 kernels (arch-independent builtins)
+#   BLOCKED   — prefill_standalone.hip: RDNA3 lane-duplication layout needs
+#               rework for RDNA4. File #error's out on gfx12 compile.
+#               Drop from the gfx1201 slice or leave gfx1151-only until ported.
+#   Track the port in src/wmma_compat.hpp.
+#
+# HIP packs code objects per-arch into one fat binary; runtime picks by device.
 set(CMAKE_HIP_ARCHITECTURES "gfx1151" CACHE STRING "GPU arch(es) to build")
 
 # -- librocm_cpp : shared library exposing the C API ----------------------------
