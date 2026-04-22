@@ -848,12 +848,10 @@
 
     <section id="introduction">
       <div class="eyebrow">1bit.systems · v0.1</div>
-      <h1>the 1-bit monster — local AI inference, bare metal, no python at runtime.</h1>
+      <h1>Local ternary inference on AMD Strix Halo.</h1>
       <p class="lede">
-        1bit.systems is the 1-bit monster: a full local AI stack for AMD Strix Halo that runs entirely in native code. C++20 and HIP for the kernels, Rust for everything above. No Python at runtime. No discrete GPU. No cloud tether. One mini-PC in a closet, OpenAI-compatible HTTP on the wire, ternary weights on disk.
+        1bit.systems is a set of native C++ and Rust components that runs sub-2-bit language, speech, and image models on AMD Strix Halo — without Python at runtime, without a discrete GPU, and without the cloud.
       </p>
-
-      <p><em>"I know kung fu."</em></p>
 
       <div class="callout">
         <strong>Jump to:</strong>
@@ -866,8 +864,6 @@
       <p>
         This is the full documentation, the full history, and the full roadmap on one page. Scroll, <code>Ctrl+F</code>, or bookmark a section. No separate blog, no separate benchmark report. If a thing exists about the project, it should be here.
       </p>
-
-      <blockquote><em>every layer is someone else's lego block if they want it. take the whole monster or take one piece.</em></blockquote>
 
       <div class="callout">
         <strong>Heads up</strong> — the XDNA 2 NPU on Strix Halo is not yet accessible to this project. AMD has not shipped a Linux execution provider for Strix Halo. Everything here runs on the integrated GPU. See <a href="#npu-status">NPU status</a>.
