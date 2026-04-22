@@ -23,6 +23,7 @@ members = [
     "crates/1bit-mcp-discord",
     "crates/1bit-mcp-linuxgsm",
     "crates/1bit-halo-ralph",
+    "crates/1bit-retrieval",
     "tools/h1b-sherry",
     "tools/gguf-to-h1b",
     "tools/bitnet-to-tq2",
