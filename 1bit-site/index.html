@@ -112,6 +112,10 @@
     align-items: center;
     gap: 12px;
     color: var(--text);
+    text-decoration: none;
+  }
+  .logo:hover {
+    text-decoration: none;
   }
 
   /* Logo mark: glowing turquoise halo */
@@ -614,10 +618,10 @@
 
 <header class="topbar">
   <button class="menu-toggle" id="menuToggle" aria-label="Toggle menu">≡</button>
-  <div class="logo">
+  <a href="/" class="logo">
     <span class="logo-mark"></span>
     <span class="logo-text">1bit<em>.systems</em></span>
-  </div>
+  </a>
   <div class="topbar-meta">
     <div class="sidebar-controls">
       <button id="expandAll" title="Expand all sections">+ expand all</button>
