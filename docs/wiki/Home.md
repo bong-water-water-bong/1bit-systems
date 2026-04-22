@@ -29,6 +29,10 @@ Plain-English explanations of the architectural calls we made — one page per d
 
 - [Network topology](./Network-Topology.md) — four-node private Headscale mesh, coordinator layout, preauth-key flow, reachability matrix, DNS gotchas
 
+## Session logs
+
+- [2026-04-22 — identity rebuild + Run 4 + site scaffold](./2026-04-22-Rebuild.md) — full narrative of the halo→1bit-halo rename sweep, Sparse-BitNet Run 3 autopsy + Run 4 relaunch, ryzen gfx1201 stand-up, site scaffold, brand voice lock, repo public flip
+
 ## Pointers
 
 - Architectural data-flow: [`../../ARCHITECTURE.md`](../../ARCHITECTURE.md)
