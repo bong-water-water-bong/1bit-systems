@@ -25,6 +25,10 @@ Plain-English explanations of the architectural calls we made — one page per d
 - [Live tok/s + PPL](./Benchmarks.md) — what we measure, what it means
 - [FAQ](./FAQ.md) — short answers to common questions
 
+## Ops + topology
+
+- [Network topology](./Network-Topology.md) — four-node private Headscale mesh, coordinator layout, preauth-key flow, reachability matrix, DNS gotchas
+
 ## Pointers
 
 - Architectural data-flow: [`../../ARCHITECTURE.md`](../../ARCHITECTURE.md)
