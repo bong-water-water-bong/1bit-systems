@@ -40,6 +40,7 @@ use crate::api::{
 use crate::backend::{GenerationParams, SharedBackend};
 use crate::error::ServerError;
 use crate::metrics::{Metrics, MetricsSnapshot};
+use crate::middleware::{RateLimit, rate_limit, request_id};
 
 /// Axum shared state — the backend plus a metrics handle. Kept `Clone`
 /// because axum stores it behind `with_state` which requires `Clone`.
@@ -56,6 +57,10 @@ pub struct AppState {
     /// grow more upstreams later). Held as `Arc` so the 900-second timeout
     /// config is set once and shared across requests.
     pub http_client: reqwest::Client,
+    /// Per-IP token-bucket rate limiter. Shared across the v1+v2 chat
+    /// routes via `route_layer(from_fn_with_state(..))`. Wrap in `Arc` so
+    /// the `AppState: Clone` bound stays cheap.
+    pub rate_limit: Arc<RateLimit>,
 }
 
 // ─── Router assembly ─────────────────────────────────────────────────────
@@ -75,6 +80,10 @@ pub fn build_router(backend: SharedBackend) -> Router {
         metrics: Arc::new(Metrics::new()),
         sd_base_url: Arc::new("http://127.0.0.1:8081".to_string()),
         http_client: default_http_client(),
+        // Off by default in the library constructor so tests and embedded
+        // callers don't have to reason about timing. The binary wires a
+        // non-zero value via `--rate-limit-rpm`.
+        rate_limit: Arc::new(RateLimit::new(0)),
     })
 }
 
@@ -100,12 +109,25 @@ pub fn build_router_with_state(state: AppState) -> Router {
         .allow_methods(Any)
         .allow_headers(Any);
 
+    // Chat routes carry the rate limiter via `route_layer` — the limiter
+    // only applies to tokens-expensive endpoints, not to /healthz or
+    // /v1/models. `/v2/chat/completions` is the canonical gen-2 path
+    // (Caddy's `/v2/*` block already rewrites to it); `/v1/...` keeps
+    // parity with vanilla OpenAI SDKs.
+    let chat_routes = Router::new()
+        .route("/v1/chat/completions", post(chat_completions))
+        .route("/v2/chat/completions", post(chat_completions))
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.rate_limit.clone(),
+            rate_limit,
+        ));
+
     Router::new()
         .route("/healthz", get(healthz))
         .route("/health", get(healthz)) // C++ compatibility
         .route("/metrics", get(metrics_handler))
         .route("/v1/models", get(list_models))
-        .route("/v1/chat/completions", post(chat_completions))
+        .merge(chat_routes)
         .route("/v1/completions", post(completions))
         .route("/v1/npu/status", get(crate::npu::npu_status))
         // Layer-A image generation proxy → sd-server :8081. `/v2` is the
@@ -117,6 +139,7 @@ pub fn build_router_with_state(state: AppState) -> Router {
         .route("/ppl", post(ppl))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
+        .layer(axum::middleware::from_fn(request_id))
         .with_state(state)
 }
 
@@ -775,6 +798,7 @@ mod tests {
             metrics: Arc::new(crate::metrics::Metrics::new()),
             sd_base_url: Arc::new("http://127.0.0.1:8081".to_string()),
             http_client: default_http_client(),
+            rate_limit: Arc::new(crate::middleware::RateLimit::new(0)),
         };
         let app = build_router_with_state(state.clone());
 

@@ -45,6 +45,14 @@ libc               = { workspace = true }
 # `[dev-dependencies]` implicitly because the `integration*` tests use the
 # same workspace entry.
 reqwest            = { workspace = true }
+# Per-IP rate-limit map (token bucket). DashMap keeps the critical section
+# to a single per-shard lock on the read path — faster than Mutex<HashMap>
+# under the expected HTTP fan-out.
+dashmap            = { workspace = true }
+# fastrand is promoted from dev-only to runtime because the rate-limit
+# eviction sweep samples a small fraction of the map under contention, and
+# we want it in the binary for that (see middleware::RateLimit::sweep).
+fastrand           = { workspace = true }
 
 # Real backend wiring — optional, enabled by `--features real-backend`.
 onebit-router        = { path = "../1bit-router", features = ["hip"], optional = true }
@@ -57,7 +65,6 @@ onebit-hip    = { path = "../1bit-hip", optional = true }
 # the shipping binary; they only affect `cargo test` / `cargo bench`.
 onebit-core        = { workspace = true }
 onebit-router      = { workspace = true }
-fastrand           = { workspace = true }
 
 [[bench]]
 name    = "sampler"

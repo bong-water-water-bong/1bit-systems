@@ -36,6 +36,7 @@ pub mod api;
 pub mod backend;
 pub mod error;
 pub mod metrics;
+pub mod middleware;
 pub mod npu;
 pub mod routes;
 pub mod shutdown;

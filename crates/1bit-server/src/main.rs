@@ -14,6 +14,7 @@ use clap::Parser;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
+use onebit_server::middleware::RateLimit;
 use onebit_server::routes::{AppState, build_router_with_state, default_http_client};
 use onebit_server::{EchoBackend, InferenceBackend, Metrics, shutdown_signal};
 
@@ -39,6 +40,13 @@ struct Args {
     /// `{sd_url}/v1/images/generations` with a 900 s timeout.
     #[arg(long, env = "HALO_SD_URL", default_value = "http://127.0.0.1:8081")]
     sd_url: String,
+
+    /// Per-IP requests-per-minute cap on `/v{1,2}/chat/completions`.
+    /// Token-bucket: capacity = this value, refill = rpm/60 tokens/sec.
+    /// Set to `0` to disable the limiter entirely (useful for the
+    /// strixhalo box behind Caddy where tailnet auth already gates).
+    #[arg(long, env = "HALO_SERVER_RATE_LIMIT_RPM", default_value_t = 30)]
+    rate_limit_rpm: u32,
 }
 
 #[tokio::main]
@@ -54,11 +62,17 @@ async fn main() -> Result<()> {
 
     let backend: Arc<dyn InferenceBackend> = build_backend(&args)?;
     info!(sd_url = %args.sd_url, "image proxy upstream configured");
+    if args.rate_limit_rpm == 0 {
+        info!("rate limiter disabled (--rate-limit-rpm=0)");
+    } else {
+        info!(rpm = args.rate_limit_rpm, "per-IP rate limiter enabled on /v{{1,2}}/chat/completions");
+    }
     let state = AppState {
         backend,
         metrics: Arc::new(Metrics::new()),
         sd_base_url: Arc::new(args.sd_url.clone()),
         http_client: default_http_client(),
+        rate_limit: Arc::new(RateLimit::new(args.rate_limit_rpm)),
     };
     let app = build_router_with_state(state);
 
@@ -67,10 +81,17 @@ async fn main() -> Result<()> {
         .with_context(|| format!("bind {}", args.bind))?;
     info!(addr = %args.bind, "1bit-server listening");
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .context("axum serve failed")?;
+    // `into_make_service_with_connect_info::<SocketAddr>()` is what makes
+    // the client IP visible to the rate-limiter middleware via
+    // `ConnectInfo<SocketAddr>`. Without it the extractor misses and the
+    // limiter falls through to allow — see `middleware::rate_limit`.
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await
+    .context("axum serve failed")?;
 
     info!("1bit-server stopped cleanly");
     Ok(())
