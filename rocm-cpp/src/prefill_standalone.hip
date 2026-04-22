@@ -1142,10 +1142,53 @@ void decode_pk_i4_to_fp16(
 //
 // Register budget (per lane):
 //   acc[2][4]       = 8 x float8_t      =  64 VGPRs
-//   A_cache[2][2][2] = 2 buf x 2 msub x 2 step x half16_t = 128 halves = 64 VGPRs
+//   A_cache[8]      = 2 buf x 2 msub x 2 step x half16_t, flat 1D
+//                   = 128 halves on gfx11 (= 64 VGPRs), 64 halves on gfx12 (= 32 VGPRs)
 //   B_cache[2]      = 2 step x half16_t =  16 halves = 8 VGPRs
-//   Total ~ 144 VGPRs + loop state — same occupancy class as 4c/4i (1 wave/SIMD).
+//   Total ~ 144 VGPRs (gfx11) / 112 (gfx12) + loop state.
 //
+// Refactor note (2026-04-22): the A loader used to be a capturing lambda with a
+// [buf][m_sub][step] 3D A_cache. On gfx1201 the backend spilled the capture's
+// base-pointer arithmetic into SGPRs (108 SGPR, 1935 SGPR-spill, 52 VGPR-spill).
+// Now it's a free always_inline helper with explicit args and a 1D A_cache[8].
+static __device__ __attribute__((always_inline)) inline
+void standalone_gemm_4c_pipelined_loadA(
+    const __half* __restrict__ A,
+    half16_t* __restrict__ A_cache_buf,     // points at &A_cache[buf*4]
+    int m0, int row_lane, int k_half4,
+    int j, int M, int K)
+{
+    #pragma unroll
+    for(int m_sub = 0; m_sub < 2; ++m_sub) {
+        const int m_row = m0 + m_sub * 16 + row_lane;
+        if(m_row < M) {
+            const __half* arow = A + m_row * K + j * K1;
+            const half4_t* arow4 = reinterpret_cast<const half4_t*>(arow);
+            #pragma unroll
+            for(int step = 0; step < 2; ++step) {
+                half16_t frag;
+                #pragma unroll
+                for(int v = 0; v < WMMA_K_HALF4; ++v) {
+                    half4_t q = arow4[step * 4 + k_half4 + v];
+                    frag[v*4+0] = q[0];
+                    frag[v*4+1] = q[1];
+                    frag[v*4+2] = q[2];
+                    frag[v*4+3] = q[3];
+                }
+                A_cache_buf[m_sub * 2 + step] = frag;
+            }
+        } else {
+            #pragma unroll
+            for(int step = 0; step < 2; ++step) {
+                half16_t zero;
+                #pragma unroll
+                for(int e = 0; e < WMMA_K_ELEMS; ++e) zero[e] = (__fp16)0;
+                A_cache_buf[m_sub * 2 + step] = zero;
+            }
+        }
+    }
+}
+
 __global__ __launch_bounds__(32)
 void standalone_gemm_4c_pipelined(
     const __half* __restrict__ A,
@@ -1168,48 +1211,18 @@ void standalone_gemm_4c_pipelined(
     const int inv_perm[8] = {1, 5, 0, 4, 3, 7, 2, 6};
     const int K0 = K / K1;
 
-    // Loader helper: fills A_cache[buf] (2 m_sub x 2 step x half-frag) for given j
-    half16_t A_cache[2][2][2];  // [buf][m_sub][step]
-    auto loadA = [&](int buf, int j) {
-        #pragma unroll
-        for(int m_sub = 0; m_sub < 2; ++m_sub) {
-            const int m_row = m0 + m_sub * 16 + row_lane;
-            if(m_row < M) {
-                const __half* arow = A + m_row * K + j * K1;
-                const half4_t* arow4 = reinterpret_cast<const half4_t*>(arow);
-                #pragma unroll
-                for(int step = 0; step < 2; ++step) {
-                    #pragma unroll
-                    for(int v = 0; v < WMMA_K_HALF4; ++v) {
-                        half4_t q = arow4[step * 4 + k_half4 + v];
-                        A_cache[buf][m_sub][step][v*4+0] = q[0];
-                        A_cache[buf][m_sub][step][v*4+1] = q[1];
-                        A_cache[buf][m_sub][step][v*4+2] = q[2];
-                        A_cache[buf][m_sub][step][v*4+3] = q[3];
-                    }
-                }
-            } else {
-                #pragma unroll
-                for(int step = 0; step < 2; ++step)
-                    #pragma unroll
-                    for(int e = 0; e < WMMA_K_ELEMS; ++e)
-                        A_cache[buf][m_sub][step][e] = (__fp16)0;
-            }
-        }
-    };
+    // Two separate A caches (one per pipeline phase). Keeping them as distinct
+    // named variables — rather than A_cache[2][...] with a runtime buf index —
+    // lets the backend allocate each to a fixed VGPR range. A runtime-indexed
+    // outer dim was triggering massive SGPR spills on gfx1201 (108 SGPR /
+    // 1938 SGPR-spill) even after flattening to 1D.
+    half16_t A_cache0[4];   // [m_sub * 2 + step] — owns even j
+    half16_t A_cache1[4];   //                    — owns odd j
 
-    // Bootstrap: load j=0 into buffer 0
-    if(K0 > 0) loadA(0, 0);
-
-    for(int j = 0; j < K0; ++j) {
-        const int cur = j & 1;
-        const int nxt = 1 - cur;
-        // Prefetch next j into the other buffer (overlaps with WMMAs below)
-        if(j + 1 < K0) {
-            loadA(nxt, j + 1);
-        }
-
-        // Compute with cur buffer: 4 B fragments + 8 WMMAs per K step x 2 steps
+    // Compute block: 4 B fragments + 8 WMMAs per K step x 2 steps.
+    // Written as a lambda that takes the A cache by reference so both
+    // phases share the compute code without code duplication.
+    auto compute_j = [&](int j, const half16_t (&A_cache)[4]) {
         #pragma unroll
         for(int n_sub = 0; n_sub < 4; ++n_sub) {
             const int n_col = n0 + n_sub * 16 + row_lane;
@@ -1243,10 +1256,38 @@ void standalone_gemm_4c_pipelined(
                 #pragma unroll
                 for(int m_sub = 0; m_sub < 2; ++m_sub) {
                     acc[m_sub][n_sub] = wmma_f32_f16(
-                        A_cache[cur][m_sub][step], B_frags[step], acc[m_sub][n_sub]);
+                        A_cache[m_sub * 2 + step],
+                        B_frags[step], acc[m_sub][n_sub]);
                 }
             }
         }
+    };
+
+    // Bootstrap: load j=0 into cache 0.
+    if(K0 > 0) {
+        standalone_gemm_4c_pipelined_loadA(
+            A, &A_cache0[0], m0, row_lane, k_half4, 0, M, K);
+    }
+
+    // Double-stepped pipeline: each iteration advances by 2 j's so the
+    // "cur" / "nxt" buffer identity is a compile-time constant in each half.
+    int j = 0;
+    for(; j + 1 < K0; j += 2) {
+        // Prefetch j+1 into cache1 while computing j from cache0
+        standalone_gemm_4c_pipelined_loadA(
+            A, &A_cache1[0], m0, row_lane, k_half4, j + 1, M, K);
+        compute_j(j, A_cache0);
+
+        // Prefetch j+2 (if present) into cache0 while computing j+1 from cache1
+        if(j + 2 < K0) {
+            standalone_gemm_4c_pipelined_loadA(
+                A, &A_cache0[0], m0, row_lane, k_half4, j + 2, M, K);
+        }
+        compute_j(j + 1, A_cache1);
+    }
+    // Tail: odd K0 leaves one last j in cache0
+    if(j < K0) {
+        compute_j(j, A_cache0);
     }
 
     #pragma unroll
