@@ -646,6 +646,9 @@ mod tests {
             seed: 0xDEAD_BEEF,
         };
 
+        // Date-shaped seed (YYYY-MM-DD) so git-archaeology maps test runs
+        // back to the land date; four-digit grouping would obscure that.
+        #[allow(clippy::unusual_byte_groupings)]
         let mut rng = fastrand::Rng::with_seed(0x2026_04_20);
         let logits: Vec<f32> = (0..32_000).map(|_| rng.f32() * 8.0 - 4.0).collect();
         let history: Vec<i32> = (0..64).collect();

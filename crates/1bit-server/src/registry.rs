@@ -274,7 +274,7 @@ mod tests {
         fn new(tag: &str) -> Self {
             let root = std::env::var_os("CARGO_TARGET_TMPDIR")
                 .map(PathBuf::from)
-                .unwrap_or_else(|| std::env::temp_dir());
+                .unwrap_or_else(std::env::temp_dir);
             let pid = std::process::id();
             let nonce: u32 = fastrand::u32(..);
             let path = root.join(format!("onebit-server-registry-{tag}-{pid}-{nonce:08x}"));
