@@ -735,6 +735,11 @@ pub(crate) fn neg_log_softmax_at(logits: &[f32], target: TokenId) -> f64 {
 /// `generate_stream`. If `on_delta` is set, each new delta string is
 /// forwarded to it as soon as the tokenizer emits decoded bytes; the
 /// full text is also returned in the response.
+// TODO(gap-p2): fold `(backend, sampler_mode, cpu_lane, cpu_sampler, medusa)`
+// into a single `GenCtx` struct to get under clippy's 7-arg ceiling. Non-
+// trivial: every call site would need adjusting and the `Inner` vs. `GenCtx`
+// borrow split needs thought. Not in scope for the clippy gate flip.
+#[allow(clippy::too_many_arguments)]
 fn generate_blocking(
     inner: &mut Inner,
     req: RouterRequest,
@@ -981,7 +986,7 @@ fn generate_blocking(
                 let mut verify_cur = next;
                 let mut accepted_len = 0usize;
                 let mut mismatch_base: Option<i32> = None;
-                for i in 0..medusa::heads::NUM_MEDUSA_HEADS {
+                for &cand in head_candidates.iter() {
                     // Respect remaining budget.
                     if step_count + accepted_len + 1 > max_new {
                         break;
@@ -993,10 +998,10 @@ fn generate_blocking(
                         &mut logits_scratch,
                     )?;
 
-                    if base_argmax_i == head_candidates[i] {
+                    if base_argmax_i == cand {
                         accepted_len += 1;
-                        verify_cur = head_candidates[i];
-                        if stop_ids.contains(&head_candidates[i]) {
+                        verify_cur = cand;
+                        if stop_ids.contains(&cand) {
                             mismatch_base = None;
                             break;
                         }
@@ -1018,10 +1023,9 @@ fn generate_blocking(
                 //    the verifier's per-head counters don't falsely
                 //    credit them.
                 let mut base_argmax_full = [0i32; medusa::heads::NUM_MEDUSA_HEADS];
-                for i in 0..accepted_len {
-                    // Matched heads: base == head by construction.
-                    base_argmax_full[i] = head_candidates[i];
-                }
+                // Matched heads: base == head by construction.
+                base_argmax_full[..accepted_len]
+                    .copy_from_slice(&head_candidates[..accepted_len]);
                 if accepted_len < medusa::heads::NUM_MEDUSA_HEADS {
                     if let Some(bm) = mismatch_base {
                         base_argmax_full[accepted_len] = bm;
@@ -1033,18 +1037,21 @@ fn generate_blocking(
                             head_candidates[accepted_len].wrapping_add(1);
                     }
                 }
-                for j in (accepted_len + 1)..medusa::heads::NUM_MEDUSA_HEADS {
+                for (j, cand) in head_candidates
+                    .iter()
+                    .enumerate()
+                    .skip(accepted_len + 1)
+                {
                     // Never verified — mark never-equal so the
                     // per-head counter stays honest.
-                    base_argmax_full[j] = head_candidates[j].wrapping_add(1);
+                    base_argmax_full[j] = cand.wrapping_add(1);
                 }
                 let _ = inner
                     .medusa_verifier
                     .verify_step(&head_candidates, &base_argmax_full);
 
                 // 5) Emit accepted head-predicted tokens.
-                for i in 0..accepted_len {
-                    let tok = head_candidates[i];
+                for &tok in head_candidates.iter().take(accepted_len) {
                     history.push(tok);
                     generated_ids.push(tok);
                     step_count += 1;

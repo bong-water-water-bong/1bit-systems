@@ -210,18 +210,18 @@ pub fn convert_file(input: &Path, output: &Path) -> Result<ConvertStats, Convert
             header.architecture,
         )));
     }
-    let n_layers = header.block_count as u32;
-    let hs = header.embedding_length as u32;
-    let is_ = header.feed_forward_length as u32;
-    let nh = header.attention_head_count as u32;
-    let nkv = header.attention_head_count_kv as u32;
+    let n_layers = header.block_count;
+    let hs = header.embedding_length;
+    let is_ = header.feed_forward_length;
+    let nh = header.attention_head_count;
+    let nkv = header.attention_head_count_kv;
     // Prefer explicit attention.key_length if present (Bonsai Qwen3 sets it
     // to 128 even though hidden/heads would imply 128 anyway). Defaults
     // gracefully to hidden/heads if the KV dims are irregular.
     let hd = gguf
         .kv("qwen3.attention.key_length")
         .and_then(|v| v.as_u32())
-        .unwrap_or_else(|| if nh == 0 { 0 } else { hs / nh });
+        .unwrap_or_else(|| hs.checked_div(nh).unwrap_or(0));
     let vocab = gguf
         .kv("qwen3.vocab_size")
         .and_then(|v| v.as_u32())

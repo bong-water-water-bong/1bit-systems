@@ -254,11 +254,11 @@ pub fn quantize_group_tq2(weights: &[f32; TQ2_GROUP_SIZE]) -> [u8; TQ2_BLOCK_BYT
 pub fn dequantize_group_tq2(block: &[u8; TQ2_BLOCK_BYTES]) -> [f32; TQ2_GROUP_SIZE] {
     let mut out = [0.0f32; TQ2_GROUP_SIZE];
     let d = f16::from_bits(u16::from_le_bytes([block[0], block[1]])).to_f32();
-    for j in 0..TQ2_GROUP_SIZE {
+    for (j, slot) in out.iter_mut().enumerate() {
         let byte_idx = 2 + j / 4;
         let shift = (j % 4) * 2;
         let code = (block[byte_idx] >> shift) & 0b11;
-        out[j] = match code {
+        *slot = match code {
             0b00 => -d,
             0b10 => d,
             _ => 0.0,
@@ -750,8 +750,8 @@ mod tests {
     fn quantize_group_absmean_roundtrip() {
         // Build a deterministic pattern spanning all three ternary levels.
         let mut w = [0.0f32; 128];
-        for i in 0..128 {
-            w[i] = match i % 3 {
+        for (i, cell) in w.iter_mut().enumerate() {
+            *cell = match i % 3 {
                 0 => 0.3,
                 1 => -0.3,
                 _ => 0.0,

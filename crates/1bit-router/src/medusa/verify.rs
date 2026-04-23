@@ -157,8 +157,8 @@ impl TreeVerifier {
         }
         let denom = self.steps as f64;
         let mut out = [0.0f64; NUM_MEDUSA_HEADS];
-        for i in 0..NUM_MEDUSA_HEADS {
-            out[i] = (self.head_accepted[i] as f64) / denom;
+        for (o, &acc) in out.iter_mut().zip(self.head_accepted.iter()) {
+            *o = (acc as f64) / denom;
         }
         Some(out)
     }

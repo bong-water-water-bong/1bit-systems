@@ -63,7 +63,7 @@ pub fn chunk_markdown(src: &str) -> Vec<Chunk> {
             let overlap_start = tail.len().saturating_sub(OVERLAP);
             // Land the overlap start on a word boundary too so we don't
             // cut mid-word.
-            let overlap_start = find_word_boundary(&tail, overlap_start);
+            let overlap_start = find_word_boundary(tail, overlap_start);
             buf = tail[overlap_start..].to_string();
         }
     }

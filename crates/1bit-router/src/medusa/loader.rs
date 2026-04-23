@@ -530,6 +530,7 @@ mod tests {
     /// Two variants exercised in one test:
     ///   * `num_heads` != NUM_MEDUSA_HEADS (ABI break)
     ///   * `hidden_dim` != MEDUSA_HIDDEN_DIM (backbone mismatch)
+    ///
     /// Both must surface as `LoaderError` so the operator sees which
     /// invariant failed.
     #[test]

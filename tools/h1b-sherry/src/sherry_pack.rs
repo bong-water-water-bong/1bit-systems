@@ -136,7 +136,7 @@ pub fn pack_sherry_row(ternary: &[i8], packed: &mut [u8], cols: usize) -> PackRo
         let bit_pos = 5 * g;
         let byte_idx = bit_pos >> 3;
         let shift = (bit_pos & 7) as u32;
-        packed[byte_idx] |= (code as u8).checked_shl(shift).unwrap_or(0);
+        packed[byte_idx] |= code.checked_shl(shift).unwrap_or(0);
         // Overflow into next byte when a 5-bit code straddles a byte boundary.
         if shift + 5 > 8 {
             packed[byte_idx + 1] |= code >> (8 - shift);

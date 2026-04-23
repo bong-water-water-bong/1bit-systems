@@ -115,9 +115,9 @@ impl WikiIndex {
         for entry in WalkDir::new(wiki_dir).follow_links(false) {
             let entry = entry.map_err(|e| RetrievalError::Io {
                 path: wiki_dir.to_path_buf(),
-                source: e.into_io_error().unwrap_or_else(|| {
-                    std::io::Error::new(std::io::ErrorKind::Other, "walkdir error")
-                }),
+                source: e
+                    .into_io_error()
+                    .unwrap_or_else(|| std::io::Error::other("walkdir error")),
             })?;
             let path = entry.path();
             if !entry.file_type().is_file() {

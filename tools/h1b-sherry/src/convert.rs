@@ -169,6 +169,10 @@ impl LayerOwned {
     }
 }
 
+// TODO(gap-p2): fold `(hs, is_, nh, nkv, hd)` into a `LayerDims` struct; the
+// current 8-arg signature predates the shape struct. Not in scope for the
+// clippy gate flip — every call site would need updating.
+#[allow(clippy::too_many_arguments)]
 fn build_layer_owned(
     src: &H1bFile,
     lo: &H1bLayerOffsets,

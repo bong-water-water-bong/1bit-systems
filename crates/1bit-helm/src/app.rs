@@ -3,17 +3,17 @@
 //! Six panes, left-nav + top-bar switcher:
 //!
 //! * Status   — subscribes to `http://127.0.0.1:8190/_live/stats` (1bit-landing
-//!              SSE). Renders loaded model + tok/s gauge + GPU temp/util +
-//!              NPU up + shadow-burn % + per-service dots.
+//!   SSE). Renders loaded model + tok/s gauge + GPU temp/util +
+//!   NPU up + shadow-burn % + per-service dots.
 //! * Chat     — `POST /v1/chat/completions` against the lemonade gateway
-//!              (default `http://127.0.0.1:8200`), SSE `stream: true`,
-//!              token-by-token append.
+//!   (default `http://127.0.0.1:8200`), SSE `stream: true`,
+//!   token-by-token append.
 //! * Skills   — `onebit_agents::SkillStore::list` + right-pane body viewer.
-//!              Edit opens `$EDITOR` via `std::process::Command`.
+//!   Edit opens `$EDITOR` via `std::process::Command`.
 //! * Memory   — `onebit_agents::MemoryStore::list(MemoryKind::Memory)` +
-//!              `list(MemoryKind::User)` with tabs + inline add.
+//!   `list(MemoryKind::User)` with tabs + inline add.
 //! * Models   — `GET /v1/models`. Card grid with a disabled "Load" button
-//!              (server loads at startup today — future hook).
+//!   (server loads at startup today — future hook).
 //! * Settings — bearer-token mgmt (+ about dialog).
 //!
 //! Persistence: last-open pane + window size via eframe's `persistence`
@@ -42,8 +42,9 @@ use tokio::sync::mpsc;
 /// Which pane is currently focused.
 ///
 /// Persisted across restarts via eframe's storage (see `save`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Pane {
+    #[default]
     Status,
     Chat,
     Skills,
@@ -71,12 +72,6 @@ impl Pane {
             Pane::Models => "Models",
             Pane::Settings => "Settings",
         }
-    }
-}
-
-impl Default for Pane {
-    fn default() -> Self {
-        Pane::Status
     }
 }
 

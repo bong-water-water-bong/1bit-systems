@@ -60,5 +60,5 @@ fn tracing_subscriber_init() {
     // Keep dependency graph light: emit through `tracing::info!` etc. if
     // the caller pulled in a subscriber, otherwise no-op. We avoid pulling
     // tracing-subscriber here to keep cold-start fast (<5ms).
-    let _ = tracing::dispatcher::get_default(|_| {});
+    tracing::dispatcher::get_default(|_| {});
 }

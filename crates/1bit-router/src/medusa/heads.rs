@@ -30,7 +30,7 @@
 //! (4 heads × `W_in` + `W_out`) to device memory **once** at load time
 //! and runs every per-head projection via the native `rcpp_fp16_gemv`
 //! + `rcpp_silu_glu_fp16` kernels sequentially on the default HIP
-//! stream. The host never touches weights after load.
+//!   stream. The host never touches weights after load.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -203,6 +203,9 @@ impl MedusaHeads {
         let mut out: [Vec<u16>; NUM_MEDUSA_HEADS] =
             std::array::from_fn(|_| Vec::new());
 
+        // `i` indexes four parallel arrays (w_in, w_out, out, format strings);
+        // iter/zip would be a readability regression for kernel-launch code.
+        #[allow(clippy::needless_range_loop)]
         for i in 0..NUM_MEDUSA_HEADS {
             // 1) inner_f32 = W_in[i] · h
             onebit_hip::fp16_gemv(

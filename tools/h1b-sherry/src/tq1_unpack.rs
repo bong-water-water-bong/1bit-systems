@@ -83,6 +83,9 @@ mod tests {
         // Byte = d0 + d1*3 + d2*9 + d3*27 + d4*81
         //      = 2 + 0*3 + 1*9 + 2*27 + 0*81 = 65
         //      → digits [2,0,1,2,0] → ternary [+1, -1, 0, +1, -1]
+        // Keep the explicit `1 * 9` to mirror the comment's d2*9 term; clippy
+        // would flatten it to `9` and wipe the intent.
+        #[allow(clippy::identity_op)]
         let byte: u8 = 2 + 1 * 9 + 2 * 27;
         assert_eq!(byte, 65);
         let row = row20_with_leading_byte(byte);

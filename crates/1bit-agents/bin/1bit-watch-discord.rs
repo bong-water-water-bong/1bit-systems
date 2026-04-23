@@ -48,6 +48,7 @@ const DEFAULT_LANDING_URL: &str = "http://127.0.0.1:8190";
 ///   * echo's token lives in `echo_http`. Every outbound post
 ///     (specialist reply, thread creation, `@halo status`) routes
 ///     through this client so the halo identity stays silent.
+///
 /// If `ECHO_BOT_TOKEN` is unset, `echo_http` is `None` and outbound
 /// posting is skipped with a warning — preserves the lurker-only
 /// behaviour as the safe fallback.

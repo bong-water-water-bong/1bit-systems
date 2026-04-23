@@ -508,7 +508,7 @@ mod tests {
         )
         .unwrap();
         let idx = WikiIndex::load(wiki_path).expect("index loads");
-        assert!(idx.len() > 0, "fixture must produce at least one chunk");
+        assert!(!idx.is_empty(), "fixture must produce at least one chunk");
 
         let h = LlmSpecialist::herald("http://x", "m").with_retrieval(Arc::new(idx));
         let prompt = h.build_system_prompt("amdgpu OPTC hang");

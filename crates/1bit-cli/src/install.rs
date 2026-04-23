@@ -364,8 +364,7 @@ impl InstallTracker {
     pub fn best_effort_revert(&self) {
         let actions: Vec<InstallAction> = {
             let mut guard = self.actions.lock().unwrap();
-            let taken = std::mem::take(&mut *guard);
-            taken
+            std::mem::take(&mut *guard)
         };
         if actions.is_empty() {
             println!("    (nothing to revert — install failed before any side-effect landed)");
@@ -1170,7 +1169,7 @@ files = [
     // OOBE pass 2 tests — anchors #7, #9, #10 (2026-04-22)
     // ───────────────────────────────────────────────────────────
 
-    use crate::preflight::{PreflightOutcome, SystemProbe};
+    use crate::preflight::SystemProbe;
 
     /// Minimal fake probe — every gate green. Duplicated from
     /// `preflight::tests` because that one is test-only private; the

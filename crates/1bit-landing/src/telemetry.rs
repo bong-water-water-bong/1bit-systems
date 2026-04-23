@@ -288,7 +288,7 @@ pub(crate) fn parse_rocm_smi_json(v: &serde_json::Value) -> (f32, u8) {
         .unwrap_or(0.0);
     let util = card
         .iter()
-        .find(|(k, _)| k.contains("GPU use") || k.eq_ignore_ascii_case(&"GPU use (%)"))
+        .find(|(k, _)| k.contains("GPU use") || k.eq_ignore_ascii_case("GPU use (%)"))
         .and_then(|(_, v)| v.as_str())
         .and_then(|s| s.trim().trim_end_matches('%').parse::<u8>().ok())
         .unwrap_or(0);

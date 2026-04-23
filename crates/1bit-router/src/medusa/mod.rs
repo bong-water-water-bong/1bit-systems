@@ -140,6 +140,12 @@ pub enum MedusaError {
 ///   variant holds a [`MedusaHeads`] + [`TreeVerifier`], but the live
 ///   forward pass has not landed yet. Attempting to dispatch through it
 ///   returns [`MedusaError::BadInput`] — scaffolding only.
+// `Disabled` is a tag-only variant; `Enabled` holds a `Mutex<MedusaHeads>`
+// + `TreeVerifier` (~hundreds of bytes). Boxing would require changing
+// every `MedusaState::Enabled { heads, .. }` destructure pattern, which is
+// an API ripple not in scope for the clippy gate flip.
+// TODO(gap-p2): box the `Enabled` payload and update destructures.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum MedusaState {
     /// Speculative path is off for this router instance.
@@ -245,6 +251,10 @@ mod tests {
             );
         }
 
+        // Keep `1 * K/2` and `1 * N` shape annotations so the M=1 intent is
+        // obvious when scanning; clippy's identity_op would flatten them.
+        #[allow(clippy::identity_op)]
+        {
         // N not a multiple of 64.
         let err = ternary_gemm_smallm(
             &[0i32; 64 * 32 / 16],
@@ -292,6 +302,7 @@ mod tests {
             matches!(result, Err(RcppError::Unsupported)),
             "scaffold must return Unsupported on valid shapes: {result:?}"
         );
+        }
     }
 
     /// Test #2: heads-disabled pass-through.

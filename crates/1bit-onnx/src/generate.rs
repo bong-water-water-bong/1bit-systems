@@ -127,7 +127,7 @@ impl OnnxSession {
         let mut step_ids: Array2<i64> =
             Array2::from_shape_vec((1, tokens.len()), tokens.clone()).expect("prefill ids shape");
 
-        let mut rng_state = req.seed.unwrap_or(0x5eed_b17_c0ffee_u64);
+        let mut rng_state = req.seed.unwrap_or(0x5_eedb_17c0_ffee_u64);
 
         let mut completion_tokens = 0usize;
         let mut new_tokens: Vec<i64> = Vec::with_capacity(req.max_new_tokens);

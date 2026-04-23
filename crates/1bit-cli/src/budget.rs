@@ -188,7 +188,7 @@ fn scan_halo_services() -> Vec<ServiceRss> {
             rss_kib,
         });
     }
-    out.sort_by(|a, b| b.rss_kib.cmp(&a.rss_kib));
+    out.sort_by_key(|s| std::cmp::Reverse(s.rss_kib));
     out
 }
 
@@ -248,7 +248,7 @@ mod tests {
             vram_total: 0,
             vram_used: 0,
             mem_total: 128 * 1024 * 1024 * 1024,
-            mem_available: 1 * 1024 * 1024 * 1024, // less than the 4 GB reserve
+            mem_available: 1024 * 1024 * 1024, // 1 GB, less than the 4 GB reserve
             services: Vec::new(),
         };
         assert_eq!(snap.budget_for_next_model(), 0);

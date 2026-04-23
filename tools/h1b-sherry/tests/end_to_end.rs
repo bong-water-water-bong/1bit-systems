@@ -128,7 +128,6 @@ fn build_tq1_v4_file(reserved: i32) -> (H1bConfig, Vec<u8>, Vec<Vec<i8>>) {
     // Pack each tensor in TQ1 v4 (base-3, 5 digits per byte).
     fn pack_tq1_v4(ternary: &[i8], rows: usize, cols: usize) -> Vec<u8> {
         let row_bytes = tq1_row_bytes(cols);
-        let cols_padded = cols.div_ceil(20) * 20;
         let mut out = vec![0u8; rows * row_bytes];
         for r in 0..rows {
             for i in 0..row_bytes {
@@ -137,12 +136,11 @@ fn build_tq1_v4_file(reserved: i32) -> (H1bConfig, Vec<u8>, Vec<Vec<i8>>) {
                 let mut mul: u32 = 1;
                 for d in 0..5 {
                     let k = base + d;
+                    // Beyond `cols` we pad with digit=1 (ternary zero).
                     let digit: u32 = if k < cols {
                         (ternary[r * cols + k] + 1) as u32
-                    } else if k < cols_padded {
-                        1 // pad digit = 0 (ternary)
                     } else {
-                        1
+                        1 // pad digit = 0 (ternary)
                     };
                     byte += digit * mul;
                     mul *= 3;

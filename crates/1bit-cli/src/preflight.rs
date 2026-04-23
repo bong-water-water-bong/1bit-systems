@@ -272,6 +272,7 @@ pub fn run_all(probe: &dyn SystemProbe) -> Vec<GateResult> {
 /// Helper for `1bit doctor` and friends — detect whether `/proc` is
 /// mounted. Used to bail early on weird sandboxes before we try to
 /// parse `/proc/meminfo`.
+#[allow(dead_code)] // reserved for `1bit doctor` wiring (gap P2)
 pub fn proc_mounted() -> bool {
     Path::new("/proc/meminfo").is_file()
 }
