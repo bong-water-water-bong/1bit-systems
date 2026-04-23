@@ -14,6 +14,13 @@ path = "src/lib.rs"
 [[bin]]
 name = "1bit-helm"
 path = "src/main.rs"
+# MVP Plasma SNI tray — start/stop/status over `systemctl --user`.
+# Lives beside the egui window; they do not share a process. See
+# `src/tray.rs` + `src/bin/tray.rs`. Gap P1 #7 (memory:
+# project_helm_tray_icon).
+[[bin]]
+name = "1bit-halo-helm-tray"
+path = "src/bin/tray.rs"
 [dependencies]
 anyhow       = { workspace = true }
 reqwest      = { workspace = true }
@@ -38,5 +45,9 @@ keyring      = { version = "3", default-features = false, features = ["sync-secr
 # window-size + last-open-pane save via eframe's built-in ron-backed storage.
 eframe       = { version = "0.29", default-features = false, features = ["glow", "default_fonts", "persistence"] }
 egui         = "0.29"
+# Plasma / KDE StatusNotifierItem tray icon. Pure-Rust zbus backend, no
+# C deps. Only consumed by the `1bit-halo-helm-tray` binary — the
+# eframe side never touches it. See `src/tray.rs`.
+ksni         = "0.3"
 [dev-dependencies]
 tempfile = "3"

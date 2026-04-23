@@ -14,6 +14,8 @@
 //! * `models`     — `GET /v1/models` client for the Models pane.
 //! * `conv_log`   — JSONL conversation snapshot on close.
 //! * `app`        — eframe `App` impl. Five panes behind a top-bar switcher.
+//! * `tray`       — KDE Plasma SNI tray logic (gap P1 #7). Pure; the
+//!   `1bit-halo-helm-tray` binary wires it to a live dbus host.
 //!
 //! Brand: **1bit monster**, domain `1bit.systems`. The hero strip + about
 //! dialog surface these strings verbatim.
@@ -27,6 +29,10 @@ pub mod models;
 pub mod session;
 pub mod stream;
 pub mod telemetry;
+// MVP KDE Plasma SNI tray — split out so `cargo test -p onebit-helm`
+// can exercise the pure-logic helpers without pulling a dbus
+// connection.
+pub mod tray;
 
 pub use app::{HelmApp, Pane};
 pub use bearer::{Bearer, BearerBackend};
