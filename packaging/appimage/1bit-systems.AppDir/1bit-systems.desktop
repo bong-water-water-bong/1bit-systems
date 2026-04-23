@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=1bit systems
+GenericName=Local AI stack
+Comment=Local AI inference on Strix Halo — ternary BitNet, native HIP kernels, zero cloud
+Exec=1bit
+Icon=1bit-systems
+Terminal=true
+Categories=Development;
+Keywords=ai;llm;bitnet;rocm;rust;strix-halo;inference;
+StartupNotify=false
+X-AppImage-Name=1bit-systems
+X-AppImage-Version=0.1.0
+X-AppImage-Arch=x86_64
