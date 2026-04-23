@@ -55,12 +55,32 @@ enum Cmd {
     Restart { service: String },
     /// Comprehensive health check across the stack
     Doctor,
-    /// Pull + rebuild + restart touched components
+    /// Check for / install a signed release (default: `--check`).
+    ///
+    /// Legacy git-rebuild path is still reachable via `--legacy-rebuild`
+    /// (or the transitional `--no-build` / `--no-restart` flags) until
+    /// the signed atomic-install ceremony lands.
     Update {
+        /// Probe the release feed and report available updates. Exits
+        /// 0 if up to date, 1 if an update is available, 2 on feed error.
+        #[arg(long)]
+        check: bool,
+        /// Download + sha256+minisign-verify the latest artifact, then
+        /// stop short of overwriting the running binary. Real install
+        /// atomics come in a later pass.
+        #[arg(long)]
+        install: bool,
+        /// Legacy flag (git-rebuild path): skip cargo build phase.
         #[arg(long)]
         no_build: bool,
+        /// Legacy flag (git-rebuild path): skip systemctl restart.
         #[arg(long)]
         no_restart: bool,
+        /// Explicitly select the legacy git-pull + rebuild + restart
+        /// path. Equivalent to the pre-release-feed `1bit update`
+        /// behaviour; kept so build-box flows don't break mid-transition.
+        #[arg(long)]
+        legacy_rebuild: bool,
     },
     /// 1bit stack version + component SHAs
     Version,
@@ -200,9 +220,12 @@ async fn main() -> Result<()> {
         Cmd::Restart { service } => restart::run(&service).await,
         Cmd::Doctor => doctor::run().await,
         Cmd::Update {
+            check,
+            install,
             no_build,
             no_restart,
-        } => update::run(no_build, no_restart).await,
+            legacy_rebuild,
+        } => update::run(check, install, no_build, no_restart, legacy_rebuild).await,
         Cmd::Version => version::run().await,
         Cmd::Install {
             component,
