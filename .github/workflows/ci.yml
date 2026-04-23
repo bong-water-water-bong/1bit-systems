@@ -10,9 +10,32 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  fmt:
+    name: cargo fmt --check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Non-blocking: the existing tree has pre-existing rustfmt drift that
+    # will be cleaned up in a dedicated `style: cargo fmt` sweep. Keeping
+    # the job visible so new formatting regressions show up in PR checks;
+    # flip to `continue-on-error: false` after the sweep lands.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.86 (rustfmt)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.86"
+          components: rustfmt
+
+      # rustfmt doesn't touch the build target — no cache needed.
+      - name: cargo fmt --all -- --check
+        run: cargo fmt --all -- --check
+
   test:
     name: cargo test (default features, no GPU)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -35,6 +58,7 @@ jobs:
   clippy:
     name: cargo clippy (-D warnings, no GPU crates)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -72,6 +96,7 @@ jobs:
   install-sh:
     name: install.sh syntax + CI-mode dry-run
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -91,6 +116,7 @@ jobs:
   build-appimage:
     name: build-appimage (non-blocking)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # Non-blocking while the release flow / signing is wired up. Flip to
     # `continue-on-error: false` after first green run lands an artifact
     # users can actually download.
