@@ -3,7 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>1bit.systems — Documentation</title>
+<title>1bit.systems — out-of-the-box local AI inference engine</title>
+<meta name="description" content="Out-of-the-box local AI inference engine. Lemonade + GAIA built in. Runs on your iGPU + NPU. No cloud.">
+<link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -859,6 +861,413 @@
   }
   .apps-legend .swatch.live { background: var(--accent); box-shadow: 0 0 8px var(--accent-soft); }
   .apps-legend .swatch.gap { background: var(--magenta); box-shadow: 0 0 8px var(--magenta-glow); }
+
+  /* ====================================================================
+     RELAUNCH TOP-FOLD — out-of-the-box hero, features, apps, install
+     ==================================================================== */
+  section#hero {
+    padding: 56px 0 32px;
+    border-top: none;
+    margin-top: 0;
+  }
+  section#hero h1 {
+    border-top: none;
+    padding-top: 0;
+    margin-top: 0;
+  }
+  .hero-wrap {
+    display: grid;
+    grid-template-columns: minmax(120px, 200px) 1fr;
+    gap: 48px;
+    align-items: center;
+    max-width: 980px;
+    margin-bottom: 24px;
+  }
+  .hero-mark {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .hero-mark img {
+    width: 128px;
+    height: 128px;
+    border-radius: 22px;
+    box-shadow:
+      0 0 32px var(--accent-glow),
+      0 0 64px -16px var(--magenta-glow);
+    background: #0d1117;
+  }
+  .hero-wordmark {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: 22px;
+    letter-spacing: -0.02em;
+    color: var(--text);
+    text-align: left;
+    line-height: 1;
+  }
+  .hero-wordmark em {
+    font-style: italic;
+    font-weight: 400;
+    color: var(--magenta);
+    text-shadow: 0 0 12px var(--magenta-glow);
+  }
+  .hero-copy h1 {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: 56px;
+    line-height: 1.05;
+    letter-spacing: -0.035em;
+    margin: 0 0 18px;
+    color: var(--text);
+  }
+  .hero-copy h1 .accent {
+    color: var(--accent);
+    text-shadow: 0 0 24px var(--accent-glow);
+  }
+  .hero-sub {
+    font-family: 'Fraunces', serif;
+    font-weight: 400;
+    font-size: 22px;
+    line-height: 1.45;
+    color: var(--text-muted);
+    margin: 0 0 28px;
+    max-width: 640px;
+  }
+  .hero-sub strong {
+    color: var(--text);
+    font-weight: 500;
+  }
+  .hero-cta {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+  .hero-cta .cta-primary,
+  .hero-cta .cta-secondary {
+    font-family: 'Inter', sans-serif;
+    cursor: pointer;
+    font-size: 15px;
+  }
+  /* Status pill */
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-subtle);
+    letter-spacing: 0.04em;
+    margin-top: 4px;
+  }
+  .status-pill .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent), 0 0 14px var(--accent-soft);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  .status-pill .sep {
+    color: var(--border-strong);
+    margin: 0 4px;
+  }
+
+  /* Install popover (anchored under the primary CTA) */
+  .install-popover {
+    position: relative;
+    display: inline-block;
+  }
+  .install-popover-panel {
+    display: none;
+    position: absolute;
+    top: calc(100% + 10px);
+    left: 0;
+    z-index: 50;
+    min-width: 460px;
+    max-width: 92vw;
+    background: var(--bg-code);
+    border: 1px solid var(--border-strong);
+    border-left: 3px solid var(--accent);
+    border-radius: 8px;
+    padding: 14px 16px 12px;
+    box-shadow: 0 18px 48px -12px rgba(0,0,0,0.55), 0 0 24px -8px var(--accent-glow);
+  }
+  .install-popover.open .install-popover-panel { display: block; }
+  .install-popover-panel .label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-subtle);
+    display: block;
+    margin-bottom: 6px;
+  }
+  .install-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(0,0,0,0.35);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+  }
+  .install-line code {
+    flex: 1;
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    white-space: nowrap;
+    overflow-x: auto;
+  }
+  .install-line .copy-btn {
+    flex-shrink: 0;
+    background: var(--accent);
+    color: var(--bg);
+    border: none;
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    transition: background 0.15s, color 0.15s;
+  }
+  .install-line .copy-btn:hover { background: var(--magenta); }
+  .install-line .copy-btn.copied { background: var(--magenta); }
+  .install-popover-panel .foot {
+    display: block;
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--text-subtle);
+  }
+  .install-popover-panel .foot a { color: var(--accent); text-decoration: none; }
+  .install-popover-panel .foot a:hover { text-shadow: 0 0 8px var(--accent-glow); }
+
+  /* Features grid */
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 14px;
+    margin: 24px 0 16px;
+    max-width: 980px;
+  }
+  .feature-card {
+    background: rgba(17, 22, 25, 0.6);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 18px 16px;
+    transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+    position: relative;
+  }
+  @media (prefers-color-scheme: light) {
+    .feature-card { background: rgba(255, 255, 255, 0.6); }
+  }
+  .feature-card:hover {
+    border-color: var(--accent-soft);
+    box-shadow: 0 0 20px -6px var(--accent-glow);
+    transform: translateY(-1px);
+  }
+  .feature-card .feature-icon {
+    width: 26px; height: 26px;
+    color: var(--accent);
+    margin-bottom: 10px;
+    filter: drop-shadow(0 0 6px var(--accent-glow));
+  }
+  .feature-card .feature-name {
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--text);
+    margin-bottom: 6px;
+  }
+  .feature-card .feature-blurb {
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+  }
+  .feature-card .stat-badge {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    background: var(--bg-code);
+    color: var(--magenta);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 3px 8px;
+    text-shadow: 0 0 6px var(--magenta-glow);
+  }
+  .feature-card .stat-badge.cyan {
+    color: var(--accent);
+    text-shadow: 0 0 6px var(--accent-glow);
+  }
+
+  /* Apps that run on it */
+  .runs-on-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin: 22px 0 20px;
+    max-width: 980px;
+  }
+  .runs-on-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 16px 10px 12px;
+    background: rgba(17, 22, 25, 0.55);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    text-decoration: none;
+    color: var(--text);
+    transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+  }
+  @media (prefers-color-scheme: light) {
+    .runs-on-card { background: rgba(255, 255, 255, 0.55); }
+  }
+  .runs-on-card:hover {
+    border-color: var(--accent);
+    box-shadow: 0 0 22px -6px var(--accent-soft);
+    transform: translateY(-2px);
+    text-decoration: none;
+  }
+  .runs-on-card img {
+    width: 40px;
+    height: 40px;
+    object-fit: contain;
+    border-radius: 6px;
+    background: #fff;
+    padding: 4px;
+    margin-bottom: 8px;
+  }
+  .runs-on-card .runs-on-name {
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.2;
+    margin-bottom: 2px;
+  }
+  .runs-on-card .runs-on-via {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-subtle);
+  }
+
+  /* Install standalone block */
+  .install-block {
+    margin: 22px 0 18px;
+    max-width: 700px;
+  }
+  .install-block .install-line { margin-top: 6px; }
+  .install-block .foot {
+    display: block;
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--text-subtle);
+  }
+  .install-block .foot a { color: var(--accent); text-decoration: none; }
+  .install-block .foot a:hover { text-shadow: 0 0 8px var(--accent-glow); }
+
+  /* Hardware compat strip */
+  .hw-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 14px 0 36px;
+    max-width: 980px;
+  }
+  .hw-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-muted);
+    letter-spacing: 0.02em;
+  }
+  .hw-pill .hw-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent-soft);
+  }
+  .hw-pill.npu .hw-dot {
+    background: var(--magenta);
+    box-shadow: 0 0 6px var(--magenta-soft);
+  }
+  .hw-pill.gfx1201 .hw-dot {
+    background: #ffb84d;
+    box-shadow: 0 0 6px #ffb84d66;
+  }
+  .hw-pill .hw-label-strong { color: var(--text); }
+
+  /* Section headings inside top-fold */
+  .topfold-eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--magenta);
+    margin: 36px 0 8px;
+    text-shadow: 0 0 10px var(--magenta-glow);
+  }
+  .topfold-h2 {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: 28px;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    margin: 0 0 6px;
+    padding: 0;
+    border-top: none;
+    color: var(--text);
+  }
+  .topfold-sub {
+    color: var(--text-muted);
+    font-size: 15px;
+    margin: 0 0 12px;
+    max-width: 720px;
+  }
+
+  /* Mobile / tablet collapse */
+  @media (max-width: 900px) {
+    section#hero { padding: 32px 0 16px; }
+    .hero-wrap {
+      grid-template-columns: 1fr;
+      gap: 22px;
+      text-align: left;
+    }
+    .hero-mark {
+      flex-direction: row;
+      gap: 18px;
+      justify-content: flex-start;
+    }
+    .hero-mark img { width: 80px; height: 80px; }
+    .hero-copy h1 { font-size: 36px; }
+    .hero-sub { font-size: 17px; margin-bottom: 22px; }
+    .install-popover-panel { min-width: 0; width: 100%; left: 0; right: 0; }
+    .runs-on-grid { grid-template-columns: repeat(2, 1fr); }
+    .features-grid { grid-template-columns: 1fr; }
+    .topfold-h2 { font-size: 22px; }
+  }
 </style>
 </head>
 <body>
@@ -891,8 +1300,13 @@
         </button>
         <div class="nav-group-body">
           <ul class="nav-list">
+            <li><a href="#hero">Overview</a></li>
+            <li><a href="#features">What's in the box</a></li>
+            <li><a href="#runs-on">Apps that run on it</a></li>
+            <li><a href="#install">Install</a></li>
+            <li><a href="#hardware">Hardware</a></li>
             <li><a href="/announcement">Announcement</a></li>
-            <li><a href="#introduction">Introduction</a></li>
+            <li><a href="#introduction">Deep dive</a></li>
             <li><a href="#what-it-is">What it is</a></li>
             <li><a href="#who-its-for">Who it's for</a></li>
           </ul>
@@ -1002,6 +1416,47 @@
   </aside>
 
   <main>
+
+    <section id="hero">
+      <div class="hero-wrap">
+        <div class="hero-mark">
+          <img src="assets/logo.svg" alt="1bit.systems" width="128" height="128">
+          <div class="hero-wordmark">1bit<em>.systems</em></div>
+        </div>
+        <div class="hero-copy">
+          <h1>Out-of-the-box <span class="accent">local AI</span> inference engine.</h1>
+          <p class="hero-sub">
+            <strong>Lemonade + GAIA built in.</strong> Runs on your iGPU + NPU. No cloud, no Python at runtime, no discrete GPU required.
+          </p>
+          <div class="hero-cta">
+            <span class="install-popover" id="installPopover">
+              <button type="button" class="cta-primary" id="installPopoverBtn" aria-haspopup="true" aria-expanded="false">Install in one line</button>
+              <div class="install-popover-panel" role="dialog" aria-label="One-line install">
+                <span class="label">Install — Strix Halo, CachyOS / Arch</span>
+                <div class="install-line">
+                  <code id="installCmdHero">curl -sSL https://1bit.systems/install.sh | bash</code>
+                  <button type="button" class="copy-btn" data-copy-target="installCmdHero">Copy</button>
+                </div>
+                <span class="foot">Idempotent. Refuses to run on anything that isn't an AMD Ryzen AI MAX+ 395. <a href="install.sh">Or read the script first →</a></span>
+              </div>
+            </span>
+            <a class="cta-secondary" href="#features">What's in the box</a>
+          </div>
+          <div class="status-pill">
+            <span class="dot"></span>
+            <span><span style="color:var(--text-muted)">lemond</span> v10.2.0</span>
+            <span class="sep">·</span>
+            <span>gfx1151</span>
+            <span class="sep">·</span>
+            <span>XDNA2 npu</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="divider-ornament">· · ·</div>
+    <h2 id="deep-dive" style="margin-top: 24px; border-top: none; padding-top: 0;">Deep dive: how it works</h2>
+    <p style="color: var(--text-muted); margin-bottom: 32px;">Everything below is the long-form documentation — architecture, kernels, models, infrastructure. Same docs you've always seen on this page; the top-fold above is the new on-ramp.</p>
 
     <section id="introduction">
       <div class="eyebrow">1bit.systems · v0.2 — Lemonade-compatible</div>
@@ -1609,6 +2064,59 @@
   updateActive();
 
   document.getElementById('menuToggle').addEventListener('click', () => sidebar.classList.toggle('open'));
+
+  /* --- Install popover toggle --- */
+  const installPopover = document.getElementById('installPopover');
+  const installPopoverBtn = document.getElementById('installPopoverBtn');
+  if (installPopover && installPopoverBtn) {
+    installPopoverBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const open = installPopover.classList.toggle('open');
+      installPopoverBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    document.addEventListener('click', (e) => {
+      if (!installPopover.contains(e.target)) {
+        installPopover.classList.remove('open');
+        installPopoverBtn.setAttribute('aria-expanded', 'false');
+      }
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        installPopover.classList.remove('open');
+        installPopoverBtn.setAttribute('aria-expanded', 'false');
+      }
+    });
+  }
+
+  /* --- Copy buttons (hero popover + standalone install block) --- */
+  document.querySelectorAll('.copy-btn[data-copy-target]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const targetId = btn.getAttribute('data-copy-target');
+      const el = document.getElementById(targetId);
+      if (!el) return;
+      const text = el.textContent.trim();
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch (_) {
+        /* fallback for non-secure contexts */
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch (_) {}
+        document.body.removeChild(ta);
+      }
+      const original = btn.textContent;
+      btn.textContent = 'Copied';
+      btn.classList.add('copied');
+      setTimeout(() => {
+        btn.textContent = original;
+        btn.classList.remove('copied');
+      }, 1400);
+    });
+  });
 </script>
 
 </body>
