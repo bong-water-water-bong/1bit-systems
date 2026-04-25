@@ -83,9 +83,6 @@ case "$name" in
     1bit-watch-github)
         exec_bundled 1bit-watch-github "$@"
         ;;
-    1bit-watch-patreon)
-        exec_bundled 1bit-watch-patreon "$@"
-        ;;
 
     # MCP bridges.
     1bit-mcp)
@@ -93,9 +90,6 @@ case "$name" in
         ;;
     1bit-mcp-discord)
         exec_bundled 1bit-mcp-discord "$@"
-        ;;
-    1bit-mcp-patreon)
-        exec_bundled 1bit-mcp-patreon "$@"
         ;;
     1bit-mcp-linuxgsm)
         exec_bundled 1bit-mcp-linuxgsm "$@"
@@ -151,7 +145,6 @@ Symlink this AppImage to any of the following names to launch that binary:
     1bit-helm               # egui/eframe desktop client
     1bit-halo-helm-tray     # Plasma SNI tray icon
     1bit-watch-discord      # Discord agent watcher
-    1bit-mcp-patreon        # Patreon MCP bridge
     1bit-voice              # voice loop orchestrator
     …and more (run with --list to see all bundled binaries)
 
