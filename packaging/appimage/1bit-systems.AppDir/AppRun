@@ -66,30 +66,18 @@ case "$name" in
         ;;
 
     # HTTP + routing services.
-    onebit-server|1bit-server)
-        exec_bundled onebit-server "$@"
-        ;;
+    # NOTE: onebit-server, 1bit-lemonade, 1bit-watch-discord,
+    # 1bit-watch-github, 1bit-whisper, 1bit-mcp-discord were removed
+    # in the 2026-04-25 cull. Their dispatch entries used to live
+    # here and would exit 127 at runtime — kept the comment as a
+    # tombstone so they don't get re-added.
     1bit-landing)
         exec_bundled 1bit-landing "$@"
-        ;;
-    1bit-lemonade)
-        exec_bundled 1bit-lemonade "$@"
-        ;;
-
-    # Agent bus watchers.
-    1bit-watch-discord)
-        exec_bundled 1bit-watch-discord "$@"
-        ;;
-    1bit-watch-github)
-        exec_bundled 1bit-watch-github "$@"
         ;;
 
     # MCP bridges.
     1bit-mcp)
         exec_bundled 1bit-mcp "$@"
-        ;;
-    1bit-mcp-discord)
-        exec_bundled 1bit-mcp-discord "$@"
         ;;
     1bit-mcp-linuxgsm)
         exec_bundled 1bit-mcp-linuxgsm "$@"
@@ -101,9 +89,6 @@ case "$name" in
         ;;
     1bit-echo)
         exec_bundled 1bit-echo "$@"
-        ;;
-    1bit-whisper)
-        exec_bundled 1bit-whisper "$@"
         ;;
     1bit-kokoro)
         exec_bundled 1bit-kokoro "$@"
