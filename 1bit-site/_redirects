@@ -6,7 +6,7 @@
 # https://*.1bit-systems.pages.dev/*  https://1bit.systems/:splat  301
 
 # Short permalinks
-/discord      https://discord.gg/dSyV646eBs                                302
+/discord      https://discord.gg/EhQgmNePg                                 302
 /gh           https://github.com/bong-water-water-bong/1bit-systems        302
 /github       https://github.com/bong-water-water-bong/1bit-systems        302
 /wiki         https://github.com/bong-water-water-bong/1bit-systems/wiki   302
@@ -16,34 +16,5 @@
 /announcement       /#announcement                 301
 /announcement.html  /#announcement                 301
 
-# Marketing site + single-page docs were collapsed into ONE /index.html
-# on 2026-04-25. /docs/* now redirects to anchors on /.
-# 301! (with bang) forces the redirect even when the legacy static HTML
-# is still on disk — Cloudflare Pages serves static files first.
-# We list BOTH the .html form and the bare clean-URL form because
-# Cloudflare auto-strips .html with a 308 BEFORE consulting _redirects.
-/docs                       /                         301!
-/docs/                      /                         301!
-/docs/index.html            /                         301!
-/docs/install.html          /#install-detailed        301!
-/docs/install               /#install-detailed        301!
-/docs/quickstart.html       /#quickstart              301!
-/docs/quickstart            /#quickstart              301!
-/docs/troubleshooting.html  /#troubleshooting         301!
-/docs/troubleshooting       /#troubleshooting         301!
-/docs/faq.html              /#faq                     301!
-/docs/faq                   /#faq                     301!
-/docs/architecture.html     /#architecture-deep       301!
-/docs/architecture          /#architecture-deep       301!
-/docs/models.html           /#models-deep             301!
-/docs/models                /#models-deep             301!
-/docs/api.html              /#api                     301!
-/docs/api                   /#api                     301!
-/docs/benchmarks.html       /#benchmarks-deep         301!
-/docs/benchmarks            /#benchmarks-deep         301!
-/docs/why.html              /#why                     301!
-/docs/why                   /#why                     301!
-/docs/contributing.html     /#contributing            301!
-/docs/contributing          /#contributing            301!
-/docs/changelog.html        /#changelog               301!
-/docs/changelog             /#changelog               301!
+# Tolerate trailing-slash variance on docs
+/docs         /docs/                               301
