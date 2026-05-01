@@ -7,25 +7,25 @@
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Newsreader:ital,opsz,wght@0,6..72,200..800;1,6..72,200..800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
 :root{
-  /* palette — 3 chromas + neutrals */
-  --bg:        #0E0E10;   /* graphite */
-  --bg-2:      #15151A;   /* one stop above bg, for inset content */
-  --ink:       #EFE4D2;   /* warm bone */
-  --ink-2:     #A89A82;   /* warm muted */
-  --ink-3:     #6B6253;   /* deep muted */
-  --rule:      #2A2419;   /* warm dark line */
-  --rule-soft: #1C1812;   /* hairline */
-  --accent:    #FF4D1C;   /* cadmium orange — the only hot color */
-  --live:      #C8FF38;   /* phosphor lime — used sparingly */
+  /* palette — original site theme: cyan-on-graphite + magenta highlight */
+  --bg:        #0d1117;   /* deep graphite */
+  --bg-2:      #11161d;   /* card/inset surface */
+  --ink:       #c9d1d9;   /* primary text */
+  --ink-2:     #8b949e;   /* muted text */
+  --ink-3:     #6e7681;   /* deepest muted */
+  --rule:      #1f2630;   /* primary line */
+  --rule-soft: #161c25;   /* hairline */
+  --accent:    #00d4ff;   /* cyan — primary accent */
+  --live:      #ff4d8d;   /* magenta — secondary highlight (flagship rows etc.) */
 
   /* legacy aliases so existing class hooks still pick up */
   --fg: var(--ink);
   --muted: var(--ink-2);
   --card: var(--bg-2);
   --border: var(--rule);
-  --accent2: var(--accent);
-  --warn: var(--accent);
-  --warn-fg: var(--accent);
+  --accent2: var(--live);
+  --warn: #d4a520;
+  --warn-fg: #f0b429;
 
   /* typography */
   --font-display: 'Fraunces', 'Times New Roman', Georgia, serif;
@@ -58,8 +58,8 @@ html,body{
 body::before{
   content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
   background-image:
-    radial-gradient(rgba(239,228,210,.025) 1px, transparent 1.2px),
-    radial-gradient(rgba(255,77,28,.012) 1px, transparent 1.5px);
+    radial-gradient(rgba(201,209,217,.025) 1px, transparent 1.2px),
+    radial-gradient(rgba(0,212,255,.012) 1px, transparent 1.5px);
   background-size: 3px 3px, 7px 7px;
   background-position: 0 0, 1px 1px;
   mix-blend-mode: screen;
@@ -244,9 +244,13 @@ section li::marker{color:var(--accent)}
 .hero-lockup{
   display:block;width:min(380px,80%);height:auto;
   margin:0 0 2rem;
-  filter:invert(.95);  /* lift the lockup against bone-on-graphite */
-  mix-blend-mode:screen;
 }
+.hero-mark{
+  display:block;width:96px;height:96px;
+  margin:0 0 1.6rem;
+  image-rendering:auto;
+}
+@media (max-width:640px){.hero-mark{width:72px;height:72px}}
 .eyebrow{
   font-family:var(--font-mono);font-size:.72rem;
   letter-spacing:.18em;text-transform:uppercase;
@@ -363,9 +367,9 @@ table.bench th, table.bench td{
   color:var(--ink-2);background:transparent;
   border-bottom:1px solid var(--ink);border-top:0;
 }
-.data-table tr:hover td, table.bench tr:hover td{background:rgba(255,77,28,.04)}
+.data-table tr:hover td, table.bench tr:hover td{background:rgba(0,212,255,.04)}
 .data-table tr.flagship td, table.bench tr.flagship td{
-  background:rgba(255,77,28,.07);font-weight:500;
+  background:rgba(0,212,255,.07);font-weight:500;
 }
 .data-table tr.flagship td:first-child{color:var(--accent)}
 .data-table .num, table.bench .num{
@@ -551,7 +555,7 @@ section#status li::marker{content:""}
 .callout{
   margin:1.5rem 0;padding:1.1rem 1.3rem;
   border-left:2px solid var(--accent);
-  background:rgba(255,77,28,.05);
+  background:rgba(0,212,255,.05);
   font-size:.95rem;
 }
 .callout strong{color:var(--accent);font-weight:600}
