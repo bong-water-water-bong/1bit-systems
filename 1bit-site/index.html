@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#0d1117">
+<meta name="theme-color" content="#0E0E10">
 <title>1bit.systems &mdash; the 2-bit killer for AMD Strix Halo</title>
 <meta name="description" content="1bit.systems presents the 2-bit killer. 1-bit is the floor (Bonsai-1.7B IQ1_S at ~280 tok/s). Sub-2-bit MoE is the daily driver (Qwen3.5-35B-A3B IQ2_XXS at ~73 tok/s, half the disk). OpenAI-compat on :13305.">
 <meta property="og:title" content="1bit.systems &mdash; the 2-bit killer for AMD Strix Halo">
@@ -15,7 +15,7 @@
 <meta name="twitter:image" content="https://1bit.systems/assets/logo.png">
 <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
 <link rel="apple-touch-icon" href="/assets/logo.png">
-<link rel="stylesheet" href="/assets/style.css?v=20260427">
+<link rel="stylesheet" href="/assets/style.css?v=20260501">
 <link rel="stylesheet" href="/assets/copy-code.css?v=20260427">
 <script src="/assets/copy-code.js?v=20260427" defer></script>
 </head>
@@ -69,12 +69,12 @@
 
 <main class="page-main">
 
-  <section id="pitch" class="hero">
+  <section id="pitch" class="hero" data-mark="00 / PITCH">
     <img class="hero-lockup" src="/assets/brand-lockup.svg" alt="1bit.systems" width="520" height="130">
     <p class="eyebrow">v0.2 &middot; Strix Halo &middot; gfx1151 + XDNA 2</p>
     <h1>
-      <span style="display:block;font-size:1.15em;line-height:1.15;margin:.15em 0">1bit.systems presents <span class="accent">the 2-bit killer</span>.</span>
-      <span style="display:block;font-size:.72em;color:#8b949e;font-weight:400;margin-top:.4em">1-bit is the floor. Sub-2-bit MoE is what you'll keep open all day.</span>
+      <span>1bit.systems &mdash; <span class="accent">the 2-bit killer</span>.</span>
+      <span>1-bit is the floor. Sub-2-bit MoE is what you'll keep open all day.</span>
     </h1>
     <p class="lede">
       Built on upstream Lemonade Server and FastFlowLM. OpenAI-compatible endpoint on <code>:13305</code>. Bonsai-1.7B at IQ1_S decodes <b>~280 tok/s</b> as the floor; Qwen3.5-35B-A3B at IQ2_XXS holds <b>~73 tok/s</b> at half the disk of the Q4_K_XL baseline. Bring your own client.
@@ -85,7 +85,7 @@
     </div>
   </section>
 
-  <section id="what" class="pillars">
+  <section id="what" class="pillars" data-mark="01 / WHAT">
     <h2>What this is</h2>
     <div class="pillar-grid">
       <div class="pillar"><h3>One install script</h3><p>Bash. Installs <code>lemonade-server</code>, <code>fastflowlm</code>, <code>xrt</code>, <code>amdxdna</code>, ROCm. Writes memlock limits. Pulls a default 1-bit model. Idempotent.</p></div>
@@ -95,7 +95,7 @@
     </div>
   </section>
 
-  <section id="lanes" class="pillars">
+  <section id="lanes" class="pillars" data-mark="02 / LANES">
     <h2>Three lanes</h2>
     <p class="note">Each lane is a swap-in inference backend behind the same wire shape.</p>
     <div class="pillar-grid">
@@ -105,7 +105,7 @@
     </div>
   </section>
 
-  <section id="coverage" class="doc-section">
+  <section id="coverage" class="doc-section" data-mark="03 / MODELS">
     <h2>Model coverage</h2>
     <p class="note">The honest pitch: <b>1-bit where it works. Best-quant-available where it doesn't. Same OpenAI endpoint either way.</b></p>
 
@@ -143,7 +143,7 @@
     <p class="note" style="margin-top:1rem">The pitch: <b>1-bit where it wins, best-quant-available where it doesn't.</b> The endpoint loads any GGUF, dispatches by recipe, exposes OpenAI.</p>
   </section>
 
-  <section id="bench" class="numbers">
+  <section id="bench" class="numbers" data-mark="04 / BENCH">
     <h2>Bench results</h2>
     <p class="note">Captured 2026-04-27 on the reference Strix Halo box (Radeon 8060S, gfx1151, 128 GB LPDDR5x). <code>llama-bench -p 512 -n 128 -r 2 -ngl 99</code>. Stock upstream Lemonade binaries &mdash; no in-tree kernel mods.</p>
     <div class="scroll-x">
@@ -162,7 +162,7 @@
     <p class="note" style="margin-top:1rem">Want more rows? <code>1bit bench</code> sweeps the full ternary / sub-2-bit pile (Bonsai 1.7/4/8B, TriLM, Outlier, BitNet b1.58, SmolLM). Reproducible: <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/benchmarks/bench-1bit-pile.sh" rel="noopener"><code>benchmarks/bench-1bit-pile.sh</code></a>.</p>
   </section>
 
-  <section id="hardware" class="pillars">
+  <section id="hardware" class="pillars" data-mark="05 / HARDWARE">
     <h2>Hardware</h2>
     <p class="note">Built and tested on AMD Ryzen AI MAX+ 395 (Strix Halo). Verified second target: Ryzen 7 9800X3D + Radeon RX 9070 XT (RDNA 4 dGPU box, no NPU). Other gfx11/12 RDNA cards should work the same way.</p>
     <div class="hw-grid">
@@ -174,7 +174,7 @@
     <p class="muted">→ <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/benchmarks/RESULTS-9070xt-2026-04-28.md">9070 XT bench file</a> — full Bonsai sweep + 35B daily-driver numbers.</p>
   </section>
 
-  <section id="install" class="install">
+  <section id="install" class="install" data-mark="06 / INSTALL">
     <h2>Install</h2>
     <p class="note">CachyOS / Arch on Strix Halo. One script. Idempotent.</p>
 
@@ -202,7 +202,7 @@ cd 1bit-systems
 
   </section>
 
-  <section id="install-detailed" class="doc-section">
+  <section id="install-detailed" class="doc-section" data-mark="07 / PATHS">
     <h2>Install paths — what AMD says vs what actually works</h2>
     <p class="note">AMD's docs say "Ubuntu 24.04 only." That's accurate for <em>one</em> of two AMD-built stacks on Strix Halo. We tested all three install routes; they don't give you the same thing. Pick the one that matches what you need.</p>
 
@@ -271,7 +271,7 @@ cd 1bit-systems
     <p class="muted">&rarr; <a href="https://github.com/bong-water-water-bong/1bit-systems/blob/main/docs/INSTALL.md">Full <code>INSTALL.md</code> on GitHub</a> with detailed runbooks for Path A and Path B.</p>
   </section>
 
-  <section id="sixty-second" class="doc-section">
+  <section id="sixty-second" class="doc-section" data-mark="08 / 60-SEC">
     <h2>60-second 1-bit</h2>
     <p class="note">Speed-to-running is the claim to fame. Pulled the model, asked it to write a haiku, got an answer, end-to-end through Lemonade's OpenAI endpoint on <code>:13305</code>. Measured 2026-04-28 on the production strixhalo box (Ryzen AI MAX+ 395 / gfx1151, 124&nbsp;GB LPDDR5x).</p>
 
@@ -334,7 +334,7 @@ Inference's rhythm, a song.</code></pre>
     <p class="muted">Want to watch the install run? <code>./install.sh --dry-run</code> prints every action it would take without mutating anything &mdash; recording at <a href="/assets/casts/install-dry-run.cast">/assets/casts/install-dry-run.cast</a> (load with <code>asciinema play &lt;url&gt;</code> locally).</p>
   </section>
 
-  <section id="quickstart" class="doc-section">
+  <section id="quickstart" class="doc-section" data-mark="09 / QUICKSTART">
     <h2>Quickstart</h2>
     <pre><code>1bit up
 # starts lemond on :13305
@@ -351,7 +351,7 @@ Inference's rhythm, a song.</code></pre>
 1bit down                 # stop lemond</code></pre>
   </section>
 
-  <section id="api" class="doc-section">
+  <section id="api" class="doc-section" data-mark="10 / API">
     <h2>OpenAI API</h2>
     <p>Standard OpenAI shape on <code>http://127.0.0.1:13305/v1/*</code>. No auth required for localhost.</p>
     <pre><code>curl -s http://127.0.0.1:13305/v1/chat/completions \
@@ -364,32 +364,32 @@ Inference's rhythm, a song.</code></pre>
     <p class="muted">Endpoints: <code>/v1/chat/completions</code> (streaming + non-streaming), <code>/v1/completions</code>, <code>/v1/embeddings</code>, <code>/v1/models</code>. NPU lane runs on a separate port (see <code>flm port</code>) with the same shape.</p>
   </section>
 
-  <section id="apps" class="pillars">
+  <section id="apps" class="pillars" data-mark="11 / APPS">
     <h2>Compatible apps</h2>
     <p class="note">Anything that speaks OpenAI works. We don't ship UI &mdash; pick yours.</p>
 
-    <div class="apps-strip" style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;justify-content:center;margin:1rem 0">
-      <img src="/assets/apps/open-webui.png" alt="Open WebUI" title="Open WebUI" loading="lazy" width="40" height="40" style="border-radius:6px">
-      <img src="/assets/apps/continue.png" alt="Continue" title="Continue" loading="lazy" width="40" height="40" style="border-radius:6px">
-      <img src="/assets/apps/claude-code.png" alt="Claude Code" title="Claude Code" loading="lazy" width="40" height="40" style="border-radius:6px">
-      <img src="/assets/apps/github-copilot.png" alt="GitHub Copilot" title="GitHub Copilot" loading="lazy" width="40" height="40" style="border-radius:6px">
-      <img src="/assets/apps/openhands.png" alt="OpenHands" title="OpenHands" loading="lazy" width="40" height="40" style="border-radius:6px">
-      <img src="/assets/apps/anythingllm.png" alt="AnythingLLM" title="AnythingLLM" loading="lazy" width="40" height="40" style="border-radius:6px">
-      <img src="/assets/apps/dify.png" alt="Dify" title="Dify" loading="lazy" width="40" height="40" style="border-radius:6px">
-      <img src="/assets/apps/n8n.png" alt="n8n" title="n8n" loading="lazy" width="40" height="40" style="border-radius:6px">
-      <img src="/assets/apps/gaia.png" alt="AMD GAIA" title="AMD GAIA" loading="lazy" width="40" height="40" style="border-radius:6px">
-      <img src="/assets/apps/codegpt.png" alt="CodeGPT" title="CodeGPT" loading="lazy" width="40" height="40" style="border-radius:6px">
-      <img src="/assets/apps/morphik.png" alt="Morphik" title="Morphik" loading="lazy" width="40" height="40" style="border-radius:6px">
-      <img src="/assets/apps/perplexica.png" alt="Perplexica" title="Perplexica" loading="lazy" width="40" height="40" style="border-radius:6px">
-      <img src="/assets/apps/hugging-face.png" alt="Hugging Face" title="Hugging Face" loading="lazy" width="40" height="40" style="border-radius:6px">
-      <img src="/assets/apps/iterate-ai.png" alt="Iterate.ai" title="Iterate.ai" loading="lazy" width="40" height="40" style="border-radius:6px">
-      <img src="/assets/apps/fx-chatbot.png" alt="Firefox Chatbot" title="Firefox Chatbot" loading="lazy" width="40" height="40" style="border-radius:6px">
-      <img src="/assets/apps/lemon-zest.png" alt="Lemon Zest" title="Lemon Zest" loading="lazy" width="40" height="40" style="border-radius:6px">
-      <img src="/assets/apps/infinity-arcade.png" alt="Infinity Arcade" title="Infinity Arcade" loading="lazy" width="40" height="40" style="border-radius:6px">
-      <img src="/assets/apps/deep-tutor.png" alt="Deep Tutor" title="Deep Tutor" loading="lazy" width="40" height="40" style="border-radius:6px">
-      <img src="/assets/apps/ai-toolkit.png" alt="MS AI Toolkit" title="MS AI Toolkit" loading="lazy" width="40" height="40" style="border-radius:6px">
+    <div class="apps-strip">
+      <img src="/assets/apps/open-webui.png" alt="Open WebUI" title="Open WebUI" loading="lazy">
+      <img src="/assets/apps/continue.png" alt="Continue" title="Continue" loading="lazy">
+      <img src="/assets/apps/claude-code.png" alt="Claude Code" title="Claude Code" loading="lazy">
+      <img src="/assets/apps/github-copilot.png" alt="GitHub Copilot" title="GitHub Copilot" loading="lazy">
+      <img src="/assets/apps/openhands.png" alt="OpenHands" title="OpenHands" loading="lazy">
+      <img src="/assets/apps/anythingllm.png" alt="AnythingLLM" title="AnythingLLM" loading="lazy">
+      <img src="/assets/apps/dify.png" alt="Dify" title="Dify" loading="lazy">
+      <img src="/assets/apps/n8n.png" alt="n8n" title="n8n" loading="lazy">
+      <img src="/assets/apps/gaia.png" alt="AMD GAIA" title="AMD GAIA" loading="lazy">
+      <img src="/assets/apps/codegpt.png" alt="CodeGPT" title="CodeGPT" loading="lazy">
+      <img src="/assets/apps/morphik.png" alt="Morphik" title="Morphik" loading="lazy">
+      <img src="/assets/apps/perplexica.png" alt="Perplexica" title="Perplexica" loading="lazy">
+      <img src="/assets/apps/hugging-face.png" alt="Hugging Face" title="Hugging Face" loading="lazy">
+      <img src="/assets/apps/iterate-ai.png" alt="Iterate.ai" title="Iterate.ai" loading="lazy">
+      <img src="/assets/apps/fx-chatbot.png" alt="Firefox Chatbot" title="Firefox Chatbot" loading="lazy">
+      <img src="/assets/apps/lemon-zest.png" alt="Lemon Zest" title="Lemon Zest" loading="lazy">
+      <img src="/assets/apps/infinity-arcade.png" alt="Infinity Arcade" title="Infinity Arcade" loading="lazy">
+      <img src="/assets/apps/deep-tutor.png" alt="Deep Tutor" title="Deep Tutor" loading="lazy">
+      <img src="/assets/apps/ai-toolkit.png" alt="MS AI Toolkit" title="MS AI Toolkit" loading="lazy">
     </div>
-    <p class="muted" style="text-align:center;margin-bottom:1.25rem">Logo provenance: <a href="/assets/apps/NOTICE">/assets/apps/NOTICE</a></p>
+    <p class="muted">Logo provenance: <a href="/assets/apps/NOTICE">/assets/apps/NOTICE</a></p>
 
     <div class="pillar-grid">
       <div class="pillar"><h3>AMD GAIA</h3><p><a href="https://amd-gaia.ai" rel="noopener">amd-gaia.ai</a> &middot; Electron desktop, MIT, <code>.deb</code> on Linux. Point its Lemonade endpoint at <code>http://127.0.0.1:13305/v1/</code>. <code>1bit up</code> launches GAIA automatically if it's on <code>$PATH</code>.</p></div>
@@ -399,7 +399,7 @@ Inference's rhythm, a song.</code></pre>
     </div>
   </section>
 
-  <section id="status" class="doc-section">
+  <section id="status" class="doc-section" data-mark="12 / STATUS">
     <h2>Status</h2>
     <ul>
       <li>✓ <b>Install works.</b> One script, idempotent.</li>
@@ -410,7 +410,7 @@ Inference's rhythm, a song.</code></pre>
     </ul>
   </section>
 
-  <section id="contributing" class="doc-section">
+  <section id="contributing" class="doc-section" data-mark="13 / CONTRIB">
     <h2>Contributing</h2>
     <p>Bug reports and PRs welcome on <a href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">GitHub</a>. The repo is small &mdash; <code>install.sh</code>, the <code>1bit</code> CLI, the bench scripts, and this site. Kernel work happens upstream in <a href="https://github.com/ggml-org/llama.cpp" rel="noopener">llama.cpp</a> and <a href="https://github.com/lemonade-sdk/lemonade" rel="noopener">Lemonade</a>; we don't reimplement.</p>
     <p>See <code>CONTRIBUTING.md</code> for the short form.</p>
