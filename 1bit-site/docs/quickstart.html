@@ -58,14 +58,14 @@ source ~/.profile
 BEARER="$(cat ~/.config/1bit systems/bearer)"
 
 curl -s -H "authorization: bearer $BEARER" \
-  http://localhost:8180/v1/chat/completions \
+  http://localhost:13305/v1/chat/completions \
   -H "content-type: application/json" \
   -d '{"model":"halo-1bit-2b","messages":[{"role":"user","content":"one sentence, please"}],"stream":false}'</code></pre>
 
 <h2 id="streaming">Streaming with SSE</h2>
 
 <pre><code>curl -N -H "authorization: bearer $BEARER" \
-  http://localhost:8180/v1/chat/completions \
+  http://localhost:13305/v1/chat/completions \
   -H "content-type: application/json" \
   -d '{"model":"halo-1bit-2b","messages":[{"role":"user","content":"count to ten, slowly"}],"stream":true}'</code></pre>
 

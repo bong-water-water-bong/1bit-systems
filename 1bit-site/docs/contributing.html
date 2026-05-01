@@ -16,10 +16,15 @@
 <header class="topbar">
   <a class="brand" href="/"><svg width="24" height="24" viewBox="0 0 28 28"><circle cx="14" cy="14" r="12.5" fill="none" stroke="#00d4ff" stroke-width="1"/><text x="14" y="18" font-family="ui-monospace,monospace" font-size="12" font-weight="700" text-anchor="middle" fill="#00d4ff">1b</text></svg><span><b>1</b>bit<span class="dot">.</span>systems</span></a>
   <nav>
-    <a href="/">home</a>
+    <a href="/#features">features</a>
+    <a href="/#models">models</a>
+    <a href="/#bench">bench</a>
+    <a href="/#install">install</a>
     <a href="/docs/" class="active">docs</a>
+    <a href="/blog/">blog</a>
     <a href="https://github.com/bong-water-water-bong/1bit-systems/wiki" rel="noopener">wiki</a>
-    <a href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">GitHub</a>
+    <a href="https://discord.gg/dSyV646eBs" rel="noopener">discord</a>
+    <a class="gh-btn" href="https://github.com/bong-water-water-bong/1bit-systems" rel="noopener">GitHub</a>
   </nav>
 </header>
 
@@ -48,24 +53,22 @@
 <h1>Contributing</h1>
 <p class="muted">Short rules, minimal process, real tests. Pre-reqs: a Strix Halo box. You can write PRs without one, but they won't merge until we've run the real-backend tests.</p>
 
-<h2 id="rules">The five rules</h2>
+<h2 id="rules">The rules</h2>
 <ul>
-  <li><b>Rule A</b> &mdash; no Python at runtime. Python is fine for dev-box scripts (requantizers, analysis notebooks); never in a systemd unit or an HTTP path.</li>
-  <li><b>Rule B</b> &mdash; C++20 for kernels. HIP kernels stay in <code>rocm-cpp/</code>. FFI through <code>1bit-hip</code>. No Rust ports.</li>
-  <li><b>Rule C</b> &mdash; no hipBLAS in the runtime path. Native Tensile kernels only.</li>
-  <li><b>Rule D</b> &mdash; Rust 1.88, edition 2024. Pinned in the workspace <code>Cargo.toml</code>.</li>
-  <li><b>Rule E</b> &mdash; NPU stack is ORT C++ with the VitisAI Execution Provider (AMD official). Peano + libxrt + aie-rt for custom AIE kernels.</li>
+  <li><b>Lean over scaffolding</b> &mdash; this repo is the install + control plane on top of upstream Lemonade Server and FastFlowLM. Do not reimplement inference. Do not port kernels in-tree. Upstream PRs are the right place for kernel work.</li>
+  <li><b>No Python at runtime</b> &mdash; bash for the installer + <code>1bit</code> CLI is fine; upstream FLM and lemonade-server bring their own runtimes.</li>
+  <li><b>OpenAI compatibility</b> &mdash; anything that breaks the <code>:13305/v1/*</code> shape is a bug. The whole point is "works with any client that speaks OpenAI."</li>
+  <li><b>Don't expand scope</b> &mdash; match the literal ask. Default to the minimum that delivers 1-bit inference.</li>
 </ul>
 
 <h2 id="flow">The flow</h2>
 <ol>
   <li>Fork <a href="https://github.com/bong-water-water-bong/1bit-systems">bong-water-water-bong/1bit-systems</a>.</li>
   <li>Branch. Small. One logical change per commit.</li>
-  <li>Tests. Every new crate gets &ge;3 in-crate tests before merge.</li>
-  <li>Run <code>cargo test --workspace --release</code>. Must stay green on main.</li>
-  <li>If you touched a kernel: include rocprof output or a bench diff.</li>
+  <li>Run <code>./install.sh --dry-run</code> to verify your changes don't break the installer path.</li>
+  <li><code>shellcheck install.sh scripts/*</code> &mdash; CI runs this and will fail on warnings.</li>
+  <li>If you touched the site: <code>tidy -q -e</code> on each HTML page, <code>jq -e .</code> on each JSON.</li>
   <li>Open the PR against <code>main</code>. Use Conventional Commits in the title.</li>
-  <li>A maintainer runs the real-backend suite on strixhalo. Parity-gated by <code>benchmarks/ppl-gen2.sh</code> (PPL &plusmn;0.05) + <code>benchmarks/shadow-burnin.sh</code> (byte-exact &ge;98%).</li>
 </ol>
 
 <h2 id="commit">Commit style</h2>
@@ -75,26 +78,27 @@
 
 <table>
 <tr><th>Gate</th><th>When</th><th>Threshold</th></tr>
-<tr><td><code>cargo test --workspace --release</code></td><td>every PR</td><td>0 fails, 0 new warnings</td></tr>
-<tr><td><code>benchmarks/ppl-gen2.sh</code></td><td>PRs that touch router / kernel / tokenizer</td><td>PPL within &plusmn;0.05 of 9.1607</td></tr>
-<tr><td><code>benchmarks/shadow-burnin.sh</code></td><td>PRs that change HTTP contract</td><td>byte-exact &ge; 98% over ~2k prompts</td></tr>
-<tr><td>rocprof</td><td>PRs that touch <code>ternary_gemv_halo.hip</code></td><td>measured improvement, no regression</td></tr>
+<tr><td>shellcheck</td><td>every PR</td><td>0 warnings on <code>install.sh</code> + <code>scripts/*</code></td></tr>
+<tr><td><code>bash install.sh --dry-run</code></td><td>PRs that touch the installer</td><td>exits 0; argparse handles <code>--help</code> and rejects unknown args</td></tr>
+<tr><td><code>tidy -q -e</code></td><td>PRs that touch <code>1bit-site/**/*.html</code></td><td>0 errors (warnings allowed)</td></tr>
+<tr><td><code>jq -e . *.json</code></td><td>PRs that touch JSON</td><td>parses cleanly</td></tr>
+<tr><td>lychee</td><td>PRs that touch markdown docs</td><td>no broken links</td></tr>
 </table>
 
 <h2 id="ground-rules">Don't</h2>
 <ul>
-  <li>Commit tokens, session cookies, or bearer secrets. Caddyfile's real bearer lives in <code>/etc/caddy/Caddyfile</code>, root-only.</li>
+  <li>Commit tokens, CF deploy keys, or bearer secrets. CF + gh tokens live in libsecret.</li>
+  <li>Add a Rust workspace, a C++ tower, or HIP kernels back. That was the abandoned scaffolding archived as <code>archive/cpp-tower-2026-04-27</code>. If you need it, branch from there.</li>
+  <li>Reimplement inference in this repo. Send kernel work upstream to Lemonade or FastFlowLM.</li>
   <li>Add Python deps. Talk to us first if you think you need Python.</li>
-  <li>Touch <code>ternary_gemv_halo.hip</code> without rocprof evidence of improvement.</li>
-  <li>Skip the KV-cache reset at the start of each generation.</li>
-  <li>Add new warnings. The <code>-D warnings</code> gate is coming.</li>
+  <li>Expand scope. Match the literal ask.</li>
 </ul>
 
 <h2 id="where">Where to start if you want to help</h2>
 <ul>
   <li>Open a test case for a bug you hit &mdash; that's the most valuable PR we get.</li>
   <li>Tackle a <code>good-first-issue</code> on the GitHub tracker.</li>
-  <li>Ports to non-Arch distros; small install-script tweaks live in <code>strixhalo/</code>.</li>
+  <li>Ports to non-Arch distros; the installer is the obvious place to start.</li>
   <li>Docs fixes &mdash; if a page is wrong, PR it.</li>
 </ul>
 

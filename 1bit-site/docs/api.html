@@ -46,7 +46,7 @@
 <article class="docs-body">
 
 <h1>HTTP API</h1>
-<p class="muted">OpenAI-compat on <code>:8180</code> via <code>1bit-server</code>. Bearer-gated through Caddy on <code>:443</code> when you front it. Same shape as any OpenAI client expects.</p>
+<p class="muted">OpenAI-compat on <code>:13305</code> via <code>1bit-server</code>. Bearer-gated through Caddy on <code>:443</code> when you front it. Same shape as any OpenAI client expects.</p>
 
 <h2 id="auth">Auth</h2>
 
@@ -90,7 +90,7 @@ data: [DONE]</code></pre>
 
 <p>Returns the current model catalog. Same shape as OpenAI's list endpoint.</p>
 
-<pre><code>curl -s -H "authorization: bearer $BEARER" http://localhost:8180/v1/models | jq</code></pre>
+<pre><code>curl -s -H "authorization: bearer $BEARER" http://localhost:13305/v1/models | jq</code></pre>
 
 <h2 id="ppl">GET /ppl</h2>
 

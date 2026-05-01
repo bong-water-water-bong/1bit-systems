@@ -12,19 +12,12 @@ under 60 KB per page including styles.
   install.sh              — the curl-pipe-bash payload (do not rewrite content — link only)
   docs/                   — docs landing + install/quickstart/architecture/models/api
                             desktop/troubleshooting/faq/contributing/changelog
-                          — plus rendered wiki pages via docs/build.sh (rustc-only md→html)
   blog/                   — stack-only engineering posts
   assets/                 — logo.svg, style.css, docs.css
   _headers                — CSP + cache rules (CF Pages convention)
   _redirects              — short permalinks + trailing-slash fixes
   robots.txt              — crawler policy (parked surfaces disallowed)
   wrangler.toml           — CF Pages project config
-```
-
-## Rebuild the wiki pages
-
-```bash
-bash 1bit-site/docs/build.sh        # rustc -O builds the renderer, then renders docs/wiki/*.md
 ```
 
 ## Deploy to Cloudflare Pages
