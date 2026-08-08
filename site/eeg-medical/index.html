@@ -75,6 +75,10 @@ footer{border-top:1px solid var(--border);margin-top:20px;padding:40px 32px;}
 .foot-fine{margin-top:28px;padding-top:22px;border-top:1px solid var(--border);font-family:var(--mono);font-size:12.5px;line-height:1.9;color:var(--dim);}
 .foot-fine .p{color:var(--pink);font-style:italic;}
 .foot-fine a{color:var(--blue);font-style:normal;}
+.demo-card{margin-top:28px;max-width:680px;overflow:hidden;}
+.demo-card img{width:100%;display:block;}
+.demo-card .cap{padding:14px 20px;font-size:13px;color:var(--muted);border-top:1px solid var(--border);}
+.demo-card .cap a{color:var(--blue);font-weight:600;}
 @media (max-width:860px){.nav-links{display:none;}}
 </style>
 </head>
@@ -109,6 +113,10 @@ footer{border-top:1px solid var(--border);margin-top:20px;padding:40px 32px;}
 <span class="eyebrow">Why</span>
 <h2 style="margin:16px 0 8px;">Most clinical EEG AI is locked behind a paywall.</h2>
 <p class="lead">Clinical EEG is underserved by AI. Most existing models are proprietary, gated behind vendor licenses, or trained only on healthy subjects rather than real clinical seizure and non-seizure recordings. ZUNA1.1 is a 380M-parameter diffusion autoencoder that can reconstruct, denoise, and upsample EEG from any montage — but it was trained on public research datasets, not clinical-grade data. This project fine-tunes it on real hospital recordings and publishes the result freely, so researchers and clinics don't have to buy access to a black box.</p>
+<div class="card demo-card">
+<img src="https://cdn-uploads.huggingface.co/production/uploads/656560f5995cc49553e2ee41/ZUgCK--yfQxrKuhM1Dwsw.gif" alt="ZUNA1.1 thought-to-text demo: EEG scalp topography map linked to channel waveform traces" loading="lazy">
+<div class="cap">ZUNA1.1 "thought-to-text" demo — the base model this project fine-tunes, by <a href="https://huggingface.co/Zyphra/ZUNA1.1" target="_blank" rel="noopener">Zyphra</a>.</div>
+</div>
 </section>
 
 <section id="capabilities" class="block">
@@ -176,21 +184,21 @@ Built on <a href="https://huggingface.co/Zyphra/ZUNA1.1" target="_blank" rel="no
 
 <script>
 fetch('./stats.json?_=' + Date.now())
-  .then(function(r){ return r.ok ? r.json() : null; })
-  .then(function(d){
-    if(!d) return;
-    function set(id, v){ var el = document.getElementById(id); if(el && v !== undefined && v !== null) el.textContent = v; }
-    if(typeof d.recordings_synced === 'number') set('stat-synced', d.recordings_synced.toLocaleString());
-    if(typeof d.gb_synced === 'number') set('stat-gb', d.gb_synced.toLocaleString() + ' GB');
-    if(typeof d.recordings_synced === 'number' && typeof d.total_available === 'number' && d.total_available > 0){
-      set('stat-pct', Math.round((d.recordings_synced / d.total_available) * 100) + '%');
-    }
-    if(d.last_sync_utc){
-      var dt = new Date(d.last_sync_utc);
-      if(!isNaN(dt.getTime())) set('stat-lastsync', dt.toLocaleDateString(undefined, {year:'numeric', month:'short', day:'numeric'}));
-    }
-  })
-  .catch(function(){});
+.then(function(r){ return r.ok ? r.json() : null; })
+.then(function(d){
+if(!d) return;
+function set(id, v){ var el = document.getElementById(id); if(el && v !== undefined && v !== null) el.textContent = v; }
+if(typeof d.recordings_synced === 'number') set('stat-synced', d.recordings_synced.toLocaleString());
+if(typeof d.gb_synced === 'number') set('stat-gb', d.gb_synced.toLocaleString() + ' GB');
+if(typeof d.recordings_synced === 'number' && typeof d.total_available === 'number' && d.total_available > 0){
+set('stat-pct', Math.round((d.recordings_synced / d.total_available) * 100) + '%');
+}
+if(d.last_sync_utc){
+var dt = new Date(d.last_sync_utc);
+if(!isNaN(dt.getTime())) set('stat-lastsync', dt.toLocaleDateString(undefined, {year:'numeric', month:'short', day:'numeric'}));
+}
+})
+.catch(function(){});
 </script>
 
 </body>
